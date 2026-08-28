@@ -1,0 +1,7 @@
+graph_id,graph_name,status,reason,output_file
+MP-G01,monitoring_component_breakdown.svg,GENERATED,,graphs/monitoring-profile/monitoring_component_breakdown.svg
+MP-G02,proc_operation_breakdown.svg,GENERATED,,graphs/monitoring-profile/proc_operation_breakdown.svg
+MP-G03,csv_logging_overhead.svg,GENERATED,,graphs/monitoring-profile/csv_logging_overhead.svg
+MP-G04,queue_wait_vs_monitor_execution.svg,GENERATED,,graphs/monitoring-profile/queue_wait_vs_monitor_execution.svg
+MP-G05,per_application_monitoring_time.svg,GENERATED,,graphs/monitoring-profile/per_application_monitoring_time.svg
+MP-G06,monitoring_time_across_workloads.svg,GENERATED,,graphs/monitoring-profile/monitoring_time_across_workloads.svg

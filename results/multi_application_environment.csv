@@ -1,0 +1,7 @@
+key,value,status
+cpus,8,MEASURED
+numa_nodes,node0,MEASURED
+libnuma,available,MEASURED
+benchmark,frozen existing binary; source rebuild requires unavailable numa.h,NOT TESTED - ENVIRONMENT LIMITATION
+iterations_per_thread,17841231,MEASURED
+discovery_interval_ms,250,MEASURED

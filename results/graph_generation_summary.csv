@@ -1,0 +1,63 @@
+graph_id,graph_name,source_file,data_type,records_available,records_used,records_skipped,status,reason,output_file,generation_time
+G02-1,Benchmark Throughput by Workload Pattern,results/benchmark_results.csv,REAL,2,2,0,GENERATED,,graphs/phase2/benchmark_throughput_by_pattern.svg,0.002620101
+G02-2,Benchmark Execution Time by Workload Pattern,results/benchmark_results.csv,REAL,2,2,0,GENERATED,,graphs/phase2/benchmark_execution_time.svg,0.001894752
+G02-3,Benchmark Throughput vs Thread Count,results/benchmark_results.csv,REAL,2,2,0,GENERATED,,graphs/phase2/benchmark_throughput_vs_threads.svg,0.001780334
+G02-4,Benchmark Execution Time vs Memory Size,results/benchmark_results.csv,REAL,2,0,2,SKIPPED,only one memory size is available,,0.000000000
+G02-5,Workload Pattern Operation Comparison,results/benchmark_results.csv,REAL,2,2,0,GENERATED,,graphs/phase2/workload_pattern_comparison.svg,0.001575668
+G03-1,CPU Utilization over Time,results/monitoring_results.csv,REAL,4,3,1,GENERATED,,graphs/phase3/cpu_utilization_over_time.svg,0.001772264
+G03-2,RSS over Time,results/monitoring_results.csv,REAL,4,4,0,GENERATED,,graphs/phase3/rss_over_time.svg,0.001697179
+G03-3,Virtual Memory over Time,results/monitoring_results.csv,REAL,4,4,0,GENERATED,,graphs/phase3/virtual_memory_over_time.svg,0.001962979
+G03-6,Thread Count over Time,results/monitoring_results.csv,REAL,4,4,0,GENERATED,,graphs/phase3/thread_count_over_time.svg,0.002463274
+G03-4,Page Faults over Time,results/monitoring_results.csv,REAL,4,4,0,GENERATED,,graphs/phase3/page_faults_over_time.svg,0.006002050
+G03-5,Thread CPU Utilization over Time,results/monitoring_threads.csv,REAL,7,7,0,GENERATED,,graphs/phase3/thread_cpu_utilization_over_time.svg,0.002361936
+G03-7,NUMA Residency over Time,results/monitoring_results.csv,REAL,4,4,0,GENERATED,,graphs/phase3/numa_residency_over_time.svg,0.001870686
+G03-8,Monitoring Sample Interval Comparison,results/monitoring_results.csv,REAL,4,0,4,SKIPPED,sample interval is not an explicit column and no multiple interval dataset is available,,0.000000000
+G04-1,Classification Distribution,results/classification_results.csv,REAL,4,4,0,GENERATED,,graphs/phase4/classification_distribution.svg,0.001596276
+G04-2,Classification over Elapsed Time,results/classification_results.csv,REAL,16,16,0,GENERATED,,graphs/phase4/classification_over_time.svg,0.001726224
+G04-3,Classification by Entity,results/classification_results.csv,REAL,4,4,0,GENERATED,,graphs/phase4/classification_by_entity.svg,0.001910689
+G04-4,Classifier Score over Time,results/classification_results.csv,REAL,4,0,4,NO_DATA,no finite plottable values,,0.000000000
+G04-5,Classification Score vs Threshold,results/classification_results.csv,REAL,4,0,4,SKIPPED,no finite classifier scores are available,,0.000000000
+G04-6,Classification Comparison by Workload Pattern,results/classification_results.csv + results/monitoring_results.csv,REAL,16,16,0,GENERATED,,graphs/phase4/classification_by_workload_pattern.svg,0.001575589
+G05-1,Decision Distribution,results/decision_results.csv,REAL,4,4,0,GENERATED,,graphs/phase5/decision_distribution.svg,0.001529518
+G05-2,Decision Scores,results/decision_results.csv,REAL,4,0,4,SKIPPED,decision scores are unavailable,,0.000000000
+G05-8,Decision Score Difference,results/decision_results.csv,REAL,4,0,4,SKIPPED,decision scores are unavailable,,0.000000000
+G05-5,Memory Bias by Application,results/decision_results.csv,REAL,4,4,0,GENERATED,,graphs/phase5/memory_bias_by_application.svg,0.001511746
+G05-6,Thread Bias by Application,results/decision_results.csv,REAL,4,4,0,GENERATED,,graphs/phase5/thread_bias_by_application.svg,0.001464199
+G05-7,Decision Signal Availability,results/decision_results.csv,REAL,4,4,0,GENERATED,,graphs/phase5/decision_signal_availability.svg,0.001687899
+G05-3,Decision Scores by Application,results/decision_results.csv,REAL,4,0,4,SKIPPED,no finite decision scores by application,,0.000000000
+G05-4,Decision Distribution by Application,results/decision_results.csv,REAL,4,4,0,GENERATED,,graphs/phase5/decision_distribution_by_application.svg,0.001973111
+G06-1,Validation Accepted vs Rejected,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G06-2,Validation Confidence Scores,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G06-3,Validation ROI Scores,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G06-4,Validation Safety Scores,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G06-5,Final Validation Scores,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G06-6,Validation by Migration Action,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G06-7,Validation Rejection Reasons,results/validation_results.csv,REAL,0,0,0,NO_DATA,validation results CSV is unavailable,,0.000000000
+G07-1,Migration Results,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-2,Migration Results by Action,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-3,Migration Execution Time,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-4,Migration Page Counts,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-5,Migration Results by Application,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-6,Thread CPU Affinity Migration,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-7,NUMA Source to Destination Migration,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G07-8,Migration Result Categories,results/migration_results.csv,REAL,0,0,0,NO_DATA,migration results CSV is unavailable,,0.000000000
+G08-6,Feedback Reward over Cycles,results/feedback_results.csv,CONTROLLED_TEST,3,3,0,GENERATED,,graphs/phase8/feedback_reward.svg,0.001578911
+G08-7,Effective Reward over Time,results/feedback_results.csv,CONTROLLED_TEST,3,3,0,GENERATED,,graphs/phase8/effective_reward_over_time.svg,0.001632705
+G08-9,Feedback Confidence over Time,results/feedback_results.csv,CONTROLLED_TEST,3,3,0,GENERATED,,graphs/phase8/feedback_confidence.svg,0.001478895
+G08-10,Historical Relevance over Time,results/feedback_results.csv,CONTROLLED_TEST,3,3,0,GENERATED,,graphs/phase8/historical_relevance.svg,0.001490200
+G08-8,Feedback Class Distribution,results/feedback_results.csv,CONTROLLED_TEST,3,3,0,GENERATED,,graphs/phase8/feedback_class_distribution.svg,0.001623588
+G08-1,Memory Bias over Feedback Cycles,results/feedback_results.csv,CONTROLLED_TEST,1,1,0,GENERATED,,graphs/phase8/memory_bias_over_time.svg,0.001435726
+G08-2,Thread Bias over Feedback Cycles,results/feedback_results.csv,CONTROLLED_TEST,1,1,0,GENERATED,,graphs/phase8/thread_bias_over_time.svg,0.001425399
+G08-3,Individual Factor Weights over Feedback Cycles,results/feedback_results.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/phase8/factor_weights_over_time.svg,0.002361817
+G08-4,All 12 Phase 5 Factor Weights,results/feedback_results.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/phase8/all_12_factor_weights.svg,0.005163543
+G08-5,Factor Weight Changes Old to New,results/feedback_results.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/phase8/weight_changes_old_to_new.svg,0.002257213
+G08-11,Application-Specific Memory Bias Adaptation,tests/graph_inputs/feedback_adaptation.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/phase8/application_adaptation.svg,0.001951339
+G08-C1,Memory Bias over Feedback Cycles,tests/graph_inputs/feedback_adaptation.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/phase8/controlled_memory_bias_over_time.svg,0.002161494
+G08-C2,Thread Bias over Feedback Cycles,tests/graph_inputs/feedback_adaptation.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/phase8/controlled_thread_bias_over_time.svg,0.002463973
+G08-C3,All 12 Factor Weights over Feedback Cycles,tests/graph_inputs/feedback_adaptation.csv,CONTROLLED_TEST,144,144,0,GENERATED,,graphs/phase8/controlled_all_12_factor_weights.svg,0.012963990
+G-C04,AWAVMA Pipeline Record Counts,results/phase2-8 CSV files,REAL,14,14,0,GENERATED,,graphs/combined/pipeline_counts.svg,0.002773309
+G-C05,Real Pipeline — Current Instrumentation,results/phase2-8 CSV files,REAL,14,14,0,GENERATED,,graphs/combined/real_pipeline_status.svg,0.002764241
+G-C01,Workload to Classification to Decision to Migration,results/*.csv,REAL,0,0,0,SKIPPED,CROSS_PHASE_JOIN_UNAVAILABLE: no legitimate cross-phase migration identifier is available,,0.000000000
+G-C02,Application Decision to Migration to Feedback,results/*.csv,REAL,0,0,0,SKIPPED,CROSS_PHASE_JOIN_UNAVAILABLE: feedback records are controlled and migration results are absent,,0.000000000
+G-C03,Feedback Cycle to Bias Adaptation,tests/graph_inputs/feedback_adaptation.csv,CONTROLLED_TEST,12,12,0,GENERATED,,graphs/combined/feedback_weight_bias_adaptation.svg,0.002382432
+G-C06,Application-Specific State Status,state/application_state.csv,REAL,1,1,0,GENERATED,,graphs/combined/application_state_status.svg,0.002225787

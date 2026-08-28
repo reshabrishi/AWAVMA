@@ -1,0 +1,7 @@
+timestamp,elapsed_ms,pid,entity_id,access_value
+2026-01-01T00:00:00Z,0,123,workload,110
+2026-01-01T00:00:00Z,100,123,workload,102
+2026-01-01T00:00:00Z,200,123,workload,98
+2026-01-01T00:00:00Z,300,123,workload,94
+2026-01-01T00:00:00Z,400,123,workload,96
+2026-01-01T00:00:00Z,500,123,workload,106

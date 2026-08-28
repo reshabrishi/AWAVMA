@@ -1,0 +1,9 @@
+graph_id,graph_name,status,reason,output_file
+P46-G01,serial_wait_vs_application_count.svg,GENERATED,,graphs/phase46-pipeline/serial_wait_vs_application_count.svg
+P46-G02,phase456_execution_breakdown.svg,GENERATED,,graphs/phase46-pipeline/phase456_execution_breakdown.svg
+P46-G03,subprocess_child_wall_by_phase.svg,GENERATED,,graphs/phase46-pipeline/subprocess_child_wall_by_phase.svg
+P46-G04,parent_prepare_result_parse.svg,GENERATED,,graphs/phase46-pipeline/parent_prepare_result_parse.svg
+P46-G05,pipeline_total_before_vs_after.svg,GENERATED,,graphs/phase46-pipeline/pipeline_total_before_vs_after.svg
+P46-G06,aggregate_throughput_before_vs_after.svg,GENERATED,,graphs/phase46-pipeline/aggregate_throughput_before_vs_after.svg
+P46-G07,completion_latency_before_vs_after.svg,NO_DATA,paired finite measured values unavailable,graphs/phase46-pipeline/completion_latency_before_vs_after.svg
+P46-G08,runtime_cpu_before_vs_after.svg,GENERATED,,graphs/phase46-pipeline/runtime_cpu_before_vs_after.svg

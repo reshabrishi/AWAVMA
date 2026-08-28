@@ -1,0 +1,5 @@
+metric,before,after,change
+selected_interval_ms,legacy every scheduler pass,250,candidate requires mean detection latency <= 350 ms
+candidate_50,829221.408,69.600,discovery_total_us; detection_latency_ms
+candidate_100,607672.806,100.200,discovery_total_us; detection_latency_ms
+candidate_250,286585.050,249.400,discovery_total_us; detection_latency_ms

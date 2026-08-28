@@ -1,0 +1,19 @@
+test_id,expected,actual,status,reason
+M01,initialized,initialized,PASS,manager initialization
+M02,new process active,active,PASS,registration
+M03,same identity recognized,recognized,PASS,second snapshot
+M04,one registration,one registration,PASS,duplicate input
+M05,last_seen advances,updated,PASS,observation time
+M06,missing becomes terminated,terminated,PASS,absent snapshot
+M07,new start time creates identity,PID reuse handled,PASS,PID reuse
+M08,terminated not active,not active,PASS,active filtering
+M09,stale becomes expired,expired,PASS,idle timeout
+M10,lookup by app_id,found,PASS,application ID lookup
+M11,lookup by PID and start,found,PASS,identity lookup
+M12,two active applications,2,PASS,active count
+M13,active snapshot only,3 active,PASS,snapshot copy
+M14,safe concurrent lookup/snapshot,safe,PASS,mutex protected reads
+M15,safe concurrent registration/update,safe,PASS,mutex protected writes
+M16,clean shutdown,shutdown,PASS,no worker lifecycle
+M17,no phase operation,lifecycle only,PASS,manager API only
+M18,real discovery snapshot consumed,consumed,PASS,discovery integration

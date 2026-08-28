@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#20252b} .axis{stroke:#263238;stroke-width:1} .grid{stroke:#dfe5ea;stroke-width:1} .line{fill:none;stroke-width:2.5} .point{stroke:#fff;stroke-width:1} .bar{stroke:#fff;stroke-width:1}</style>
+<text x="70" y="34" font-size="22" font-weight="bold">Final Phase Latency Breakdown (8 Apps)</text>
+<text x="70" y="55" font-size="12" fill="#59636e">Source: results/final_integrated_multiapp_summary.csv | Data: REAL</text>
+<line class="grid" x1="78.00" y1="578.00" x2="1066.00" y2="578.00"/>
+<text x="68.00" y="582.00" text-anchor="end" font-size="11">-1.55e+04</text>
+<line class="grid" x1="78.00" y1="478.00" x2="1066.00" y2="478.00"/>
+<text x="68.00" y="482.00" text-anchor="end" font-size="11">2.94e+04</text>
+<line class="grid" x1="78.00" y1="378.00" x2="1066.00" y2="378.00"/>
+<text x="68.00" y="382.00" text-anchor="end" font-size="11">7.43e+04</text>
+<line class="grid" x1="78.00" y1="278.00" x2="1066.00" y2="278.00"/>
+<text x="68.00" y="282.00" text-anchor="end" font-size="11">1.19e+05</text>
+<line class="grid" x1="78.00" y1="178.00" x2="1066.00" y2="178.00"/>
+<text x="68.00" y="182.00" text-anchor="end" font-size="11">1.64e+05</text>
+<line class="grid" x1="78.00" y1="78.00" x2="1066.00" y2="78.00"/>
+<text x="68.00" y="82.00" text-anchor="end" font-size="11">2.09e+05</text>
+<line class="axis" x1="78.0" y1="78.0" x2="78.0" y2="578.0"/>
+<line class="axis" x1="78.0" y1="578.0" x2="1066.0" y2="578.0"/>
+<text x="572.00" y="626" text-anchor="middle" font-size="13">Applications</text>
+<text x="18" y="328.00" text-anchor="middle" font-size="13" transform="rotate(-90 18 328.00)">Mean microseconds</text>
+<text x="572.00" y="598.00" text-anchor="middle" font-size="11" transform="rotate(-25 572.00 598.00)">8 apps</text>
+<rect class="bar" x="216.32" y="543.52" width="142.27" height="15.01" fill="#1f4e79"/>
+<rect class="bar" x="358.59" y="543.52" width="142.27" height="431.03" fill="#b23a48"/>
+<rect class="bar" x="500.86" y="543.52" width="142.27" height="36.55" fill="#2a7f62"/>
+<rect class="bar" x="643.14" y="543.52" width="142.27" height="42.50" fill="#8a5a00"/>
+<rect class="bar" x="785.41" y="543.52" width="142.27" height="37.01" fill="#6a3d9a"/>
+<rect x="850" y="67" width="14" height="14" fill="#1f4e79"/>
+<text x="871" y="79" font-size="12">Phase 3</text>
+<rect x="850" y="87" width="14" height="14" fill="#b23a48"/>
+<text x="871" y="99" font-size="12">Serial wait</text>
+<rect x="850" y="107" width="14" height="14" fill="#2a7f62"/>
+<text x="871" y="119" font-size="12">Phase 4</text>
+<rect x="850" y="127" width="14" height="14" fill="#8a5a00"/>
+<text x="871" y="139" font-size="12">Phase 5</text>
+<rect x="850" y="147" width="14" height="14" fill="#6a3d9a"/>
+<text x="871" y="159" font-size="12">Phase 6</text>
+</svg>

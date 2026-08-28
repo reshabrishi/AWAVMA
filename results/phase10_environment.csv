@@ -1,0 +1,9 @@
+key,value,status
+cpu_count,8,MEASURED
+numa_nodes,node0,MEASURED
+numa_availability,single-node-only,NOT TESTED — ENVIRONMENT LIMITATION
+compiler,gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0,MEASURED
+python,3.14.4,MEASURED
+libnuma,available,MEASURED
+missing_headers,numa.h;numaif.h,MEASURED
+graph_backend,dependency-free SVG via graph_utils,MEASURED

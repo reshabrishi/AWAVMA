@@ -1,0 +1,8 @@
+key,value,status
+cpu_count,8,MEASURED
+numa_nodes,node0,MEASURED
+libnuma,available,MEASURED
+numa.h,False,MEASURED
+numaif.h,False,MEASURED
+compiler,gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0,MEASURED
+python,3.14.4,MEASURED

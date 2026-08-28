@@ -1,0 +1,26 @@
+test_id,expected,actual,result,reason
+W01,initialized,initialized,PASS,pool initialization
+W02,invalid argument,rejected,PASS,zero workers
+W03,invalid argument,rejected,PASS,zero queue capacity
+W04,four workers,four workers,PASS,worker IDs
+W05,one job,executed,PASS,single callback
+W06,twelve jobs,twelve executed,PASS,multiple callbacks
+W07,overlap with four workers,overlap,PASS,concurrency
+W08,FIFO order,FIFO,PASS,single worker queue
+W09,queue size two,two,PASS,queue accounting
+W10,queue full status,WORKER_POOL_QUEUE_FULL,PASS,nonblocking enqueue
+W11,workers wait,idle,PASS,condition variable wait
+W12,worker wakes,woke,PASS,job notification
+W13,callback argument,correct,PASS,generic argument
+W14,100 exactly once,100,PASS,exactly-once callbacks
+W15,100 producer submissions,100,PASS,concurrent producers
+W16,20 completed in stats,consistent,PASS,worker statistics
+W17,empty graceful shutdown,shutdown,PASS,empty queue
+W18,pending jobs finish,10 finished,PASS,graceful policy
+W19,reject after shutdown begins,WORKER_POOL_SHUTDOWN_IN_PROGRESS,PASS,shutdown admission
+W20,all workers joined,joined,PASS,shutdown join
+W21,no worker after shutdown,rejected,PASS,post-shutdown API
+W22,three lifecycle cycles,three,PASS,reinitialize after shutdown
+W23,fault callback survives,continued,PASS,callback returned normally
+W24,400 concurrent jobs,400,PASS,stress submission
+W25,no deadlock,completed,PASS,idle wait and shutdown path

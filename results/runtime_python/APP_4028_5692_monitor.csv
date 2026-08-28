@@ -1,0 +1,4 @@
+timestamp,elapsed_ms,pid,system_cpu_utilization_percent,process_cpu_utilization_percent,rss_kb,vms_kb,rss_delta_kb,minor_page_faults,major_page_faults,interval_minor_faults,interval_major_faults,cache_references,cache_misses,thread_count,numa_nodes,process_numa_pages,benchmark_pattern,benchmark_threads,benchmark_memory_mb,benchmark_iterations,benchmark_duration_sec
+2026-08-19T06:35:35,2,4028,-1.000,-1.000,14540,126392,-1,217410,26,-1,-1,-1,-1,3,1,N0=3633,NA,NA,NA,NA,NA
+2026-08-19T06:38:53,4,4028,-1.000,-1.000,14540,126392,-1,217410,26,-1,-1,-1,-1,3,1,N0=3633,NA,NA,NA,NA,NA
+2026-08-19T06:40:03,4,4028,-1.000,-1.000,14540,126392,-1,217410,26,-1,-1,-1,-1,3,1,N0=3633,NA,NA,NA,NA,NA

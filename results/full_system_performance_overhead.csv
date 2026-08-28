@@ -1,0 +1,17 @@
+workload,metric,baseline_mean,integrated_mean,absolute_difference,percent_change,status
+sequential,benchmark_elapsed_ms,110.828,114.465,3.637,3.281,MEASURED
+sequential,benchmark_throughput_ops_sec,18088044.552,17478065.692,-609978.859,-3.372,MEASURED
+random,benchmark_elapsed_ms,208.119,217.000,8.881,4.267,MEASURED
+random,benchmark_throughput_ops_sec,9643192.544,9226968.903,-416223.642,-4.316,MEASURED
+hot,benchmark_elapsed_ms,157.381,181.571,24.190,15.370,MEASURED
+hot,benchmark_throughput_ops_sec,12738538.754,11086060.620,-1652478.134,-12.972,MEASURED
+moderate,benchmark_elapsed_ms,234.314,241.420,7.106,3.033,MEASURED
+moderate,benchmark_throughput_ops_sec,8572303.437,8299029.882,-273273.555,-3.188,MEASURED
+cold,benchmark_elapsed_ms,234.155,249.480,15.325,6.545,MEASURED
+cold,benchmark_throughput_ops_sec,8549308.003,8041422.997,-507885.006,-5.941,MEASURED
+mixed,benchmark_elapsed_ms,207.936,233.452,25.517,12.271,MEASURED
+mixed,benchmark_throughput_ops_sec,9657388.523,8618760.878,-1038627.645,-10.755,MEASURED
+changing,benchmark_elapsed_ms,308.074,324.911,16.837,5.465,MEASURED
+changing,benchmark_throughput_ops_sec,6498222.762,6180433.776,-317788.986,-4.890,MEASURED
+local,benchmark_elapsed_ms,126.147,126.392,0.245,0.194,MEASURED
+local,benchmark_throughput_ops_sec,15889168.249,15881319.290,-7848.959,-0.049,MEASURED

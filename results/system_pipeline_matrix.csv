@@ -1,0 +1,9 @@
+pipeline,application,workload,discovered,managed,monitoring_jobs,monitoring_samples,classification,decision,validation,migration,feedback,graphs,skipped,rejected,unavailable,result,reason
+REAL,REAL_SEQUENTIAL,sequential,1,1,5,5,5,5,5,5,5,36,0,5,5,PASS,unavailable access signal is retained; rejected migration is expected
+REAL,REAL_RANDOM,random,1,1,5,5,5,5,5,5,5,36,0,5,5,PASS,unavailable access signal is retained; rejected migration is expected
+REAL,REAL_HOT,hot,1,1,5,5,5,5,5,5,5,36,0,5,5,PASS,unavailable access signal is retained; rejected migration is expected
+REAL,REAL_MIXED,mixed,1,1,5,5,5,5,5,5,5,36,0,5,5,PASS,unavailable access signal is retained; rejected migration is expected
+REAL,REAL_CHANGING,changing,1,1,4,4,4,4,4,4,4,36,0,5,5,PASS,unavailable access signal is retained; rejected migration is expected
+REAL,REAL_LOCAL,local,1,1,5,5,5,5,5,5,5,36,0,5,5,PASS,unavailable access signal is retained; rejected migration is expected
+CONTROLLED,APP_A/APP_B/APP_C,controlled-chain,3,3,0,0,10,3,3,3,3,33,0,controlled outcomes,0,PASS,controlled signals; not real NUMA data
+RUNTIME,A/B/C/D/E,overlay+saturation,5,5,bounded,eventually >0,N/A,N/A,N/A,N/A,N/A,N/A,queue backpressure,terminated target B,Phase 3 -1 preserved,PASS,CM06-CM17 and CM11/CM12

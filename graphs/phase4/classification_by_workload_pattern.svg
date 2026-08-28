@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#20252b} .axis{stroke:#263238;stroke-width:1} .grid{stroke:#dfe5ea;stroke-width:1} .line{fill:none;stroke-width:2.5} .point{stroke:#fff;stroke-width:1} .bar{stroke:#fff;stroke-width:1}</style>
+<text x="70" y="34" font-size="22" font-weight="bold">Classification Comparison by Workload Pattern</text>
+<text x="70" y="55" font-size="12" fill="#59636e">Source: results/classification_results.csv + results/monitoring_results.csv | Data: REAL</text>
+<line class="grid" x1="78.00" y1="578.00" x2="1066.00" y2="578.00"/>
+<text x="68.00" y="582.00" text-anchor="end" font-size="11">-1.28</text>
+<line class="grid" x1="78.00" y1="478.00" x2="1066.00" y2="478.00"/>
+<text x="68.00" y="482.00" text-anchor="end" font-size="11">2.43</text>
+<line class="grid" x1="78.00" y1="378.00" x2="1066.00" y2="378.00"/>
+<text x="68.00" y="382.00" text-anchor="end" font-size="11">6.14</text>
+<line class="grid" x1="78.00" y1="278.00" x2="1066.00" y2="278.00"/>
+<text x="68.00" y="282.00" text-anchor="end" font-size="11">9.86</text>
+<line class="grid" x1="78.00" y1="178.00" x2="1066.00" y2="178.00"/>
+<text x="68.00" y="182.00" text-anchor="end" font-size="11">13.6</text>
+<line class="grid" x1="78.00" y1="78.00" x2="1066.00" y2="78.00"/>
+<text x="68.00" y="82.00" text-anchor="end" font-size="11">17.3</text>
+<line class="axis" x1="78.0" y1="78.0" x2="78.0" y2="578.0"/>
+<line class="axis" x1="78.0" y1="578.0" x2="1066.0" y2="578.0"/>
+<text x="572.00" y="626" text-anchor="middle" font-size="13">Workload pattern</text>
+<text x="18" y="328.00" text-anchor="middle" font-size="13" transform="rotate(-90 18 328.00)">Records</text>
+<text x="572.00" y="598.00" text-anchor="middle" font-size="11" transform="rotate(-25 572.00 598.00)">hot</text>
+<rect class="bar" x="216.32" y="543.52" width="711.36" height="431.03" fill="#1f4e79"/>
+<rect x="850" y="67" width="14" height="14" fill="#1f4e79"/>
+<text x="871" y="79" font-size="12">UNAVAILABLE</text>
+</svg>

@@ -1,0 +1,4 @@
+status,count,meaning
+INSUFFICIENT,80,actual runtime status
+PHASE7,0,NOT EXECUTED — INSUFFICIENT REAL MIGRATION METADATA
+PHASE8,0,NOT EXECUTED — no valid later before/after observation

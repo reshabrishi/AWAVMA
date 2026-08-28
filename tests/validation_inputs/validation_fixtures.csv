@@ -1,0 +1,6 @@
+timestamp,migration_id,app_id,pid,entity_id,action,decision_status,classification,classifier_confidence,stability,sample_count,cpu_utilization,memory_utilization,concurrency,source_node,destination_node,predicted_gain,estimated_cost,page_locked,memory_pinned,cooldown_active,thread_locked,migration_in_progress,max_migrations_reached
+2026-08-17T00:00:00Z,mig-pass,app-pass,1001,workload,MOVE_MEMORY,DECISION_VALID,HOT,95,95,10,20,30,90,0,1,70,10,false,false,false,false,false,false
+2026-08-17T00:00:01Z,mig-roi,app-roi,1002,workload,MOVE_MEMORY,DECISION_VALID,HOT,95,95,10,20,30,90,0,1,5,80,false,false,false,false,false,false
+2026-08-17T00:00:02Z,mig-veto,app-veto,1003,workload,MOVE_THREAD,DECISION_VALID,HOT,95,95,10,20,30,90,0,1,70,10,true,false,false,false,false,false
+2026-08-17T00:00:03Z,mig-none,app-none,1004,workload,NO_MIGRATION,NO_MIGRATION,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA
+2026-08-17T00:00:04Z,mig-signal,app-signal,1005,workload,MOVE_MEMORY,INSUFFICIENT_DECISION_SIGNAL,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA

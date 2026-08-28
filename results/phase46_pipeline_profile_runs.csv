@@ -1,0 +1,124 @@
+run_id,variant,run_type,run_index,application_count,worker_count,pipeline_total_us,pipeline_service_rate_apps_sec,aggregate_throughput,runtime_cpu_percent,runtime_rss_kb,runtime_vms_kb,status,notes
+phase46-a1-warmup-1,SUBPROCESS_SERIAL_BASELINE,WARMUP,1,1,2,52232.748,57.435,4865631.842,23.762,5476.000,155620.000,MEASURED,
+phase46-a1-warmup-2,SUBPROCESS_SERIAL_BASELINE,WARMUP,2,1,2,50004.637,59.994,4868404.785,22.550,5624.000,155628.000,MEASURED,
+phase46-a1-warmup-3,SUBPROCESS_SERIAL_BASELINE,WARMUP,3,1,2,46146.154,65.011,4672891.145,23.972,5632.000,155628.000,MEASURED,Error: target PID 253846 is unavailable for one sample.
+phase46-a1-measured-4,SUBPROCESS_SERIAL_BASELINE,MEASURED,4,1,2,56334.730,53.253,4815235.948,23.958,5464.000,155620.000,MEASURED,
+phase46-a1-measured-5,SUBPROCESS_SERIAL_BASELINE,MEASURED,5,1,2,61731.299,48.598,4642409.358,21.930,5660.000,155620.000,MEASURED,Error: target PID 253888 is unavailable for one sample.
+phase46-a1-measured-6,SUBPROCESS_SERIAL_BASELINE,MEASURED,6,1,2,45293.363,66.235,4994533.829,21.694,5528.000,155620.000,MEASURED,Error: target PID 253909 is unavailable for one sample.
+phase46-a1-measured-7,SUBPROCESS_SERIAL_BASELINE,MEASURED,7,1,2,48215.690,62.220,4997435.845,24.567,5612.000,155620.000,MEASURED,Error: target PID 253923 is unavailable for one sample.
+phase46-a1-measured-8,SUBPROCESS_SERIAL_BASELINE,MEASURED,8,1,2,55720.566,53.840,4847487.208,23.324,5748.000,155628.000,MEASURED,
+phase46-a2-warmup-1,SUBPROCESS_SERIAL_BASELINE,WARMUP,1,2,2,104668.577,57.324,9528593.191,25.520,5496.000,155600.000,MEASURED,
+phase46-a2-warmup-2,SUBPROCESS_SERIAL_BASELINE,WARMUP,2,2,2,130951.968,45.818,9236861.005,26.044,5624.000,155600.000,MEASURED,"Error: target PID 254122 is unavailable for one sample.
+Error: target PID 254123 is unavailable for one sample."
+phase46-a2-warmup-3,SUBPROCESS_SERIAL_BASELINE,WARMUP,3,2,2,103179.158,58.151,9498550.733,26.413,5624.000,155600.000,MEASURED,
+phase46-a2-measured-4,SUBPROCESS_SERIAL_BASELINE,MEASURED,4,2,2,123929.537,48.415,9491567.358,25.887,5680.000,155600.000,MEASURED,Error: target PID 254173 is unavailable for one sample.
+phase46-a2-measured-5,SUBPROCESS_SERIAL_BASELINE,MEASURED,5,2,2,119300.455,50.293,9590854.811,24.477,5628.000,155600.000,MEASURED,Error: target PID 254199 is unavailable for one sample.
+phase46-a2-measured-6,SUBPROCESS_SERIAL_BASELINE,MEASURED,6,2,2,98549.376,60.883,9983382.835,24.131,5756.000,155628.000,MEASURED,"Error: target PID 254224 is unavailable for one sample.
+Error: target PID 254225 is unavailable for one sample."
+phase46-a2-measured-7,SUBPROCESS_SERIAL_BASELINE,MEASURED,7,2,2,91643.309,65.471,10719526.132,21.446,5736.000,155600.000,MEASURED,Error: target PID 254252 is unavailable for one sample.
+phase46-a2-measured-8,SUBPROCESS_SERIAL_BASELINE,MEASURED,8,2,2,106982.540,56.084,9849866.359,23.010,5676.000,155628.000,MEASURED,Error: target PID 254276 is unavailable for one sample.
+phase46-a4-warmup-1,SUBPROCESS_SERIAL_BASELINE,WARMUP,1,4,2,351897.751,39.784,15885192.472,28.675,5540.000,155616.000,MEASURED,"Error: target PID 254303 is unavailable for one sample.
+Error: target PID 254304 is unavailable for one sample.
+Error: target PID 254305 is unavailable for one sample.
+Error: target PID 254302 is unavailable for one sample."
+phase46-a4-warmup-2,SUBPROCESS_SERIAL_BASELINE,WARMUP,2,4,2,368715.596,40.682,15268336.758,29.271,5828.000,155616.000,MEASURED,"Error: target PID 254359 is unavailable for one sample.
+Error: target PID 254357 is unavailable for one sample."
+phase46-a4-warmup-3,SUBPROCESS_SERIAL_BASELINE,WARMUP,3,4,2,280899.268,42.720,17039059.483,30.752,5836.000,155616.000,MEASURED,"Error: target PID 254415 is unavailable for one sample.
+Error: target PID 254414 is unavailable for one sample."
+phase46-a4-measured-4,SUBPROCESS_SERIAL_BASELINE,MEASURED,4,4,2,295122.751,47.438,16439157.677,32.179,5488.000,155616.000,MEASURED,"Error: target PID 254460 is unavailable for one sample.
+Error: target PID 254462 is unavailable for one sample."
+phase46-a4-measured-5,SUBPROCESS_SERIAL_BASELINE,MEASURED,5,4,2,315700.355,44.346,16004992.973,28.811,5480.000,155616.000,MEASURED,"Error: target PID 254514 is unavailable for one sample.
+Error: target PID 254515 is unavailable for one sample.
+Error: target PID 254517 is unavailable for one sample."
+phase46-a4-measured-6,SUBPROCESS_SERIAL_BASELINE,MEASURED,6,4,2,314435.605,44.524,15651432.803,29.085,5772.000,155616.000,MEASURED,"Error: target PID 254567 is unavailable for one sample.
+Error: target PID 254570 is unavailable for one sample.
+Error: target PID 254569 is unavailable for one sample."
+phase46-a4-measured-7,SUBPROCESS_SERIAL_BASELINE,MEASURED,7,4,2,347347.346,40.305,15959743.166,29.350,5852.000,155616.000,MEASURED,"Error: target PID 254620 is unavailable for one sample.
+Error: target PID 254621 is unavailable for one sample.
+Error: target PID 254623 is unavailable for one sample."
+phase46-a4-measured-8,SUBPROCESS_SERIAL_BASELINE,MEASURED,8,4,2,321440.254,46.665,16180748.239,29.964,5884.000,155616.000,MEASURED,Error: target PID 254674 is unavailable for one sample.
+phase46-a8-warmup-1,SUBPROCESS_SERIAL_BASELINE,WARMUP,1,8,2,1701170.795,21.750,19823968.214,30.600,5968.000,155652.000,MEASURED,"Error: target PID 254731 is unavailable for one sample.
+Error: target PID 254735 is unavailable for one sample.
+Error: target PID 254736 is unavailable for one sample.
+Error: target PID 254730 is unavailable for one sample.
+Error: target PID 254737 is unavailable for one sample.
+Error: target PID 254732 is unavailable for one sample."
+phase46-a8-warmup-2,SUBPROCESS_SERIAL_BASELINE,WARMUP,2,8,2,1625224.262,23.381,20045641.678,29.434,5840.000,155652.000,MEASURED,"Error: target PID 254864 is unavailable for one sample.
+Error: target PID 254865 is unavailable for one sample.
+Error: target PID 254866 is unavailable for one sample."
+phase46-a8-warmup-3,SUBPROCESS_SERIAL_BASELINE,WARMUP,3,8,2,1648803.687,23.654,19601685.743,30.898,5596.000,155652.000,MEASURED,"Error: target PID 254996 is unavailable for one sample.
+Error: target PID 255001 is unavailable for one sample."
+phase46-a8-measured-4,SUBPROCESS_SERIAL_BASELINE,MEASURED,4,8,2,1571545.547,24.180,18857729.581,31.931,5760.000,155652.000,MEASURED,"Error: target PID 255135 is unavailable for one sample.
+Error: target PID 255139 is unavailable for one sample.
+Error: target PID 255137 is unavailable for one sample.
+Error: target PID 255138 is unavailable for one sample.
+Error: target PID 255133 is unavailable for one sample."
+phase46-a8-measured-5,SUBPROCESS_SERIAL_BASELINE,MEASURED,5,8,2,1621082.926,23.441,18772832.454,31.487,5564.000,155652.000,MEASURED,"Error: target PID 255267 is unavailable for one sample.
+Error: target PID 255269 is unavailable for one sample.
+Error: target PID 255265 is unavailable for one sample.
+Error: target PID 255268 is unavailable for one sample."
+phase46-a8-measured-6,SUBPROCESS_SERIAL_BASELINE,MEASURED,6,8,2,1827283.821,21.343,18729829.498,30.401,5640.000,155652.000,MEASURED,"Error: target PID 255401 is unavailable for one sample.
+Error: target PID 255406 is unavailable for one sample.
+Error: target PID 255404 is unavailable for one sample.
+Error: target PID 255405 is unavailable for one sample.
+Error: target PID 255399 is unavailable for one sample."
+phase46-a8-measured-7,SUBPROCESS_SERIAL_BASELINE,MEASURED,7,8,2,1717578.428,23.289,19473704.390,29.651,5884.000,155652.000,MEASURED,"Error: target PID 255538 is unavailable for one sample.
+Error: target PID 255540 is unavailable for one sample.
+Error: target PID 255541 is unavailable for one sample."
+phase46-a8-measured-8,SUBPROCESS_SERIAL_BASELINE,MEASURED,8,8,2,1491941.201,26.140,19646778.627,30.785,5688.000,155652.000,MEASURED,"Error: target PID 255679 is unavailable for one sample.
+Error: target PID 255680 is unavailable for one sample.
+Error: target PID 255682 is unavailable for one sample.
+Error: target PID 255683 is unavailable for one sample.
+Error: target PID 255676 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a1-warmup-1,PHASE4_IN_PROCESS,WARMUP,1,1,2,75064.233,53.288,3837834.177,26.862,6100.000,156812.000,MEASURED,Error: target PID 260715 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a1-warmup-2,PHASE4_IN_PROCESS,WARMUP,2,1,2,38179.416,78.576,4780205.531,26.131,5984.000,156804.000,MEASURED,
+phase46-PHASE4_IN_PROCESS-a1-warmup-3,PHASE4_IN_PROCESS,WARMUP,3,1,2,42419.924,70.721,5018680.951,22.786,6060.000,156804.000,MEASURED,Error: target PID 260742 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a1-measured-4,PHASE4_IN_PROCESS,MEASURED,4,1,2,40422.633,74.216,4659410.150,23.378,6148.000,156804.000,MEASURED,Error: target PID 260754 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a1-measured-5,PHASE4_IN_PROCESS,MEASURED,5,1,2,51432.853,58.328,4603217.797,26.026,6252.000,156804.000,MEASURED,Error: target PID 260765 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a1-measured-6,PHASE4_IN_PROCESS,MEASURED,6,1,2,49180.322,61.000,4647623.168,23.821,6256.000,156804.000,MEASURED,Error: target PID 260776 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a1-measured-7,PHASE4_IN_PROCESS,MEASURED,7,1,2,64550.360,61.967,4308046.011,26.252,5976.000,156804.000,MEASURED,Error: target PID 260787 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a1-measured-8,PHASE4_IN_PROCESS,MEASURED,8,1,2,62946.085,63.546,4297272.557,26.988,5964.000,156804.000,MEASURED,
+phase46-PHASE4_IN_PROCESS-a2-warmup-1,PHASE4_IN_PROCESS,WARMUP,1,2,2,146264.944,54.695,7917049.198,30.023,5844.000,156784.000,MEASURED,
+phase46-PHASE4_IN_PROCESS-a2-warmup-2,PHASE4_IN_PROCESS,WARMUP,2,2,2,134707.294,59.388,8117698.498,28.410,6104.000,156784.000,MEASURED,"Error: target PID 260841 is unavailable for one sample.
+Error: target PID 260842 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a2-warmup-3,PHASE4_IN_PROCESS,WARMUP,3,2,2,137213.209,58.303,7088150.824,30.505,6116.000,156812.000,MEASURED,
+phase46-PHASE4_IN_PROCESS-a2-measured-4,PHASE4_IN_PROCESS,MEASURED,4,2,2,130208.550,61.440,8037932.176,29.685,6136.000,156784.000,MEASURED,
+phase46-PHASE4_IN_PROCESS-a2-measured-5,PHASE4_IN_PROCESS,MEASURED,5,2,2,126730.786,63.126,7279971.809,29.711,6176.000,156784.000,MEASURED,Error: target PID 260913 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a2-measured-6,PHASE4_IN_PROCESS,MEASURED,6,2,2,133125.169,60.094,7488611.324,30.263,6028.000,156812.000,MEASURED,Error: target PID 260936 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a2-measured-7,PHASE4_IN_PROCESS,MEASURED,7,2,2,134244.972,67.042,6878122.662,29.396,6028.000,156784.000,MEASURED,Error: target PID 260959 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a2-measured-8,PHASE4_IN_PROCESS,MEASURED,8,2,2,147541.688,54.222,8126215.384,29.623,6044.000,219492.000,MEASURED,"Error: target PID 260984 is unavailable for one sample.
+Error: target PID 260985 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a4-warmup-1,PHASE4_IN_PROCESS,WARMUP,1,4,2,445739.918,44.869,11863289.541,34.987,6332.000,156796.000,MEASURED,"Error: target PID 261008 is unavailable for one sample.
+Error: target PID 261009 is unavailable for one sample.
+Error: target PID 261007 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a4-warmup-2,PHASE4_IN_PROCESS,WARMUP,2,4,2,411967.140,48.548,12710033.888,32.949,6240.000,156800.000,MEASURED,Error: target PID 261072 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a4-warmup-3,PHASE4_IN_PROCESS,WARMUP,3,4,2,433394.131,46.147,12042040.633,34.452,6148.000,156800.000,MEASURED,"Error: target PID 261120 is unavailable for one sample.
+Error: target PID 261123 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a4-measured-4,PHASE4_IN_PROCESS,MEASURED,4,4,2,505805.086,39.541,12513463.253,32.518,6388.000,156800.000,MEASURED,"Error: target PID 261174 is unavailable for one sample.
+Error: target PID 261175 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a4-measured-5,PHASE4_IN_PROCESS,MEASURED,5,4,2,488576.189,40.935,12377415.857,33.325,6160.000,156800.000,MEASURED,"Error: target PID 261224 is unavailable for one sample.
+Error: target PID 261227 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a4-measured-6,PHASE4_IN_PROCESS,MEASURED,6,4,2,435316.986,45.944,12514958.774,33.663,5976.000,156800.000,MEASURED,"Error: target PID 261285 is unavailable for one sample.
+Error: target PID 261286 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a4-measured-7,PHASE4_IN_PROCESS,MEASURED,7,4,2,441289.897,45.322,12773571.831,34.151,5876.000,156800.000,MEASURED,Error: target PID 261335 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a4-measured-8,PHASE4_IN_PROCESS,MEASURED,8,4,2,371092.719,48.505,12562601.692,33.204,6112.000,156800.000,MEASURED,"Error: target PID 261387 is unavailable for one sample.
+Error: target PID 261389 is unavailable for one sample.
+Error: target PID 261386 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-warmup-1,PHASE4_IN_PROCESS,WARMUP,1,8,2,1697536.976,30.633,15345208.956,31.786,6252.000,156836.000,MEASURED,Error: target PID 261437 is unavailable for one sample.
+phase46-PHASE4_IN_PROCESS-a8-warmup-2,PHASE4_IN_PROCESS,WARMUP,2,8,2,2928189.321,20.832,12330942.905,31.477,6056.000,156836.000,MEASURED,"Error: target PID 261557 is unavailable for one sample.
+Error: target PID 261559 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-warmup-3,PHASE4_IN_PROCESS,WARMUP,3,8,2,2261529.578,24.320,13582309.460,33.778,6252.000,156836.000,MEASURED,"Error: target PID 261716 is unavailable for one sample.
+Error: target PID 261720 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-measured-4,PHASE4_IN_PROCESS,MEASURED,4,8,2,2075212.685,26.503,14210059.909,33.932,6172.000,156836.000,MEASURED,"Error: target PID 261843 is unavailable for one sample.
+Error: target PID 261850 is unavailable for one sample.
+Error: target PID 261844 is unavailable for one sample.
+Error: target PID 261847 is unavailable for one sample.
+Error: target PID 261845 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-measured-5,PHASE4_IN_PROCESS,MEASURED,5,8,2,2065731.321,25.173,14255312.398,32.534,6300.000,156836.000,MEASURED,"Error: target PID 261975 is unavailable for one sample.
+Error: target PID 261981 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-measured-6,PHASE4_IN_PROCESS,MEASURED,6,8,2,1844200.639,27.654,14564025.612,31.627,6196.000,156836.000,MEASURED,"Error: target PID 262108 is unavailable for one sample.
+Error: target PID 262103 is unavailable for one sample.
+Error: target PID 262102 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-measured-7,PHASE4_IN_PROCESS,MEASURED,7,8,2,2093827.126,27.700,13604791.590,32.160,6216.000,156836.000,MEASURED,"Error: target PID 262227 is unavailable for one sample.
+Error: target PID 262231 is unavailable for one sample."
+phase46-PHASE4_IN_PROCESS-a8-measured-8,PHASE4_IN_PROCESS,MEASURED,8,8,2,2023871.289,27.176,14005635.707,32.962,6100.000,156836.000,MEASURED,Error: target PID 262361 is unavailable for one sample.

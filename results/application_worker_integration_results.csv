@@ -1,0 +1,21 @@
+test_id,app_id,pid,worker_id,expected,actual,result,reason
+R01,-,-,-,manager active snapshot,consumed,PASS,manager snapshot
+R02,-,-,-,three jobs submitted,three,PASS,active applications converted
+R03,-,-,-,one job per application,three jobs,PASS,job table
+R04,-,-,-,duplicate prevented,zero duplicate,PASS,in-flight identity
+R05,-,-,-,three jobs execute,three completed,PASS,worker execution
+R06,-,-,-,isolated application identities,isolated,PASS,copied records
+R07,-,-,-,worker ID recorded,recorded,PASS,pool statistics
+R08,-,-,-,completion recorded,completed,PASS,job lifecycle
+R09,-,-,-,terminated pending app skipped,skipped safely,PASS,identity revalidation
+R10,-,-,-,four jobs with two workers,completed without duplicates,PASS,worker saturation
+R12,-,-,-,manager remains active,four active,PASS,worker does not own lifecycle
+R11,-,-,-,queue-full handled,rejections reported,PASS,nonblocking worker queue
+R13,-,-,-,worker pool reusable,generic job executed,PASS,pool remains generic
+R14,-,-,-,runtime shutdown,clean,PASS,waits for submitted jobs
+R15,-,-,-,no phase calls,none,PASS,static source boundary
+R16,-,-,-,no process mutation,none,PASS,static source boundary
+R17,-,-,-,no orphan workers,joined,PASS,pool shutdown
+R18,-,-,-,discovery regression,passed,PASS,make test-application-discovery
+R19,-,-,-,manager regression,passed,PASS,make test-application-manager
+R20,-,-,-,worker pool regression,passed,PASS,make test-worker-pool

@@ -1,0 +1,13 @@
+graph_id,graph_name,status,reason,output_file
+FIP-G01,baseline_vs_final_execution_time.svg,GENERATED,,graphs/final-integrated-performance/baseline_vs_final_execution_time.svg
+FIP-G02,final_execution_overhead.svg,GENERATED,,graphs/final-integrated-performance/final_execution_overhead.svg
+FIP-G03,historical_overhead_comparison.svg,GENERATED,,graphs/final-integrated-performance/historical_overhead_comparison.svg
+FIP-G04,final_phase_latency_breakdown.svg,GENERATED,,graphs/final-integrated-performance/final_phase_latency_breakdown.svg
+FIP-G05,discovery_contribution.svg,GENERATED,,graphs/final-integrated-performance/discovery_contribution.svg
+FIP-G06,serial_wait_vs_application_count.svg,GENERATED,,graphs/final-integrated-performance/serial_wait_vs_application_count.svg
+FIP-G07,queue_wait_vs_application_count.svg,GENERATED,,graphs/final-integrated-performance/queue_wait_vs_application_count.svg
+FIP-G08,aggregate_throughput_vs_application_count.svg,GENERATED,,graphs/final-integrated-performance/aggregate_throughput_vs_application_count.svg
+FIP-G09,runtime_cpu_vs_application_count.svg,GENERATED,,graphs/final-integrated-performance/runtime_cpu_vs_application_count.svg
+FIP-G10,runtime_rss_vs_application_count.svg,GENERATED,,graphs/final-integrated-performance/runtime_rss_vs_application_count.svg
+FIP-G11,fairness_vs_application_count.svg,GENERATED,,graphs/final-integrated-performance/fairness_vs_application_count.svg
+FIP-G12,accepted_vs_rejected_optimization_summary.svg,GENERATED,,graphs/final-integrated-performance/accepted_vs_rejected_optimization_summary.svg

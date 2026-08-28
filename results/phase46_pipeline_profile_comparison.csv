@@ -1,0 +1,5 @@
+application_count,before_serial_wait_us,after_serial_wait_us,before_pipeline_wall_us,after_pipeline_wall_us,before_phase4_us,after_phase4_us,before_aggregate_throughput,after_aggregate_throughput,throughput_change_percent,before_runtime_cpu_percent,after_runtime_cpu_percent,status
+1,221.198,243.413,53459.130,53706.451,5109.198,451.175,4859420.438,4503113.937,-7.332,23.095,25.293,MEASURED
+2,9358.459,8133.029,108081.043,134370.233,5131.439,502.965,9927039.499,7562170.671,-23.822,23.790,29.736,MEASURED
+4,31369.024,35596.209,318809.262,448416.175,6631.977,615.244,16047214.972,12548402.281,-21.803,29.878,33.372,MEASURED
+8,150745.295,126205.613,1645886.385,2020568.612,12621.685,904.435,19096174.910,14127965.043,-26.017,30.851,32.643,MEASURED

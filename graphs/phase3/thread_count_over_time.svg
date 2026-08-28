@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#20252b} .axis{stroke:#263238;stroke-width:1} .grid{stroke:#dfe5ea;stroke-width:1} .line{fill:none;stroke-width:2.5} .point{stroke:#fff;stroke-width:1} .bar{stroke:#fff;stroke-width:1}</style>
+<text x="70" y="34" font-size="22" font-weight="bold">Thread Count over Time</text>
+<text x="70" y="55" font-size="12" fill="#59636e">Source: results/monitoring_results.csv | Data: REAL</text>
+<line class="grid" x1="78.00" y1="578.00" x2="1066.00" y2="578.00"/>
+<text x="68.00" y="582.00" text-anchor="end" font-size="11">0.84</text>
+<line class="grid" x1="78.00" y1="478.00" x2="1066.00" y2="478.00"/>
+<text x="68.00" y="482.00" text-anchor="end" font-size="11">1.3</text>
+<line class="grid" x1="78.00" y1="378.00" x2="1066.00" y2="378.00"/>
+<text x="68.00" y="382.00" text-anchor="end" font-size="11">1.77</text>
+<line class="grid" x1="78.00" y1="278.00" x2="1066.00" y2="278.00"/>
+<text x="68.00" y="282.00" text-anchor="end" font-size="11">2.23</text>
+<line class="grid" x1="78.00" y1="178.00" x2="1066.00" y2="178.00"/>
+<text x="68.00" y="182.00" text-anchor="end" font-size="11">2.7</text>
+<line class="grid" x1="78.00" y1="78.00" x2="1066.00" y2="78.00"/>
+<text x="68.00" y="82.00" text-anchor="end" font-size="11">3.16</text>
+<line class="axis" x1="78.0" y1="78.0" x2="78.0" y2="578.0"/>
+<line class="axis" x1="78.0" y1="578.0" x2="1066.0" y2="578.0"/>
+<text x="572.00" y="626" text-anchor="middle" font-size="13">Elapsed time (ms)</text>
+<text x="18" y="328.00" text-anchor="middle" font-size="13" transform="rotate(-90 18 328.00)">Threads</text>
+<polyline class="line" stroke="#1f4e79" points="146.14,543.52 429.12,112.48 712.10,112.48 997.86,112.48"/>
+<circle class="point" cx="146.14" cy="543.52" r="3.5" fill="#1f4e79"/>
+<circle class="point" cx="429.12" cy="112.48" r="3.5" fill="#1f4e79"/>
+<circle class="point" cx="712.10" cy="112.48" r="3.5" fill="#1f4e79"/>
+<circle class="point" cx="997.86" cy="112.48" r="3.5" fill="#1f4e79"/>
+<line x1="850" y1="76" x2="872" y2="76" stroke="#1f4e79" stroke-width="3"/>
+<text x="878" y="80" font-size="12">thread_count</text>
+</svg>

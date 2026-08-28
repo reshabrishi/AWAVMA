@@ -1,0 +1,9 @@
+graph_id,graph_name,metric,status,reason,output_file
+P10-G01,execution_time_baseline_vs_awavma.svg,execution_time,GENERATED,,graphs/phase10/execution_time_baseline_vs_awavma.svg
+P10-G02,throughput_baseline_vs_awavma.svg,throughput,GENERATED,,graphs/phase10/throughput_baseline_vs_awavma.svg
+P10-G03,cpu_utilization_baseline_vs_awavma.svg,cpu_utilization,GENERATED,,graphs/phase10/cpu_utilization_baseline_vs_awavma.svg
+P10-G04,rss_baseline_vs_awavma.svg,rss,GENERATED,,graphs/phase10/rss_baseline_vs_awavma.svg
+P10-G05,page_faults_baseline_vs_awavma.svg,page_faults,GENERATED,,graphs/phase10/page_faults_baseline_vs_awavma.svg
+P10-G06,awavma_overhead_by_workload.svg,overhead,GENERATED,,graphs/phase10/awavma_overhead_by_workload.svg
+P10-G07,multi_application_completion_time.svg,multi_application,NO_DATA,full multi-application AWAVMA CLI unavailable,
+P10-G08,repeatability_distribution.svg,repeatability,GENERATED,,graphs/phase10/repeatability_distribution.svg

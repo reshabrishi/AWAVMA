@@ -1,0 +1,8 @@
+graph_id,graph_name,status,reason,output_file
+DC-G01,interval_vs_scan_count.svg,GENERATED,,graphs/discovery-cadence/interval_vs_scan_count.svg
+DC-G02,interval_vs_total_discovery_time.svg,GENERATED,,graphs/discovery-cadence/interval_vs_total_discovery_time.svg
+DC-G03,interval_vs_runtime_cpu.svg,GENERATED,,graphs/discovery-cadence/interval_vs_runtime_cpu.svg
+DC-G04,interval_vs_benchmark_overhead.svg,GENERATED,,graphs/discovery-cadence/interval_vs_benchmark_overhead.svg
+DC-G05,interval_vs_detection_latency.svg,GENERATED,,graphs/discovery-cadence/interval_vs_detection_latency.svg
+DC-G06,before_vs_after_cycle_breakdown.svg,GENERATED,,graphs/discovery-cadence/before_vs_after_cycle_breakdown.svg
+DC-G07,before_vs_after_workload_overhead.svg,GENERATED,,graphs/discovery-cadence/before_vs_after_workload_overhead.svg

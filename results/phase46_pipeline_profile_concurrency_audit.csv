@@ -1,0 +1,5 @@
+component,current_invocation,state_model,file_io,thread_safety,serialization_reason,optimization_chosen
+Coordinator,foreground synchronous loop,runtime records,per-app cycle artifacts and runtime_results.csv,SERIALIZED,single loop plus blocking waitpid,profiling only
+Phase 4,in-process classifier API; subprocess mode retained,run-local,distinct input/output CSV,PER_APPLICATION_SAFE,current coordinator loop; shared output unsafe,in-process API default
+Phase 5,decision subprocess,run-local plus per-app persistence,state/history/log/output,PER_APPLICATION_SAFE,same persistence tree unsafe,none before profile gate
+Phase 6,validation subprocess,process-global config/logger,result/history/log,SERIALIZED_REQUIRED in-process,Validation_Init/logger globals,retain subprocess isolation

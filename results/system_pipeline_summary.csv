@@ -1,0 +1,11 @@
+phase,input_count,output_count,skipped_count,rejected_count,unavailable_count,notes
+Phase 2 benchmark,6,6,0,0,0,six short REAL workloads
+Phase 3 monitoring,6,29,0,0,0,one monitoring stream per REAL workload
+Phase 4 classification,29,29,0,0,30,unavailable access signals remain explicit
+Phase 5 decision,29,29,0,30,30,insufficient decisions are expected on REAL data
+Phase 6 validation,29,29,0,30,30,validation rejects unsafe/insufficient decisions
+Phase 7 migration,29,29,0,30,0,no successful REAL migration claimed
+Phase 8 feedback,29,29,0,0,30,no-update/not-learnable results are retained
+Phase 9 graphs,29,36,0,0,0,generated graph records are checked by I09/I22/I25
+Controlled Phase 4-9,3,33,0,0,0,controlled fixture chain; not NUMA measurement
+Runtime lifecycle,5,5,0,1,1,"arrival, termination, backpressure, PID reuse, shutdown"

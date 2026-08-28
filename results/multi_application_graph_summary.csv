@@ -1,0 +1,15 @@
+graph_id,graph_name,status,reason,output_file
+MAP-G01,application_count_vs_aggregate_throughput.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_aggregate_throughput.svg
+MAP-G02,application_count_vs_runtime_cpu.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_runtime_cpu.svg
+MAP-G03,application_count_vs_runtime_rss.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_runtime_rss.svg
+MAP-G04,application_count_vs_queue_wait.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_queue_wait.svg
+MAP-G05,application_count_vs_max_queue_depth.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_max_queue_depth.svg
+MAP-G06,worker_count_vs_queue_wait.svg,GENERATED,,graphs/multi-application-performance/worker_count_vs_queue_wait.svg
+MAP-G07,worker_count_vs_completion_latency.svg,GENERATED,,graphs/multi-application-performance/worker_count_vs_completion_latency.svg
+MAP-G08,application_count_vs_pipeline_serial_wait.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_pipeline_serial_wait.svg
+MAP-G09,worker_count_vs_pipeline_serial_wait.svg,GENERATED,,graphs/multi-application-performance/worker_count_vs_pipeline_serial_wait.svg
+MAP-G10,application_count_vs_benchmark_overhead.svg,GENERATED,,graphs/multi-application-performance/application_count_vs_benchmark_overhead.svg
+MAP-G11,fairness_index_by_configuration.svg,GENERATED,,graphs/multi-application-performance/fairness_index_by_configuration.svg
+MAP-G12,per_application_completed_cycle_counts.svg,GENERATED,,graphs/multi-application-performance/per_application_completed_cycle_counts.svg
+MAP-G13,phase3_vs_phase4_6_cost_by_scale.svg,GENERATED,,graphs/multi-application-performance/phase3_vs_phase4_6_cost_by_scale.svg
+MAP-G14,discovery_contribution_vs_application_count.svg,GENERATED,,graphs/multi-application-performance/discovery_contribution_vs_application_count.svg

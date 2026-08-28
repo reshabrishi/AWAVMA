@@ -1,0 +1,9 @@
+workload,legacy_overhead_percent,cadence_250_overhead_percent,change_percentage_points,status
+sequential,3.281,1.744,-1.537,MEASURED
+random,4.267,8.757,4.490,MEASURED
+hot,15.370,6.565,-8.805,MEASURED
+moderate,3.033,3.810,0.777,MEASURED
+cold,6.545,5.329,-1.216,MEASURED
+mixed,12.271,20.508,8.237,MEASURED
+changing,5.465,2.102,-3.363,MEASURED
+local,0.194,3.686,3.492,MEASURED

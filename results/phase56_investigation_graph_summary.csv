@@ -1,0 +1,8 @@
+graph_id,graph_name,status,reason,output_file
+P56-G01,phase5_operation_breakdown.svg,GENERATED,,graphs/phase56-investigation/phase5_operation_breakdown.svg
+P56-G02,phase6_operation_breakdown.svg,GENERATED,,graphs/phase56-investigation/phase6_operation_breakdown.svg
+P56-G03,phase5_persistence_breakdown.svg,GENERATED,,graphs/phase56-investigation/phase5_persistence_breakdown.svg
+P56-G04,phase6_persistence_breakdown.svg,GENERATED,,graphs/phase56-investigation/phase6_persistence_breakdown.svg
+P56-G05,phase56_child_envelopes.svg,GENERATED,,graphs/phase56-investigation/phase56_child_envelopes.svg
+P56-G06,pipeline_before_vs_after.svg,NO_DATA,no Phase 5/6 candidate introduced,graphs/phase56-investigation/pipeline_before_vs_after.svg
+P56-G07,throughput_before_vs_after.svg,NO_DATA,no Phase 5/6 candidate introduced,graphs/phase56-investigation/throughput_before_vs_after.svg

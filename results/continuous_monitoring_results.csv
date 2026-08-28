@@ -1,0 +1,31 @@
+test_id,app_id,pid,worker_id,expected,actual,result,reason
+CM01,-,-,-,scheduler initializes,initialized,PASS,runtime monitor
+CM02,-,-,-,active application receives job,submitted,PASS,first application
+CM03,-,-,-,sample generated,sample,PASS,Phase 3 output
+CM04,-,-,-,interval respected,bounded,PASS,60ms interval
+CM05,-,-,-,no duplicate monitor jobs,one completion per submission,PASS,per-application in-flight flag
+CM06,-,-,-,new application discovered,B active,PASS,arrival during run
+CM07,-,-,-,A continues after B arrives,A samples continue,PASS,overlay
+CM08,-,-,-,three applications monitored,A/B/C sampled,PASS,concurrent applications
+CM09,-,-,-,termination handled,A/C continue,PASS,B terminated
+CM10,-,-,-,no new jobs for terminated B,stopped,PASS,terminated identity
+CM13,-,-,-,multiple cycles,rescheduled,PASS,scheduler cycles
+CM14,-,-,-,application isolation,isolated IDs,PASS,per-identity paths
+CM16,-,-,-,correct app identity in monitoring paths,matched,PASS,app-specific output files
+CM17,-,-,-,unavailable values preserved,-1 preserved,PASS,Phase 3 representation
+CM20,-,-,-,graceful runtime shutdown,clean,PASS,bounded run
+CM21,-,-,-,no orphan workers,joined,PASS,pool shutdown
+CM22,-,-,-,no duplicate monitor processes,one-shot function only,PASS,no fork in runtime path
+CM18,-,-,-,no migration,none,PASS,read-only Phase 3 call
+CM19,-,-,-,no Phase 4-9 calls,none,PASS,Phase 3 boundary
+CM11,-,-,-,five apps on two workers,all sampled,PASS,bounded pool
+CM12,-,-,-,queue backpressure,tested separately,PASS,dedicated queue-full cycle
+CM12-queue,-,-,-,queue-full deferred,deferred,PASS,queue capacity one
+CM15-A,-,-,-,same PID and start recognized,same ACTIVE identity,PASS,controlled same identity
+CM15-B,-,-,-,same PID and different start is new,new identity,PASS,controlled PID reuse
+CM15-C,-,-,-,old state remains terminated,old terminated/new active,PASS,lifecycle separation
+CM15-D,-,-,-,monitoring state not transferred,new state empty,PASS,controlled app-keyed state
+CM15-E,-,-,-,Phase 5/8 state isolated,independent state,PASS,controlled state only
+CM23,-,-,-,discovery regression,passed,PASS,make test-application-discovery
+CM24,-,-,-,manager regression,passed,PASS,make test-application-manager
+CM25,-,-,-,worker regression,passed,PASS,make test-worker-pool

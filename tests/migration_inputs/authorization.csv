@@ -1,0 +1,5 @@
+timestamp,migration_id,app_id,pid,tid,entity_id,action,phase6_validation,source_node,destination_node,destination_cpu,page_count,page_addresses,memory_region_verified,explicit_placement_required,memory_locked,memory_pinned
+2026-08-18T00:00:00Z,cli-no-action,cli-test,999999,0,workload,NO_MIGRATION,REJECTED,NA,NA,NA,0,NA,NA,false,false,false
+2026-08-18T00:00:01Z,cli-insufficient,cli-test,999999,0,workload,INSUFFICIENT_DECISION_SIGNAL,REJECTED,NA,NA,NA,0,NA,NA,false,false,false
+2026-08-18T00:00:02Z,cli-memory-rejected,cli-test,999999,0,workload,MOVE_MEMORY,REJECTED,0,0,NA,0,NA,NA,false,false,false
+2026-08-18T00:00:03Z,cli-thread-rejected,cli-test,999999,999999,workload,MOVE_THREAD,REJECTED,NA,NA,1,0,NA,NA,false,false,false

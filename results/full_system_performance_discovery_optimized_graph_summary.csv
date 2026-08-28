@@ -1,0 +1,10 @@
+graph_id,graph_name,status,reason,output_file
+FSP-G01,baseline_vs_integrated_execution_time.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/baseline_vs_integrated_execution_time.svg
+FSP-G02,integrated_execution_overhead.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/integrated_execution_overhead.svg
+FSP-G03,phase_latency_breakdown.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/phase_latency_breakdown.svg
+FSP-G04,queue_wait_vs_worker_execution.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/queue_wait_vs_worker_execution.svg
+FSP-G05,pipeline_serial_wait.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/pipeline_serial_wait.svg
+FSP-G06,runtime_cpu_overhead.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/runtime_cpu_overhead.svg
+FSP-G07,runtime_memory_usage.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/runtime_memory_usage.svg
+FSP-G08,completion_latency.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/completion_latency.svg
+FSP-G09,baseline_vs_integrated_throughput.svg,GENERATED,,graphs/full-system-performance-discovery-optimized/baseline_vs_integrated_throughput.svg

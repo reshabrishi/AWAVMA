@@ -1,0 +1,12 @@
+key,value,status
+cpus,8,MEASURED
+numa_nodes,node0,MEASURED
+libnuma,available,MEASURED
+numa.h,unavailable,NOT TESTED — ENVIRONMENT LIMITATION
+numaif.h,unavailable,NOT TESTED — ENVIRONMENT LIMITATION
+remote_numa_migration,not demonstrated,NOT TESTED — ENVIRONMENT LIMITATION
+perf_cache_counters,permission limited,NOT TESTED — ENVIRONMENT LIMITATION
+benchmark_build,frozen existing binary; source rebuild requires unavailable numa.h,NOT TESTED — ENVIRONMENT LIMITATION
+worker_count,2,MEASURED
+monitor_interval_ms,100,MEASURED
+evaluation_interval_ms,50,MEASURED

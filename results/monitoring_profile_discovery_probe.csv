@@ -1,0 +1,12 @@
+level,component,application,pid,job_id,start_ns,end_ns,duration_us,status
+discovery,application_discovery_scan,-,-1,0,129690262484109,129690298740219,36256.110,OK
+discovery,application_discovery_scan,-,-1,0,129690299934047,129690339775626,39841.579,OK
+discovery,application_discovery_scan,-,-1,0,129690600939478,129690634367733,33428.255,OK
+discovery,application_discovery_scan,-,-1,0,129690901568190,129690934856729,33288.539,OK
+discovery,application_discovery_scan,-,-1,0,129690935413178,129690935449904,36.726,OK
+discovery,application_discovery_scan,-,-1,0,129690935690503,129690935765556,75.053,OK
+discovery,application_discovery_scan,-,-1,0,129690935929687,129690970549018,34619.331,OK
+discovery,application_discovery_scan,-,-1,0,129690979341153,129691012466660,33125.507,OK
+discovery,application_discovery_scan,-,-1,0,129691013066677,129691054285306,41218.629,OK
+discovery,application_discovery_scan,-,-1,0,129691054418480,129691093776663,39358.183,OK
+discovery,application_discovery_scan,-,-1,0,129691103757125,129691139384215,35627.090,OK
