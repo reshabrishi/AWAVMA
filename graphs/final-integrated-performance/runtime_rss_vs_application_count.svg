@@ -4,27 +4,27 @@
 <text x="70" y="34" font-size="22" font-weight="bold">Runtime RSS vs Application Count</text>
 <text x="70" y="55" font-size="12" fill="#59636e">Source: results/final_integrated_multiapp_scaling.csv | Data: REAL</text>
 <line class="grid" x1="78.00" y1="578.00" x2="1066.00" y2="578.00"/>
-<text x="68.00" y="582.00" text-anchor="end" font-size="11">-501</text>
+<text x="68.00" y="582.00" text-anchor="end" font-size="11">-535</text>
 <line class="grid" x1="78.00" y1="478.00" x2="1066.00" y2="478.00"/>
-<text x="68.00" y="482.00" text-anchor="end" font-size="11">953</text>
+<text x="68.00" y="482.00" text-anchor="end" font-size="11">1.02e+03</text>
 <line class="grid" x1="78.00" y1="378.00" x2="1066.00" y2="378.00"/>
-<text x="68.00" y="382.00" text-anchor="end" font-size="11">2.41e+03</text>
+<text x="68.00" y="382.00" text-anchor="end" font-size="11">2.57e+03</text>
 <line class="grid" x1="78.00" y1="278.00" x2="1066.00" y2="278.00"/>
-<text x="68.00" y="282.00" text-anchor="end" font-size="11">3.86e+03</text>
+<text x="68.00" y="282.00" text-anchor="end" font-size="11">4.12e+03</text>
 <line class="grid" x1="78.00" y1="178.00" x2="1066.00" y2="178.00"/>
-<text x="68.00" y="182.00" text-anchor="end" font-size="11">5.31e+03</text>
+<text x="68.00" y="182.00" text-anchor="end" font-size="11">5.67e+03</text>
 <line class="grid" x1="78.00" y1="78.00" x2="1066.00" y2="78.00"/>
-<text x="68.00" y="82.00" text-anchor="end" font-size="11">6.77e+03</text>
+<text x="68.00" y="82.00" text-anchor="end" font-size="11">7.22e+03</text>
 <line class="axis" x1="78.0" y1="78.0" x2="78.0" y2="578.0"/>
 <line class="axis" x1="78.0" y1="578.0" x2="1066.0" y2="578.0"/>
 <text x="572.00" y="626" text-anchor="middle" font-size="13">Applications</text>
 <text x="18" y="328.00" text-anchor="middle" font-size="13" transform="rotate(-90 18 328.00)">Mean KiB</text>
 <text x="201.50" y="598.00" text-anchor="middle" font-size="11" transform="rotate(-25 201.50 598.00)">1</text>
-<rect class="bar" x="112.58" y="543.52" width="177.84" height="415.96" fill="#1f4e79"/>
+<rect class="bar" x="112.58" y="543.52" width="177.84" height="419.43" fill="#1f4e79"/>
 <text x="448.50" y="598.00" text-anchor="middle" font-size="11" transform="rotate(-25 448.50 598.00)">2</text>
-<rect class="bar" x="359.58" y="543.52" width="177.84" height="417.00" fill="#1f4e79"/>
+<rect class="bar" x="359.58" y="543.52" width="177.84" height="418.86" fill="#1f4e79"/>
 <text x="695.50" y="598.00" text-anchor="middle" font-size="11" transform="rotate(-25 695.50 598.00)">4</text>
-<rect class="bar" x="606.58" y="543.52" width="177.84" height="422.34" fill="#1f4e79"/>
+<rect class="bar" x="606.58" y="543.52" width="177.84" height="425.31" fill="#1f4e79"/>
 <text x="942.50" y="598.00" text-anchor="middle" font-size="11" transform="rotate(-25 942.50 598.00)">8</text>
 <rect class="bar" x="853.58" y="543.52" width="177.84" height="431.03" fill="#1f4e79"/>
 <rect x="850" y="67" width="14" height="14" fill="#1f4e79"/>

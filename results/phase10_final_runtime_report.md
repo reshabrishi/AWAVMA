@@ -6,7 +6,7 @@ This report consolidates the original Phase 10 launcher/serialized measurement, 
 
 - Stage 1: original launcher/serialized measurement reported sequential +21.74%, random +20.38%, hot +13.68%, moderate +6.37%, cold +29.17%, mixed +6.36%, changing +3.74%, local +24.98%. It was not the full production runtime.
 - Stage 2: first integrated runtime pooled observed overhead was +6.411% before the accepted sequence was consolidated.
-- Stage 3: final accepted production re-profile observed an unweighted mean workload overhead of 6.613%. It is reported as observed, not a significance claim; methodologies are not treated as directly causal.
+- Stage 3: final accepted production re-profile observed an unweighted mean workload overhead of -6.970%. It is reported as observed, not a significance claim; methodologies are not treated as directly causal.
 
 ## Accepted Architecture
 

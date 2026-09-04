@@ -31,61 +31,61 @@
 
 | Workload | Baseline Mean ms | Final AWAVMA Mean ms | Overhead % | Final Median ms | Final Stddev ms | Throughput Change % |
 |---|---:|---:|---:|---:|---:|---:|
-| sequential | 139.416 | 141.004 | 1.139 | 147.956 | 15.820 | -0.802 |
-| random | 241.532 | 279.480 | 15.711 | 267.361 | 34.021 | -12.870 |
-| hot | 203.663 | 189.735 | -6.839 | 187.337 | 18.830 | 7.318 |
-| moderate | 286.278 | 311.028 | 8.645 | 324.281 | 44.396 | -8.031 |
-| cold | 282.677 | 305.176 | 7.959 | 299.012 | 35.487 | -7.430 |
-| mixed | 245.896 | 265.825 | 8.104 | 262.477 | 24.769 | -7.567 |
-| changing | 374.688 | 405.633 | 8.259 | 395.498 | 23.304 | -7.657 |
-| local | 849.249 | 933.516 | 9.923 | 1051.161 | 232.994 | -10.434 |
+| sequential | 106.773 | 111.759 | 4.669 | 108.063 | 12.747 | -3.769 |
+| random | 186.163 | 168.984 | -9.228 | 177.161 | 46.350 | 18.180 |
+| hot | 135.908 | 126.845 | -6.668 | 131.947 | 14.173 | 7.922 |
+| moderate | 206.938 | 186.999 | -9.635 | 185.605 | 26.833 | 11.889 |
+| cold | 190.217 | 148.246 | -22.065 | 115.986 | 62.365 | 45.689 |
+| mixed | 179.235 | 172.933 | -3.516 | 175.145 | 11.870 | 3.884 |
+| changing | 198.652 | 169.521 | -14.664 | 126.068 | 62.367 | 18.282 |
+| local | 99.341 | 104.651 | 5.346 | 103.650 | 12.863 | -4.122 |
 
 ## E. Multi-App Results
 
 | Apps | Aggregate Baseline Throughput | AWAVMA Throughput | Change % | Runtime CPU | Serial Wait us | Queue Wait us |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1 | 4299031.715 | 4070252.114 | -5.322 | 26.017 | 367.137 | 302.237 |
-| 2 | 7615075.278 | 7392744.445 | -2.920 | 29.148 | 12020.758 | 744.264 |
-| 4 | 11580950.311 | 11489232.284 | -0.792 | 31.232 | 52260.223 | 3536.512 |
-| 8 | 13357308.216 | 13174063.002 | -1.372 | 20.114 | 193588.948 | 11587.607 |
+| 1 | 14347673.834 | 14623425.363 | 1.922 | 12.349 | 92.814 | 77.632 |
+| 2 | 25636069.938 | 24859439.138 | -3.029 | 13.143 | 3394.895 | 78.592 |
+| 4 | 41722739.113 | 39927619.119 | -4.302 | 16.771 | 12327.980 | 775.221 |
+| 8 | 47440741.020 | 44211871.417 | -6.806 | 17.081 | 78819.433 | 3909.145 |
 
 ## Final Fairness
 
 | Apps | Jain Index | Min Cycles/App | Max Cycles/App | Worst Evaluation Gap ms | Starvation? |
 |---:|---:|---:|---:|---:|---|
-| 1 | 1.000 | 4.000 | 4.000 | 1051.744 | NO EVIDENCE |
-| 2 | 0.998 | 4.000 | 5.000 | 1090.715 | NO EVIDENCE |
-| 4 | 0.998 | 4.000 | 5.000 | 1230.985 | NO EVIDENCE |
-| 8 | 1.000 | 5.000 | 5.000 | 1648.249 | NO EVIDENCE |
+| 1 | 1.000 | 1.000 | 1.000 | NA | NO EVIDENCE |
+| 2 | 1.000 | 1.000 | 1.000 | NA | NO EVIDENCE |
+| 4 | 1.000 | 1.000 | 1.000 | NA | NO EVIDENCE |
+| 8 | 0.995 | 2.000 | 3.000 | 1215.738 | NO EVIDENCE |
 
 ## F. Resource Usage
 
 | Apps | CPU Mean % | CPU Peak % | RSS Mean KiB | RSS Peak KiB | VMS Mean KiB | VMS Peak KiB |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1 | 26.017 | 189.419 | 6048.000 | 6220.000 | 156804.000 | 156804.000 |
-| 2 | 29.148 | 182.488 | 6063.200 | 6196.000 | 156779.200 | 156784.000 |
-| 4 | 31.232 | 247.173 | 6140.800 | 6308.000 | 156800.000 | 156800.000 |
-| 8 | 20.114 | 201.524 | 6267.200 | 6316.000 | 158717.600 | 166244.000 |
+| 1 | 12.349 | 193.070 | 6504.000 | 6756.000 | 156988.000 | 157140.000 |
+| 2 | 13.143 | 192.091 | 6495.200 | 6556.000 | 156932.000 | 156956.000 |
+| 4 | 16.771 | 187.922 | 6595.200 | 6676.000 | 157004.800 | 157008.000 |
+| 8 | 17.081 | 187.625 | 6684.000 | 6828.000 | 156964.800 | 156988.000 |
 
 ## G. Pipeline Breakdown
 
 | Component | Mean us | Median us | Notes |
 |---|---:|---:|---|
-| Discovery | 3278029.948 | 3271898.209 | Run-level total; not additive with per-scan work. Nested scopes are not additive. |
-| Queue wait | 11587.607 | 11354.448 | Queue-to-worker delay. Nested scopes are not additive. |
-| Worker execution | 6761.135 | 6762.685 | Worker wrapper, includes Phase 3. Nested scopes are not additive. |
-| Phase 3 | 6740.313 | 6756.542 | Monitor execution. Nested scopes are not additive. |
-| Serial-entry wait | 193588.948 | 194144.209 | Serialized coordinator admission. Nested scopes are not additive. |
-| Phase 4 subprocess wall | 16417.578 | 16558.138 | Parent wall time. Nested scopes are not additive. |
-| Phase 5 subprocess wall | 19086.273 | 18908.354 | Parent wall time. Nested scopes are not additive. |
-| Phase 6 subprocess wall | 16624.410 | 16794.867 | Parent wall time. Nested scopes are not additive. |
-| Coordinator overhead | 1840.256 | NA | Coordinator wrapper minus Phase 4-6 means. Nested scopes are not additive. |
-| Completion latency | 18432.961 | 19152.656 | Submit to completed job. Nested scopes are not additive. |
+| Discovery | 664854.353 | 673828.239 | Run-level total; not additive with per-scan work. Nested scopes are not additive. |
+| Queue wait | 3909.145 | 3654.309 | Queue-to-worker delay. Nested scopes are not additive. |
+| Worker execution | 2289.458 | 1714.732 | Worker wrapper, includes Phase 3. Nested scopes are not additive. |
+| Phase 3 | 2286.856 | 1711.977 | Monitor execution. Nested scopes are not additive. |
+| Serial-entry wait | 78819.433 | 81051.598 | Serialized coordinator admission. Nested scopes are not additive. |
+| Phase 4 subprocess wall | 6336.331 | 6553.062 | Parent wall time. Nested scopes are not additive. |
+| Phase 5 subprocess wall | 7601.828 | 7603.971 | Parent wall time. Nested scopes are not additive. |
+| Phase 6 subprocess wall | 6756.021 | 6497.920 | Parent wall time. Nested scopes are not additive. |
+| Coordinator overhead | 437.417 | NA | Coordinator wrapper minus Phase 4-6 means. Nested scopes are not additive. |
+| Completion latency | 6236.798 | 6605.616 | Submit to completed job. Nested scopes are not additive. |
 
 ## H. Discovery Results
 
 - Production discovery remains 250 ms. The earlier controlled cadence study measured 829.2 to 286.6 ms/run total discovery time (65.4% reduction), controlled CPU 68.3% to 26.5%, and 249.4 ms mean detection latency. It is retained separately from this short-run final measurement.
-- Final 8-app runs: mean scans/run 20.000, mean scan time 163901.497 us, mean total discovery time/run 3278029.948 us, and 44.532% of summed runtime-cycle wall time (non-additive attribution).
+- Final 8-app runs: mean scans/run 12.000, mean scan time 55404.529 us, mean total discovery time/run 664854.353 us, and 19.648% of summed runtime-cycle wall time (non-additive attribution).
 
 ## I. Phase 4-6 Findings
 
@@ -106,16 +106,16 @@
 
 | Apps | Max Queue Depth | Deferrals | Saturation | Max Queue Wait us |
 |---:|---:|---:|---:|---:|
-| 1 | 0.000 | 0.000 | 0.000 | 4497.063 |
-| 2 | 1.000 | 0.000 | 0.000 | 9395.870 |
-| 4 | 3.000 | 0.000 | 0.000 | 17106.926 |
-| 8 | 7.000 | 0.000 | 0.000 | 54252.480 |
+| 1 | 0.000 | 0.000 | 0.000 | 442.345 |
+| 2 | 1.000 | 0.000 | 0.000 | 1405.963 |
+| 4 | 3.000 | 0.000 | 0.000 | 4625.766 |
+| 8 | 7.000 | 0.000 | 0.000 | 41779.572 |
 
 ## M. Runtime Outcome Counts
 
 | Outcome | Count | Status |
 |---|---:|---|
-| INSUFFICIENT | 78 | MEASURED |
+| INSUFFICIENT | 75 | MEASURED |
 | NO_MIGRATION | 0 | NOT EXECUTED |
 | VALIDATION_REJECTED | 0 | NOT EXECUTED |
 | VALIDATION_APPROVED | 0 | NOT EXECUTED |
@@ -130,15 +130,15 @@
 
 ## O. Bottleneck Ranking
 
-1. Serial-entry wait: 193588.948 us (final 8-app production measurement).
-2. Phase 5 subprocess wall: 19086.273 us (final 8-app production measurement).
-3. Completion latency: 18432.961 us (final 8-app production measurement).
-4. Phase 6 subprocess wall: 16624.410 us (final 8-app production measurement).
-5. Phase 4 subprocess wall: 16417.578 us (final 8-app production measurement).
-6. Queue wait: 11587.607 us (final 8-app production measurement).
-7. Worker execution: 6761.135 us (final 8-app production measurement).
-8. Phase 3: 6740.313 us (final 8-app production measurement).
-9. Coordinator overhead: 1840.256 us (final 8-app production measurement).
+1. Serial-entry wait: 78819.433 us (final 8-app production measurement).
+2. Phase 5 subprocess wall: 7601.828 us (final 8-app production measurement).
+3. Phase 6 subprocess wall: 6756.021 us (final 8-app production measurement).
+4. Phase 4 subprocess wall: 6336.331 us (final 8-app production measurement).
+5. Completion latency: 6236.798 us (final 8-app production measurement).
+6. Queue wait: 3909.145 us (final 8-app production measurement).
+7. Worker execution: 2289.458 us (final 8-app production measurement).
+8. Phase 3: 2286.856 us (final 8-app production measurement).
+9. Coordinator overhead: 437.417 us (final 8-app production measurement).
 
 ## P. Final Phase 10 Runtime Conclusion
 
