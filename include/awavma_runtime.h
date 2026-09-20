@@ -2,6 +2,8 @@
 #define AWAVMA_RUNTIME_H
 
 #include "runtime_monitor.h"
+#include "benefit_classifier.h"
+#include "page_checkpoint.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -34,6 +36,10 @@ typedef struct {
     const char *root_dir;
     const char *bin_dir;
     const char *phase_config_path;
+    bool migration_safety_enabled;
+    bool migration_execution_enabled;
+    BenefitCalibrationState benefit_calibration_state;
+    const char *benefit_calibration_provenance;
     application_discovery_config_t discovery_config;
     runtime_monitor_application_filter_fn application_filter;
     void *application_filter_context;
@@ -64,5 +70,61 @@ size_t awavma_runtime_snapshot(const awavma_runtime_t *runtime,
                                size_t capacity);
 void awavma_runtime_shutdown(awavma_runtime_t *runtime);
 void awavma_runtime_destroy(awavma_runtime_t *runtime);
+
+#ifdef AWAVMA_RUNTIME_TESTING
+typedef enum {
+    AWAVMA_RUNTIME_TEST_TARGET_NO_ALTERNATE,
+    AWAVMA_RUNTIME_TEST_TARGET_UNAVAILABLE,
+    AWAVMA_RUNTIME_TEST_TARGET_INVALID,
+    AWAVMA_RUNTIME_TEST_TARGET_VALID,
+    AWAVMA_RUNTIME_TEST_TARGET_PLACEMENT_MISMATCH,
+    AWAVMA_RUNTIME_TEST_TARGET_CAPTURE_FAILURE,
+    AWAVMA_RUNTIME_TEST_TARGET_IDENTITY_MISMATCH_AFTER_EXEC,
+    /* Runs the production policy with live metadata; no target is injected. */
+    AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE,
+    /* Exercises the production page-checkpoint gate with no injected addresses. */
+    AWAVMA_RUNTIME_TEST_TARGET_PAGE_ADDRESS_UNAVAILABLE
+} awavma_runtime_test_target_case_t;
+
+typedef struct {
+    unsigned target_provider_calls;
+    unsigned executor_calls;
+    unsigned rollback_calls;
+    unsigned validation_before_calls;
+    unsigned validation_after_calls;
+    unsigned terminal_feedback_calls;
+    bool structural_validation_committed;
+    bool structural_validation_known;
+    bool structural_validation_succeeded;
+    bool progress_known;
+    bool progress_observed;
+    bool benefit_known;
+    BenefitClassification benefit_classification;
+    char benefit_reason[128];
+    bool before_cpu_time_available;
+    uint64_t before_cpu_time_ticks;
+    bool after_cpu_time_available;
+    uint64_t after_cpu_time_ticks;
+    bool rollback_succeeded;
+    char attempt_id[128];
+} awavma_runtime_test_target_stats_t;
+
+/* Test-only upstream decision entry; it preserves the production runtime callbacks. */
+int awavma_runtime_test_submit_approved_migration(
+    awavma_runtime_t *runtime, pid_t pid, uint64_t start_time_ticks,
+    awavma_runtime_test_target_case_t target_case,
+    awavma_runtime_test_target_stats_t *stats);
+int awavma_runtime_test_resume_page_recovery(
+    awavma_runtime_t *runtime, const char *active_attempt_id,
+    const MigrationPageCheckpoint *checkpoint,
+    awavma_runtime_test_target_stats_t *stats);
+/* Test-only adapter and join entry points for Phase 5/6 evidence fixtures. */
+int awavma_runtime_test_write_validation_input(const char *decision_path, const char *output_path,
+                                               const awavma_runtime_record_t *record);
+int awavma_runtime_test_load_benefit_evidence(const char *validation_input_path,
+                                              const char *validation_path,
+                                              const awavma_runtime_record_t *record,
+                                              DecisionData *decision, ValidationResult *validation);
+#endif
 
 #endif

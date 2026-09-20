@@ -26,7 +26,22 @@ APPLICATION_RUNTIME_TEST_TARGET := bin/application-runtime-test
 CONTINUOUS_MONITOR_TEST_TARGET := bin/continuous-monitor-test
 AWAVMA_RUNTIME_TARGET := bin/awavma-runtime
 AWAVMA_RUNTIME_TEST_TARGET := bin/awavma-runtime-test
+RUNTIME_MIGRATION_METADATA_TEST_TARGET := bin/runtime-migration-metadata-test
+MIGRATION_TARGET_PROVIDER_TEST_TARGET := bin/migration-target-provider-test
+RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_TARGET := bin/runtime-migration-target-integration-test
+RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_TARGET := bin/runtime-migration-target-production-test
+RUNTIME_MIGRATION_VALIDATION_TEST_TARGET := bin/runtime-migration-validation-test
 RUNTIME_TARGET_FILTER_TEST_TARGET := bin/runtime-target-filter-test
+THREAD_TARGET_POLICY_TEST_TARGET := bin/thread-target-policy-test
+PAGE_CHECKPOINT_TEST_TARGET := bin/page-checkpoint-test
+RUNTIME_PAGE_CHECKPOINT_TEST_TARGET := bin/runtime-page-checkpoint-test
+RUNTIME_PAGE_ROLLBACK_TEST_TARGET := bin/runtime-page-rollback-test
+PAGE_ROLLBACK_TEST_TARGET := bin/page-rollback-test
+BENEFIT_CLASSIFIER_TEST_TARGET := bin/benefit-classifier-test
+RUNTIME_BENEFIT_CLASSIFIER_TEST_TARGET := bin/runtime-benefit-classifier-test
+PHASE5_BENEFIT_EVIDENCE_TEST_TARGET := bin/phase5-benefit-evidence-test
+DECISION_BENEFIT_EVIDENCE_TEST_TARGET := bin/decision-benefit-evidence-test
+BENEFIT_EVIDENCE_CONTRACT_TEST_TARGET := bin/benefit-evidence-contract-test
 DISCOVERY_CADENCE_TEST_TARGET := bin/discovery-cadence-test
 DISCOVERY_CADENCE_PROBE_TARGET := bin/discovery-cadence-probe
 PROFILE_AWAVMA_RUNTIME_TARGET := bin/profile-awavma-runtime
@@ -44,8 +59,10 @@ VALIDATION_SOURCES := src/confidence.c src/roi.c src/safety.c src/validation.c s
 VALIDATION_TEST_SOURCES := tests/validation_gate_test.c src/confidence.c src/roi.c src/safety.c src/validation.c src/validation_log.c
 MIGRATION_SOURCES := src/migration.c src/migration_log.c src/migration_main.c
 MIGRATION_TEST_SOURCES := tests/migration_test.c src/migration.c src/migration_log.c
-FEEDBACK_SOURCES := src/feedback.c src/feedback_log.c src/feedback_main.c src/decision.c
-FEEDBACK_TEST_SOURCES := tests/feedback_test.c src/feedback.c src/feedback_log.c src/decision.c
+MIGRATION_SAFETY_TEST_TARGET := bin/migration-safety-manager-test
+MIGRATION_SAFETY_TEST_SOURCES := tests/migration_safety_manager_test.c src/benefit_classifier.c src/migration_safety_manager.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
+FEEDBACK_SOURCES := src/benefit_classifier.c src/feedback.c src/feedback_log.c src/feedback_main.c src/decision.c
+FEEDBACK_TEST_SOURCES := tests/feedback_test.c src/benefit_classifier.c src/feedback.c src/feedback_log.c src/decision.c
 RUNTIME_SOURCES := src/application_manager.c src/application_manager_main.c src/application_discovery.c
 RUNTIME_TEST_SOURCES := tests/runtime_manager_test.c src/application_manager.c src/worker_pool.c
 APPLICATION_DISCOVERY_SOURCES := src/application_discovery.c src/application_discovery_main.c
@@ -58,15 +75,30 @@ APPLICATION_RUNTIME_SOURCES := src/application_runtime.c src/application_manager
 APPLICATION_RUNTIME_TEST_SOURCES := tests/application_runtime_test.c $(APPLICATION_RUNTIME_SOURCES)
 CONTINUOUS_MONITOR_SOURCES := src/runtime_monitor.c src/application_manager.c src/application_discovery.c src/worker_pool.c src/monitor.c
 CONTINUOUS_MONITOR_TEST_SOURCES := tests/continuous_monitoring_test.c $(CONTINUOUS_MONITOR_SOURCES)
-AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/runtime_target_filter.c src/classifier.c $(CONTINUOUS_MONITOR_SOURCES)
-AWAVMA_RUNTIME_TEST_SOURCES := tests/awavma_runtime_test.c src/awavma_runtime.c src/classifier.c $(CONTINUOUS_MONITOR_SOURCES)
+AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/runtime_target_filter.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+AWAVMA_RUNTIME_TEST_SOURCES := tests/awavma_runtime_test.c src/awavma_runtime.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+RUNTIME_MIGRATION_METADATA_TEST_SOURCES := tests/runtime_migration_metadata_test.c src/runtime_migration_metadata.c
+MIGRATION_TARGET_PROVIDER_TEST_SOURCES := tests/migration_target_provider_test.c src/migration_target_provider.c
+THREAD_TARGET_POLICY_TEST_SOURCES := tests/thread_target_policy_test.c src/thread_target_policy.c src/benefit_classifier.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
+PAGE_CHECKPOINT_TEST_SOURCES := tests/page_checkpoint_test.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration_target_provider.c src/benefit_classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
+RUNTIME_PAGE_CHECKPOINT_TEST_SOURCES := tests/runtime_page_checkpoint_test.c src/awavma_runtime.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+RUNTIME_PAGE_ROLLBACK_TEST_SOURCES := tests/runtime_page_rollback_test.c $(filter-out tests/awavma_runtime_test.c,$(AWAVMA_RUNTIME_TEST_SOURCES))
+PAGE_ROLLBACK_TEST_SOURCES := tests/page_rollback_test.c src/page_rollback.c src/page_checkpoint.c src/runtime_migration_metadata.c src/migration_target_provider.c
+BENEFIT_CLASSIFIER_TEST_SOURCES := tests/benefit_classifier_test.c src/benefit_classifier.c
+RUNTIME_BENEFIT_CLASSIFIER_TEST_SOURCES := tests/runtime_benefit_classifier_test.c src/benefit_classifier.c src/migration_safety_manager.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
+PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES := tests/phase5_benefit_evidence_test.c src/awavma_runtime.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+DECISION_BENEFIT_EVIDENCE_TEST_SOURCES := tests/decision_benefit_evidence_test.c src/decision.c
+BENEFIT_EVIDENCE_CONTRACT_TEST_SOURCES := tests/benefit_evidence_contract_test.c src/benefit_classifier.c
+RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_SOURCES := tests/runtime_migration_target_integration_test.c src/benefit_classifier.c src/runtime_migration_metadata.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
+RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_SOURCES := tests/runtime_migration_target_production_test.c src/awavma_runtime.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES := tests/runtime_migration_validation_test.c src/awavma_runtime.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 RUNTIME_TARGET_FILTER_TEST_SOURCES := tests/runtime_target_filter_test.c src/runtime_target_filter.c
 DISCOVERY_CADENCE_TEST_SOURCES := tests/discovery_cadence_test.c $(CONTINUOUS_MONITOR_SOURCES)
 DISCOVERY_CADENCE_PROBE_SOURCES := tests/discovery_cadence_probe.c $(CONTINUOUS_MONITOR_SOURCES)
-PROFILE_AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/runtime_target_filter.c src/classifier.c $(CONTINUOUS_MONITOR_SOURCES) src/monitor_profile.c
-HEADERS := include/benchmark.h include/monitor.h include/monitor_profile.h include/classifier.h include/decision.h include/validation.h include/validation_types.h include/validation_log.h include/confidence.h include/roi.h include/safety.h include/migration.h include/migration_types.h include/migration_log.h include/feedback.h include/feedback_types.h include/feedback_log.h include/application_manager.h include/application_manager_types.h include/application_types.h include/worker_pool.h include/worker_types.h include/application_discovery.h include/application_runtime.h include/runtime_monitor.h include/awavma_runtime.h include/runtime_target_filter.h
+PROFILE_AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/runtime_target_filter.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES) src/monitor_profile.c
+HEADERS := include/benchmark.h include/monitor.h include/monitor_profile.h include/classifier.h include/decision.h include/validation.h include/validation_types.h include/validation_log.h include/confidence.h include/roi.h include/safety.h include/migration.h include/migration_types.h include/migration_log.h include/migration_safety_manager.h include/migration_target_provider.h include/thread_target_policy.h include/page_checkpoint.h include/benefit_classifier.h include/migration_validation_snapshot.h include/feedback.h include/feedback_types.h include/feedback_log.h include/application_manager.h include/application_manager_types.h include/application_types.h include/worker_pool.h include/worker_types.h include/application_discovery.h include/application_runtime.h include/awavma_runtime.h include/runtime_target_filter.h
 
-.PHONY: all benchmark monitor monitor-test-target classifier decision validation migration feedback runtime awavma-runtime test-awavma-runtime test-runtime-target-filter test-discovery-cadence discovery-cadence-probe discovery-cadence-performance multi-application-performance test-multi-application-graphs profile-phase46-binaries phase46-pipeline-profile test-phase46-pipeline test-phase46-pipeline-graphs application-discovery test-application-discovery application-manager test-application-manager worker-pool test-worker-pool test-application-worker continuous-monitor test-continuous-monitor test-final-integration test-system-regression phase10 test-phase10 profile-monitor profile-application-discovery-test profile-continuous-monitor-test profile-awavma-runtime profile-monitoring full-system-performance test-monitoring-profile graphs test-validation test-migration test-feedback test-runtime test-graphs clean
+.PHONY: all benchmark monitor monitor-test-target classifier decision validation migration feedback runtime awavma-runtime test-awavma-runtime test-runtime-migration-metadata test-runtime-migration-validation test-runtime-target-filter phase5-thread-target-policy test-thread-target-policy test-phase5-target-selection test-runtime-phase5-target-selection test-page-checkpoint test-runtime-page-checkpoint test-benefit-classifier test-runtime-benefit-classifier test-phase5-benefit-evidence test-runtime-benefit-evidence test-decision-benefit-evidence test-runtime-decision-benefit-evidence test-benefit-evidence-contract test-runtime-benefit-evidence-contract test-discovery-cadence discovery-cadence-probe discovery-cadence-performance multi-application-performance test-multi-application-graphs profile-phase46-binaries phase46-pipeline-profile test-phase46-pipeline test-phase46-pipeline-graphs application-discovery test-application-discovery application-manager test-application-manager worker-pool test-worker-pool test-application-worker continuous-monitor test-continuous-monitor test-final-integration test-system-regression phase10 test-phase10 profile-monitor profile-application-discovery-test profile-continuous-monitor-test profile-awavma-runtime profile-monitoring full-system-performance test-monitoring-profile graphs test-validation test-migration test-migration-safety-manager test-feedback test-runtime test-graphs clean
 
 all: bin results logs scripts state history benchmark monitor monitor-test-target classifier decision validation migration feedback runtime graphs
 
@@ -98,6 +130,63 @@ awavma-runtime: classifier decision validation $(AWAVMA_RUNTIME_TARGET)
 
 test-awavma-runtime: awavma-runtime $(AWAVMA_RUNTIME_TEST_TARGET)
 	./$(AWAVMA_RUNTIME_TEST_TARGET)
+
+test-runtime-migration-metadata: $(RUNTIME_MIGRATION_METADATA_TEST_TARGET)
+	./$(RUNTIME_MIGRATION_METADATA_TEST_TARGET)
+
+test-migration-target-provider: $(MIGRATION_TARGET_PROVIDER_TEST_TARGET)
+	./$(MIGRATION_TARGET_PROVIDER_TEST_TARGET)
+
+test-thread-target-policy: $(THREAD_TARGET_POLICY_TEST_TARGET)
+	./$(THREAD_TARGET_POLICY_TEST_TARGET)
+
+test-page-checkpoint: $(PAGE_CHECKPOINT_TEST_TARGET)
+	./$(PAGE_CHECKPOINT_TEST_TARGET)
+
+test-page-rollback: $(PAGE_ROLLBACK_TEST_TARGET)
+	./$(PAGE_ROLLBACK_TEST_TARGET)
+
+test-runtime-page-checkpoint: $(RUNTIME_PAGE_CHECKPOINT_TEST_TARGET)
+	./$(RUNTIME_PAGE_CHECKPOINT_TEST_TARGET)
+
+test-runtime-page-rollback: $(RUNTIME_PAGE_ROLLBACK_TEST_TARGET)
+	./$(RUNTIME_PAGE_ROLLBACK_TEST_TARGET)
+
+phase5-thread-target-policy: test-thread-target-policy
+
+test-phase5-target-selection: test-thread-target-policy
+
+test-runtime-phase5-target-selection: test-thread-target-policy test-runtime-migration-target-production
+
+test-benefit-classifier: $(BENEFIT_CLASSIFIER_TEST_TARGET)
+	./$(BENEFIT_CLASSIFIER_TEST_TARGET)
+
+test-runtime-benefit-classifier: $(RUNTIME_BENEFIT_CLASSIFIER_TEST_TARGET)
+	./$(RUNTIME_BENEFIT_CLASSIFIER_TEST_TARGET)
+
+test-phase5-benefit-evidence: $(PHASE5_BENEFIT_EVIDENCE_TEST_TARGET)
+	./$(PHASE5_BENEFIT_EVIDENCE_TEST_TARGET)
+
+test-runtime-benefit-evidence: test-phase5-benefit-evidence test-runtime-benefit-classifier
+
+test-decision-benefit-evidence: $(DECISION_BENEFIT_EVIDENCE_TEST_TARGET)
+	./$(DECISION_BENEFIT_EVIDENCE_TEST_TARGET)
+
+test-runtime-decision-benefit-evidence: test-decision-benefit-evidence test-phase5-benefit-evidence
+
+test-benefit-evidence-contract: $(BENEFIT_EVIDENCE_CONTRACT_TEST_TARGET)
+	./$(BENEFIT_EVIDENCE_CONTRACT_TEST_TARGET)
+
+test-runtime-benefit-evidence-contract: test-runtime-benefit-classifier
+
+test-runtime-migration-target-integration: $(RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_TARGET)
+	./$(RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_TARGET)
+
+test-runtime-migration-target-production: $(RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_TARGET)
+	./$(RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_TARGET)
+
+test-runtime-migration-validation: $(RUNTIME_MIGRATION_VALIDATION_TEST_TARGET)
+	./$(RUNTIME_MIGRATION_VALIDATION_TEST_TARGET)
 
 test-runtime-target-filter: awavma-runtime $(RUNTIME_TARGET_FILTER_TEST_TARGET)
 	./$(RUNTIME_TARGET_FILTER_TEST_TARGET)
@@ -222,15 +311,18 @@ graphs:
 test-validation: $(VALIDATION_TARGET) $(VALIDATION_TEST_TARGET)
 	sh tests/run_validation_fixtures.sh
 
-test-migration: $(MIGRATION_TEST_TARGET)
+test-migration: $(MIGRATION_TARGET) $(MIGRATION_TEST_TARGET)
 	./$(MIGRATION_TEST_TARGET)
 	sh tests/run_migration_cli.sh
 
-test-feedback: $(FEEDBACK_TEST_TARGET)
+test-migration-safety-manager: $(MIGRATION_SAFETY_TEST_TARGET)
+	./$(MIGRATION_SAFETY_TEST_TARGET)
+
+test-feedback: $(FEEDBACK_TARGET) $(FEEDBACK_TEST_TARGET)
 	./$(FEEDBACK_TEST_TARGET)
 	sh tests/run_feedback_cli.sh
 
-test-runtime: test-awavma-runtime test-runtime-target-filter
+test-runtime: test-awavma-runtime test-runtime-target-filter test-thread-target-policy test-runtime-migration-validation
 
 test-graphs:
 	python3 tests/graph_test.py
@@ -261,6 +353,9 @@ $(MIGRATION_TARGET): $(MIGRATION_SOURCES) $(HEADERS) | bin
 
 $(MIGRATION_TEST_TARGET): $(MIGRATION_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(MIGRATION_TEST_SOURCES) -pthread -lm
+
+$(MIGRATION_SAFETY_TEST_TARGET): $(MIGRATION_SAFETY_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(MIGRATION_SAFETY_TEST_SOURCES) -pthread -lm
 
 $(FEEDBACK_TARGET): $(FEEDBACK_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(FEEDBACK_SOURCES) -lm
@@ -301,6 +396,51 @@ $(AWAVMA_RUNTIME_TARGET): $(AWAVMA_RUNTIME_SOURCES) $(HEADERS) | bin
 $(AWAVMA_RUNTIME_TEST_TARGET): $(AWAVMA_RUNTIME_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(AWAVMA_RUNTIME_TEST_SOURCES) -pthread $(NUMA_LDLIBS) -lm
 
+$(RUNTIME_MIGRATION_METADATA_TEST_TARGET): $(RUNTIME_MIGRATION_METADATA_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_MIGRATION_METADATA_TEST_SOURCES) -pthread
+
+$(MIGRATION_TARGET_PROVIDER_TEST_TARGET): $(MIGRATION_TARGET_PROVIDER_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(MIGRATION_TARGET_PROVIDER_TEST_SOURCES) -pthread
+
+$(THREAD_TARGET_POLICY_TEST_TARGET): $(THREAD_TARGET_POLICY_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(THREAD_TARGET_POLICY_TEST_SOURCES) -pthread -lm
+
+$(PAGE_CHECKPOINT_TEST_TARGET): $(PAGE_CHECKPOINT_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(PAGE_CHECKPOINT_TEST_SOURCES) -pthread -lm
+
+$(RUNTIME_PAGE_CHECKPOINT_TEST_TARGET): $(RUNTIME_PAGE_CHECKPOINT_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) -DAWAVMA_RUNTIME_TESTING $(LDFLAGS) -o $@ $(RUNTIME_PAGE_CHECKPOINT_TEST_SOURCES) -pthread -lm
+
+$(RUNTIME_PAGE_ROLLBACK_TEST_TARGET): $(RUNTIME_PAGE_ROLLBACK_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) -DAWAVMA_RUNTIME_TESTING $(LDFLAGS) -o $@ $(RUNTIME_PAGE_ROLLBACK_TEST_SOURCES) -pthread -lm
+
+$(PAGE_ROLLBACK_TEST_TARGET): $(PAGE_ROLLBACK_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(PAGE_ROLLBACK_TEST_SOURCES) -pthread -lm
+
+$(BENEFIT_CLASSIFIER_TEST_TARGET): $(BENEFIT_CLASSIFIER_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(BENEFIT_CLASSIFIER_TEST_SOURCES) -pthread -lm
+
+$(RUNTIME_BENEFIT_CLASSIFIER_TEST_TARGET): $(RUNTIME_BENEFIT_CLASSIFIER_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_BENEFIT_CLASSIFIER_TEST_SOURCES) -pthread -lm
+
+$(PHASE5_BENEFIT_EVIDENCE_TEST_TARGET): $(PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) -DAWAVMA_RUNTIME_TESTING $(LDFLAGS) -o $@ $(PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES) -pthread $(NUMA_LDLIBS) -lm
+
+$(DECISION_BENEFIT_EVIDENCE_TEST_TARGET): $(DECISION_BENEFIT_EVIDENCE_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(DECISION_BENEFIT_EVIDENCE_TEST_SOURCES) -pthread -lm
+
+$(BENEFIT_EVIDENCE_CONTRACT_TEST_TARGET): $(BENEFIT_EVIDENCE_CONTRACT_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(BENEFIT_EVIDENCE_CONTRACT_TEST_SOURCES) -pthread -lm
+
+$(RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_TARGET): $(RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_SOURCES) -pthread -lm
+
+$(RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_TARGET): $(RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) -DAWAVMA_RUNTIME_TESTING $(LDFLAGS) -o $@ $(RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_SOURCES) -pthread -lm
+
+$(RUNTIME_MIGRATION_VALIDATION_TEST_TARGET): $(RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) -DAWAVMA_RUNTIME_TESTING $(LDFLAGS) -o $@ $(RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES) -pthread $(NUMA_LDLIBS) -lm
+
 $(RUNTIME_TARGET_FILTER_TEST_TARGET): $(RUNTIME_TARGET_FILTER_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_TARGET_FILTER_TEST_SOURCES)
 
@@ -311,4 +451,4 @@ $(DISCOVERY_CADENCE_PROBE_TARGET): $(DISCOVERY_CADENCE_PROBE_SOURCES) $(HEADERS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(DISCOVERY_CADENCE_PROBE_SOURCES) -pthread $(NUMA_LDLIBS)
 
 clean:
-	rm -f $(BENCHMARK_TARGET) $(MONITOR_TARGET) $(TEST_TARGET) $(CLASSIFIER_TARGET) $(DECISION_TARGET) $(VALIDATION_TARGET) $(VALIDATION_TEST_TARGET) $(MIGRATION_TARGET) $(MIGRATION_TEST_TARGET) $(FEEDBACK_TARGET) $(FEEDBACK_TEST_TARGET) $(RUNTIME_TARGET) $(RUNTIME_TEST_TARGET) $(APPLICATION_DISCOVERY_TARGET) $(APPLICATION_DISCOVERY_TEST_TARGET) $(APPLICATION_MANAGER_TARGET) $(APPLICATION_MANAGER_TEST_TARGET) $(WORKER_POOL_TEST_TARGET) $(APPLICATION_RUNTIME_TEST_TARGET) $(CONTINUOUS_MONITOR_TEST_TARGET) $(AWAVMA_RUNTIME_TARGET) $(AWAVMA_RUNTIME_TEST_TARGET) $(RUNTIME_TARGET_FILTER_TEST_TARGET) $(DISCOVERY_CADENCE_TEST_TARGET) $(DISCOVERY_CADENCE_PROBE_TARGET) $(PROFILE_AWAVMA_RUNTIME_TARGET) bin/profile-monitor bin/profile-application-discovery-test bin/profile-continuous-monitor-test
+	rm -f $(BENCHMARK_TARGET) $(MONITOR_TARGET) $(TEST_TARGET) $(CLASSIFIER_TARGET) $(DECISION_TARGET) $(VALIDATION_TARGET) $(VALIDATION_TEST_TARGET) $(MIGRATION_TARGET) $(MIGRATION_TEST_TARGET) $(MIGRATION_SAFETY_TEST_TARGET) $(FEEDBACK_TARGET) $(FEEDBACK_TEST_TARGET) $(RUNTIME_TARGET) $(RUNTIME_TEST_TARGET) $(APPLICATION_DISCOVERY_TARGET) $(APPLICATION_DISCOVERY_TEST_TARGET) $(APPLICATION_MANAGER_TARGET) $(APPLICATION_MANAGER_TEST_TARGET) $(WORKER_POOL_TEST_TARGET) $(APPLICATION_RUNTIME_TEST_TARGET) $(CONTINUOUS_MONITOR_TEST_TARGET) $(AWAVMA_RUNTIME_TARGET) $(AWAVMA_RUNTIME_TEST_TARGET) $(RUNTIME_TARGET_FILTER_TEST_TARGET) $(THREAD_TARGET_POLICY_TEST_TARGET) $(PAGE_CHECKPOINT_TEST_TARGET) $(RUNTIME_PAGE_CHECKPOINT_TEST_TARGET) $(RUNTIME_MIGRATION_VALIDATION_TEST_TARGET) $(DISCOVERY_CADENCE_TEST_TARGET) $(DISCOVERY_CADENCE_PROBE_TARGET) $(PROFILE_AWAVMA_RUNTIME_TARGET) bin/profile-monitor bin/profile-application-discovery-test bin/profile-continuous-monitor-test
