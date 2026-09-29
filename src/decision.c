@@ -19,7 +19,8 @@
 #define DEFAULT_ENTITY_ID "workload"
 #define MAX_CSV_COLUMNS 128U
 #define MAX_ID_LENGTH 127U
-#define HISTORY_DECISION_HEADER "timestamp,app_id,pid,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_score_raw,thread_score_raw,memory_bias,thread_bias,memory_score_final,thread_score_final,epsilon,decision,weight_version,bias_version,status,history_relevance,recorded_at_epoch"
+#define HISTORY_DECISION_HEADER "timestamp,app_id,pid,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_score_raw,thread_score_raw,memory_bias,thread_bias,memory_score_final,thread_score_final,decision_margin,epsilon,decision,weight_version,bias_version,status,history_relevance,recorded_at_epoch"
+#define LEGACY_HISTORY_DECISION_HEADER "timestamp,app_id,pid,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_score_raw,thread_score_raw,memory_bias,thread_bias,memory_score_final,thread_score_final,epsilon,decision,weight_version,bias_version,status,history_relevance,recorded_at_epoch"
 #define HISTORY_WEIGHT_HEADER "app_id,action,factor,old_weight,new_weight,version,updated_at,history_relevance,recorded_at_epoch"
 
 static const double default_memory_weights[DECISION_FACTOR_COUNT] = {
@@ -100,6 +101,8 @@ typedef struct {
     double raw_thread;
     double final_memory;
     double final_thread;
+    double decision_margin;
+    bool decision_margin_available;
     const char *decision;
 } decision_result_t;
 
@@ -109,7 +112,7 @@ static const char *factor_names[] = {
 
 static const char *output_header(void)
 {
-    return "timestamp,app_id,pid,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_score_raw,thread_score_raw,memory_bias,thread_bias,memory_score_final,thread_score_final,epsilon,decision,weight_version,bias_version,status";
+    return "timestamp,app_id,pid,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_score_raw,thread_score_raw,memory_bias,thread_bias,memory_score_final,thread_score_final,decision_margin,epsilon,decision,weight_version,bias_version,status";
 }
 
 const char *decision_action_name(decision_action_t action)
@@ -870,6 +873,8 @@ static decision_result_t calculate_decision(const application_context_t *context
     result.raw_thread = thread;
     result.final_memory = memory + context->memory_bias;
     result.final_thread = thread + context->thread_bias;
+    result.decision_margin = result.final_memory - result.final_thread;
+    result.decision_margin_available = true;
     if (result.final_memory <= 0.0 && result.final_thread <= 0.0)
         result.decision = "NO_MIGRATION";
     else if (result.final_memory > result.final_thread + epsilon)
@@ -881,11 +886,73 @@ static decision_result_t calculate_decision(const application_context_t *context
     return result;
 }
 
+static int migrate_decision_history_schema(const char *path)
+{
+    FILE *input = fopen(path, "r");
+    FILE *output = NULL;
+    char *line = NULL;
+    size_t capacity = 0;
+    char temporary[512];
+    int result = -1;
+
+    if (input == NULL)
+        return errno == ENOENT ? 0 : -1;
+    if (getline(&line, &capacity, input) < 0)
+        goto cleanup;
+    line[strcspn(line, "\r\n")] = '\0';
+    if (strcmp(line, HISTORY_DECISION_HEADER) == 0) {
+        result = 0;
+        goto cleanup;
+    }
+    if (strcmp(line, LEGACY_HISTORY_DECISION_HEADER) != 0 ||
+        snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary))
+        goto cleanup;
+    output = fopen(temporary, "w");
+    if (output == NULL)
+        goto cleanup;
+    fprintf(output, "%s\n", HISTORY_DECISION_HEADER);
+    while (getline(&line, &capacity, input) >= 0) {
+        char *epoch_separator = strrchr(line, ',');
+        char *relevance_separator = epoch_separator == NULL ? NULL : epoch_separator - 1;
+
+        while (relevance_separator != NULL && relevance_separator > line &&
+               *relevance_separator != ',')
+            relevance_separator--;
+        if (relevance_separator == NULL || *relevance_separator != ',')
+            goto cleanup;
+        fwrite(line, 1, (size_t)(relevance_separator - line + 1), output);
+        fputs("NA,", output);
+        fputs(relevance_separator + 1, output);
+    }
+    if (ferror(input) || ferror(output) || fflush(output) != 0 || fsync(fileno(output)) != 0 ||
+        fclose(output) != 0) {
+        output = NULL;
+        unlink(temporary);
+        goto cleanup;
+    }
+    output = NULL;
+    if (rename(temporary, path) != 0) {
+        unlink(temporary);
+        goto cleanup;
+    }
+    result = 0;
+
+cleanup:
+    free(line);
+    fclose(input);
+    if (output != NULL)
+        fclose(output);
+    return result;
+}
+
 static int append_decision_history(const char *path, const char *line)
 {
-    FILE *file = fopen(path, "a+");
+    FILE *file;
     long long now = epoch_seconds();
 
+    if (migrate_decision_history_schema(path) != 0)
+        return -1;
+    file = fopen(path, "a+");
     if (file == NULL)
         return -1;
     if (fseek(file, 0, SEEK_END) != 0) {
@@ -1189,16 +1256,21 @@ static int write_decision_line(FILE *output, const char *history_path,
                                const decision_config_t *config, const char *status)
 {
     char line[4096];
+    char decision_margin[32];
     int written;
 
+    if (result->decision_margin_available)
+        snprintf(decision_margin, sizeof(decision_margin), "%.9f", result->decision_margin);
+    else
+        snprintf(decision_margin, sizeof(decision_margin), "NA");
     written = snprintf(line, sizeof(line),
-        "%s,%s,%ld,%s,%s,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%s,%u,%u,%s",
+        "%s,%s,%ld,%s,%s,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%s,%.9f,%s,%u,%u,%s",
         timestamp, app_id, pid, entity_id, classification, classification_score,
         factors->values[0], factors->values[1], factors->values[2], factors->values[3],
         factors->values[4], factors->values[5], factors->values[6], factors->values[7],
         factors->values[8], factors->values[9], result->raw_memory, result->raw_thread,
         context->memory_bias, context->thread_bias, result->final_memory, result->final_thread,
-        config->epsilon, result->decision, context->weight_version, context->bias_version, status);
+        decision_margin, config->epsilon, result->decision, context->weight_version, context->bias_version, status);
     if (written < 0 || (size_t)written >= sizeof(line))
         return -1;
     fprintf(output, "%s\n", line);

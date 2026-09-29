@@ -15,8 +15,15 @@ typedef enum {
 typedef enum {
     GATE_PASS,
     GATE_FAIL,
-    GATE_INVALID
+    GATE_INVALID,
+    GATE_NOT_APPLICABLE
 } GateStatus;
+
+typedef enum {
+    DECISION_EVIDENCE_UNAVAILABLE,
+    DECISION_EVIDENCE_UTILITY_POLICY,
+    DECISION_EVIDENCE_EMPIRICAL_GAIN_COST
+} DecisionEvidenceModel;
 
 typedef struct {
     bool available;
@@ -55,6 +62,34 @@ typedef struct {
     double estimated_cost;
     bool gain_available;
     bool cost_available;
+    DecisionEvidenceModel evidence_model;
+    /* Exact Phase 5 decision-engine evidence; no utility is recalculated here. */
+    bool phase5_evidence_available;
+    char phase5_timestamp[32];
+    uint64_t phase5_runtime_generation;
+    bool phase5_runtime_generation_available;
+    char phase5_evidence_provenance[48];
+    char phase5_classification[16];
+    char phase5_decision_status[64];
+    double phase5_classification_score;
+    bool phase5_classification_score_available;
+    double phase5_factors[10];
+    bool phase5_factor_available[10];
+    double phase5_memory_score_raw;
+    double phase5_thread_score_raw;
+    double phase5_memory_bias;
+    double phase5_thread_bias;
+    double phase5_memory_score_final;
+    double phase5_thread_score_final;
+    bool phase5_utility_available;
+    /* Dimensionless final-utility difference, not measured performance gain. */
+    double phase5_decision_margin;
+    bool phase5_decision_margin_available;
+    double phase5_epsilon;
+    bool phase5_epsilon_available;
+    unsigned phase5_weight_version;
+    unsigned phase5_bias_version;
+    bool phase5_versions_available;
 } DecisionData;
 
 typedef struct {

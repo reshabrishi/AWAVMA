@@ -15,6 +15,11 @@ GateResult EvaluateROIGate(const DecisionData *decision,
         snprintf(result.reason, sizeof(result.reason), "REJECT_INVALID_INPUT");
         return result;
     }
+    if (decision->evidence_model == DECISION_EVIDENCE_UTILITY_POLICY) {
+        result.status = GATE_NOT_APPLICABLE;
+        snprintf(result.reason, sizeof(result.reason), "ROI_NOT_APPLICABLE_TO_UTILITY_MODEL");
+        return result;
+    }
     if (!decision->gain_available || !decision->cost_available ||
         !isfinite(decision->predicted_gain) || !isfinite(decision->estimated_cost) ||
         decision->predicted_gain < 0.0 || decision->predicted_gain > 100.0 ||

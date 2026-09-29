@@ -234,7 +234,7 @@ These are deliberate safety boundaries, not omitted result claims.
 | 4-app throughput change | -0.792% | Small measured aggregate impact |
 | 8-app throughput change | -1.372% | Small measured aggregate impact |
 | 8-app Jain fairness | 1.000 | Even service distribution |
-| Queue saturation | 0 | Worker queue did not saturate |
+| Queue saturation | 0 | Worker queue did not saturate |R
 | Deferrals | 0 | No queue-full deferrals |
 | Discovery-time reduction | 65.4% | Accepted optimization |
 | Discovery detection latency | 249.4 ms | Within <=350 ms gate |

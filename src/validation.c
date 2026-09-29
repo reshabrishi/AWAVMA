@@ -196,7 +196,9 @@ ValidationResult ValidateMigration(const MonitorData *monitor,
     result.confidence_status = confidence.status;
     result.roi_status = roi.status;
     result.safety_status = safety.status;
-    if (confidence.status == GATE_INVALID || roi.status == GATE_INVALID || safety.status == GATE_INVALID) {
+    if (confidence.status == GATE_INVALID ||
+        (roi.status == GATE_INVALID && decision->evidence_model != DECISION_EVIDENCE_UTILITY_POLICY) ||
+        safety.status == GATE_INVALID) {
         if (strcmp(safety.reason, "REJECT_PAGE_LOCKED") == 0 ||
             strcmp(safety.reason, "REJECT_MEMORY_PINNED") == 0 ||
             strcmp(safety.reason, "REJECT_COOLDOWN") == 0 ||
@@ -230,6 +232,20 @@ ValidationResult ValidateMigration(const MonitorData *monitor,
     if (safety.status == GATE_FAIL) {
         snprintf(result.validation_status, sizeof(result.validation_status), "REJECT_UNSAFE");
         snprintf(result.final_decision, sizeof(result.final_decision), "REJECTED");
+        return result;
+    }
+    if (decision->evidence_model == DECISION_EVIDENCE_UTILITY_POLICY) {
+        if (roi.status != GATE_NOT_APPLICABLE) {
+            snprintf(result.validation_status, sizeof(result.validation_status), "REJECT_INVALID_INPUT");
+            snprintf(result.final_decision, sizeof(result.final_decision), "REJECTED");
+            return result;
+        }
+        /* Utility-policy evidence has no physical ROI scale or combined ROI score. */
+        result.validation_score = -1.0;
+        snprintf(result.validation_status, sizeof(result.validation_status),
+                 "PASS_ROI_NOT_APPLICABLE_TO_UTILITY_MODEL");
+        snprintf(result.final_decision, sizeof(result.final_decision), "APPROVED");
+        copy_identity(&result, decision);
         return result;
     }
     result = CalculateValidationScore(&confidence, &roi, &safety, &active_config);

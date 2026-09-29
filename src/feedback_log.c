@@ -29,7 +29,7 @@ static long long epoch_seconds(void)
 
 static void write_header(FILE *file)
 {
-    fputs("timestamp,feedback_id,migration_id,app_id,pid,entity_id,action,phase6_validation,migration_result,", file);
+    fputs("timestamp,feedback_id,migration_id,app_id,pid,start_time_ticks,entity_id,action,phase6_validation,migration_result,event_kind,terminal_outcome,target_selection_reason,structural_validation_known,structural_validation_succeeded,progress_known,progress_observed,benefit_known,", file);
     fputs("before_throughput,after_throughput,before_execution_time,after_execution_time,before_latency,after_latency,before_page_faults,after_page_faults,", file);
     fputs("before_samples,after_samples,raw_reward,effective_reward,feedback_confidence,historical_relevance,metrics_used,processing_time_ms,feedback_class,update_status,reason,", file);
     for (int action = 0; action < 2; action++)
@@ -46,7 +46,7 @@ static void write_header(FILE *file)
                     prefix, decision_factor_name((decision_factor_t)factor),
                     prefix, decision_factor_name((decision_factor_t)factor));
         }
-    fputs("old_memory_bias,effective_reward_memory_bias,learning_rate_memory_bias,delta_memory_bias,new_memory_bias,old_thread_bias,effective_reward_thread_bias,learning_rate_thread_bias,delta_thread_bias,new_thread_bias,history_relevance_epoch\n", file);
+    fputs("old_memory_bias,effective_reward_memory_bias,learning_rate_memory_bias,delta_memory_bias,new_memory_bias,old_thread_bias,effective_reward_thread_bias,learning_rate_thread_bias,delta_thread_bias,new_thread_bias,history_relevance_epoch,benefit_classification,benefit_reason,phase5_evidence_provenance,phase5_runtime_generation,phase5_migration_id,phase6_migration_id,page_checkpoint_known,page_checkpoint_complete,requested_page_count,known_page_count,unknown_page_count,page_checkpoint_result,page_rollback_known,page_rollback_attempted,page_rollback_result,page_rollback_requested_count,page_rollback_restored_count,page_rollback_failed_count,page_rollback_verified_count\n", file);
 }
 
 static void write_metric(FILE *file, const FeedbackEvent *event, FeedbackMetric metric, bool before)
@@ -71,16 +71,26 @@ static int append_record(const char *path, const FeedbackEvent *event, const Fee
     }
     if (position == 0)
         write_header(file);
-    fprintf(file, "%s,%s,%s,%s,%ld,%s,%s,%s,%s,",
+    fprintf(file, "%s,%s,%s,%s,%ld,%llu,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,",
             event != NULL ? event->timestamp : "UNKNOWN",
             event != NULL ? event->feedback_id : "UNKNOWN",
             event != NULL ? event->migration_id : "UNKNOWN",
             event != NULL ? event->app_id : "UNKNOWN",
             event != NULL ? event->pid : 0L,
+            (unsigned long long)(event != NULL && event->start_time_ticks_available ? event->start_time_ticks : 0),
             event != NULL ? event->entity_id : "UNKNOWN",
             event != NULL ? action_name(event->action) : "UNKNOWN",
             event != NULL ? event->phase6_validation : "UNKNOWN",
-            event != NULL ? event->migration_result : "UNKNOWN");
+            event != NULL ? event->migration_result : "UNKNOWN",
+            event != NULL && event->event_kind == FEEDBACK_EVENT_MIGRATION_TERMINAL ? "TERMINAL" : "OBSERVATION",
+            event != NULL && event->event_kind == FEEDBACK_EVENT_MIGRATION_TERMINAL ?
+                FeedbackTerminalOutcomeName(event->terminal_outcome) : "NA",
+            event != NULL ? event->target_selection_reason : "",
+            event != NULL && event->structural_validation_known ? "true" : "false",
+            event != NULL && event->structural_validation_succeeded ? "true" : "false",
+            event != NULL && event->progress_known ? "true" : "false",
+            event != NULL && event->progress_observed ? "true" : "false",
+            event != NULL && event->benefit_known ? "true" : "false");
     for (int metric = 0; metric < (int)FEEDBACK_METRIC_COUNT; metric++) {
         write_metric(file, event, (FeedbackMetric)metric, true);
         fputc(',', file);
@@ -111,11 +121,32 @@ static int append_record(const char *path, const FeedbackEvent *event, const Fee
                     action == DECISION_MEMORY ? active_config.learning_rate : active_config.learning_rate,
                     delta, new_value);
         }
-    fprintf(file, "%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%lld\n",
+    fprintf(file, "%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%lld,%s,%s,%s,%llu,%s,%s,%s,%s,%zu,%zu,%zu,%s,%s,%s,%s,%zu,%zu,%zu,%zu\n",
             result->state.old_memory_bias, result->effective_reward, active_config.bias_learning_rate,
             result->applied_update.memory_bias_delta, result->state.new_memory_bias,
             result->state.old_thread_bias, result->effective_reward, active_config.bias_learning_rate,
-            result->applied_update.thread_bias_delta, result->state.new_thread_bias, now);
+             result->applied_update.thread_bias_delta, result->state.new_thread_bias, now,
+             event != NULL && event->benefit_classification_available ?
+             benefit_classification_name(event->benefit_classification) : "BENEFIT_CLASSIFICATION_UNAVAILABLE",
+             event != NULL ? event->benefit_reason : "",
+             event != NULL ? event->phase5_evidence_provenance : "",
+             (unsigned long long)(event != NULL && event->phase5_runtime_generation_available ?
+                                  event->phase5_runtime_generation : 0),
+             event != NULL ? event->phase5_migration_id : "",
+             event != NULL ? event->phase6_migration_id : "",
+             event != NULL && event->page_checkpoint_known ? "true" : "false",
+             event != NULL && event->page_checkpoint_complete ? "true" : "false",
+             event != NULL ? event->requested_page_count : 0,
+             event != NULL ? event->known_page_count : 0,
+             event != NULL ? event->unknown_page_count : 0,
+             event != NULL ? event->page_checkpoint_result : "",
+             event != NULL && event->page_rollback_known ? "true" : "false",
+             event != NULL && event->page_rollback_attempted ? "true" : "false",
+             event != NULL ? event->page_rollback_result : "",
+             event != NULL ? event->page_rollback_requested_count : 0,
+             event != NULL ? event->page_rollback_restored_count : 0,
+             event != NULL ? event->page_rollback_failed_count : 0,
+             event != NULL ? event->page_rollback_verified_count : 0);
     if (fflush(file) != 0) {
         fclose(file);
         return -1;

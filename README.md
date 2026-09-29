@@ -183,6 +183,8 @@ make awavma-runtime
 | `make` | Builds the core phase executables and generates Phase 9 graphs. |
 | `make awavma-runtime` | Builds classifier, decision, validation, and the integrated runtime. |
 | `make test-runtime` | Runs runtime and target-filter tests. |
+| `make test-thread-target-policy` | Runs conservative Phase 5 thread target-selection policy coverage. |
+| `make phase5-thread-target-policy` | Alias for the Phase 5 thread target-selection policy test target. |
 | `make test-continuous-monitor` | Runs discovery, manager, worker-pool, and continuous-monitoring coverage. |
 | `make test-final-integration` | Publishes final Phase 2-9 integration evidence. |
 | `make test-system-regression` | Runs the system-wide regression report. |
@@ -273,6 +275,39 @@ The primary multi-application study used the mixed pattern, one thread and 8 MiB
 - Phase 4/5/6 use subprocesses in the accepted runtime. The experimental Phase 4 in-process mode was rejected after whole-pipeline throughput regressions.
 - Cache-reference and cache-miss monitoring depends on permitted `perf_event_open()` access; this was unavailable in the recorded environment.
 - The runtime is Linux-specific and depends on `/proc` and Linux scheduling/NUMA interfaces. It is a foreground executable, not a deployed system daemon.
+
+## Migration Safety And Recovery
+
+Phase 7 is protected by a coordinator-owned migration safety manager. It is deliberately separate from the Phase 6 `safety.h` gate and does not run in Phase 3 workers. A migration attempt has an identity-bound checkpoint, an attempt ID, explicit state transitions, bounded controller-side timing, attempt-bound structural verification, and a single terminal finalizer.
+
+```text
+Monitoring -> Analysis -> Decision -> Validation -> Migration Safety Manager
+                                                   |
+                                                   +-> rejected / metadata unavailable
+                                                   |
+                                                   v
+                                             Phase 7 migration
+                                                   |
+                                                   v
+                                      post-migration verification
+                                      /          |             \
+                                commit       rollback        timeout/quarantine
+                                      \          |             /
+                                                   v
+                                             Phase 8 feedback
+                                                   |
+                                           app safety history
+                                                   |
+                                              monitoring
+```
+
+`migration_safety_enabled` and `migration_execution_enabled` are independent. Both default to `false`; enabling safety alone records an explicit terminal rejection when verified placement metadata is unavailable. The current one-node runtime supplies no verified cross-node placement or page-region, so it cannot execute a NUMA-changing migration even if execution is requested. When an executable attempt is authorized, it collects identity- and affinity-bound BEFORE/AFTER snapshots; these verify structure and requested affinity only, not benefit or degradation.
+
+The manager revalidates `(pid, start_time_ticks)` before an attempt and before any state update. Unknown placement stays unavailable, never becoming node 0 or a valid request. It tracks failures per application identity, suppresses a recent equivalent failed action, enters cooldown after the configured limit, and quarantines only the affected application after further failures. Monitoring continues while an application is cooling down or quarantined.
+
+Thread-affinity rollback is only available when a trustworthy prior affinity has been captured and identity still matches. Memory rollback is best-effort only when verified prior placement remains available; AWAVMA never claims transactional restoration of pages that may have changed concurrently. Runtime structural verification does not classify CPU-time progress, benefit, degradation, or application-level stalls. A safety, persistence, rollback, or feedback failure fails closed for future migrations and never intentionally terminates the monitored application.
+
+Every terminal state is finalized exactly once into a typed Phase 8 terminal event. These events are retained for audit and the manager's per-application safety policy, but do not update Phase 5 weights without a real, comparable successful migration observation.
 
 ## Future Work
 

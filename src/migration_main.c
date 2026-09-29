@@ -204,6 +204,14 @@ static bool set_config_value(MigrationConfig *config, const char *key, const cha
     }
     if (strcmp(key, "migration_verification_enabled") == 0)
         return parse_bool(value, &boolean) ? (config->verification_enabled = boolean, true) : false;
+    if (strcmp(key, "migration_safety_enabled") == 0 ||
+        strcmp(key, "migration_execution_enabled") == 0 ||
+        strcmp(key, "migration_timeout_ms") == 0 ||
+        strcmp(key, "migration_validation_ms") == 0 ||
+        strcmp(key, "migration_failure_limit") == 0 ||
+        strcmp(key, "migration_safety_cooldown_ms") == 0 ||
+        strcmp(key, "migration_suppression_window_ms") == 0)
+        return true;
     return strncmp(key, "migration_", 10) != 0;
 }
 

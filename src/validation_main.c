@@ -43,6 +43,7 @@ typedef struct {
     int thread_locked;
     int in_progress;
     int max_migrations;
+    int evidence_model;
     size_t count;
 } input_columns_t;
 
@@ -310,6 +311,7 @@ static int prepare_columns(char **fields, size_t count, input_columns_t *columns
     columns->thread_locked = column(fields, count, "thread_locked");
     columns->in_progress = column(fields, count, "migration_in_progress");
     columns->max_migrations = column(fields, count, "max_migrations_reached");
+    columns->evidence_model = column(fields, count, "evidence_model");
     return columns->timestamp >= 0 && columns->pid >= 0 && columns->action >= 0;
 }
 
@@ -367,6 +369,18 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
     if (!parse_optional_double(fields, count, columns->gain, &decision->predicted_gain, &decision->gain_available) ||
         !parse_optional_double(fields, count, columns->cost, &decision->estimated_cost, &decision->cost_available))
         return false;
+    if (columns->evidence_model < 0 || (size_t)columns->evidence_model >= count ||
+        unavailable(fields[columns->evidence_model])) {
+        /* Legacy ROI fixtures declare their model through explicit gain/cost inputs. */
+        decision->evidence_model = decision->gain_available && decision->cost_available ?
+            DECISION_EVIDENCE_EMPIRICAL_GAIN_COST : DECISION_EVIDENCE_UNAVAILABLE;
+    } else if (strcmp(fields[columns->evidence_model], "UTILITY_POLICY_EVIDENCE") == 0) {
+        decision->evidence_model = DECISION_EVIDENCE_UTILITY_POLICY;
+    } else if (strcmp(fields[columns->evidence_model], "EMPIRICAL_GAIN_COST_EVIDENCE") == 0) {
+        decision->evidence_model = DECISION_EVIDENCE_EMPIRICAL_GAIN_COST;
+    } else {
+        return false;
+    }
     if (columns->classification >= 0 && (size_t)columns->classification < count && !unavailable(fields[columns->classification])) {
         classifier->available = strcasecmp(fields[columns->classification], "HOT") == 0 ||
                                 strcasecmp(fields[columns->classification], "MODERATE") == 0 ||

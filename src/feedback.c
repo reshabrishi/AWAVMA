@@ -43,7 +43,36 @@ const char *FeedbackStatusName(FeedbackUpdateStatus status)
     case FEEDBACK_UPDATE_NO_UPDATE: return "FEEDBACK_NO_UPDATE";
     case FEEDBACK_UPDATE_INVALID_STATE: return "FEEDBACK_INVALID_STATE";
     case FEEDBACK_UPDATE_INVALID_INPUT: return "FEEDBACK_INVALID_INPUT";
+    case FEEDBACK_UPDATE_TERMINAL_RECORDED: return "FEEDBACK_TERMINAL_RECORDED";
     default: return "FEEDBACK_INVALID_INPUT";
+    }
+}
+
+const char *FeedbackTerminalOutcomeName(FeedbackTerminalOutcome outcome)
+{
+    switch (outcome) {
+    case FEEDBACK_TERMINAL_COMMITTED: return "COMMITTED";
+    case FEEDBACK_TERMINAL_REJECTED: return "REJECTED";
+    case FEEDBACK_TERMINAL_EXECUTION_FAILED: return "EXECUTION_FAILED";
+    case FEEDBACK_TERMINAL_TIMEOUT: return "MIGRATION_TIMEOUT";
+    case FEEDBACK_TERMINAL_DEGRADED: return "DEGRADED";
+    case FEEDBACK_TERMINAL_SUSPECTED_STALL: return "SUSPECTED_STALL";
+    case FEEDBACK_TERMINAL_ROLLBACK_SUCCEEDED: return "ROLLBACK_SUCCEEDED";
+    case FEEDBACK_TERMINAL_ROLLBACK_FAILED: return "ROLLBACK_FAILED";
+    case FEEDBACK_TERMINAL_COOLDOWN: return "COOLDOWN";
+    case FEEDBACK_TERMINAL_QUARANTINED: return "QUARANTINED";
+    case FEEDBACK_TERMINAL_TARGET_GONE: return "TARGET_GONE";
+    case FEEDBACK_TERMINAL_IDENTITY_CHANGED: return "IDENTITY_CHANGED";
+    case FEEDBACK_TERMINAL_SUPPRESSED: return "ACTION_TEMPORARILY_SUPPRESSED";
+    case FEEDBACK_TERMINAL_VALIDATION_UNKNOWN: return "VALIDATION_UNKNOWN";
+    case FEEDBACK_TERMINAL_EXECUTION_DISABLED: return "EXECUTION_DISABLED";
+    case FEEDBACK_TERMINAL_TARGET_UNAVAILABLE: return "TARGET_UNAVAILABLE";
+    case FEEDBACK_TERMINAL_NO_ALTERNATE_TARGET: return "NO_ALTERNATE_TARGET";
+    case FEEDBACK_TERMINAL_TARGET_INVALID: return "TARGET_INVALID";
+    case FEEDBACK_TERMINAL_TARGET_STALE: return "TARGET_STALE";
+    case FEEDBACK_TERMINAL_TARGET_IDENTITY_MISMATCH: return "TARGET_IDENTITY_MISMATCH";
+    case FEEDBACK_TERMINAL_TARGET_TOPOLOGY_UNAVAILABLE: return "TARGET_TOPOLOGY_UNAVAILABLE";
+    default: return "UNKNOWN";
     }
 }
 
@@ -241,6 +270,20 @@ FeedbackUpdateStatus ProcessFeedback(const FeedbackEvent *event, FeedbackResult 
         result->feedback_class = FEEDBACK_INVALID_INPUT;
         snprintf(result->reason, sizeof(result->reason), "event is invalid or module is not initialized");
         result->update_status = FEEDBACK_UPDATE_INVALID_INPUT;
+        RETURN_FEEDBACK(result->update_status);
+    }
+    if (event->event_kind == FEEDBACK_EVENT_MIGRATION_TERMINAL) {
+        if (!valid_event_values(event)) {
+            result->feedback_class = FEEDBACK_INVALID_INPUT;
+            result->update_status = FEEDBACK_UPDATE_INVALID_INPUT;
+            snprintf(result->reason, sizeof(result->reason), "terminal event contains invalid identity");
+        } else {
+            result->feedback_class = FEEDBACK_NOT_LEARNABLE;
+            result->update_status = FEEDBACK_UPDATE_TERMINAL_RECORDED;
+            snprintf(result->reason, sizeof(result->reason), "%s",
+                     event->terminal_reason[0] != '\0' ? event->terminal_reason :
+                     FeedbackTerminalOutcomeName(event->terminal_outcome));
+        }
         RETURN_FEEDBACK(result->update_status);
     }
     if (event->action == VALIDATION_ACTION_NO_MIGRATION || event->action == VALIDATION_ACTION_INSUFFICIENT) {

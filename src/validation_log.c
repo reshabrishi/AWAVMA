@@ -19,7 +19,8 @@ static size_t log_count;
 
 static const char *gate_name(GateStatus status)
 {
-    return status == GATE_PASS ? "PASS" : status == GATE_FAIL ? "FAIL" : "INVALID";
+    return status == GATE_PASS ? "PASS" : status == GATE_FAIL ? "FAIL" :
+           status == GATE_NOT_APPLICABLE ? "NOT_APPLICABLE" : "INVALID";
 }
 
 static const char *action_name(ValidationAction action)

@@ -102,6 +102,21 @@ int main(void)
     assert(confidence.status == GATE_INVALID);
     assert(confidence.score == -1.0);
 
+    decision = test_decision();
+    decision.evidence_model = DECISION_EVIDENCE_UTILITY_POLICY;
+    decision.gain_available = false;
+    decision.cost_available = false;
+    classifier = test_classifier();
+    assert(Validation_Init(&config));
+    validation = ValidateMigration(&monitor, &decision, &classifier);
+    assert(validation.confidence_status == GATE_PASS);
+    assert(validation.safety_status == GATE_PASS);
+    assert(validation.roi_status == GATE_NOT_APPLICABLE);
+    assert(validation.roi_score == -1.0);
+    assert(strcmp(validation.validation_status, "PASS_ROI_NOT_APPLICABLE_TO_UTILITY_MODEL") == 0);
+    assert(strcmp(validation.final_decision, "APPROVED") == 0);
+    Validation_Shutdown();
+
     config.validation_threshold = NAN;
     assert(!Validation_Init(&config));
     return 0;

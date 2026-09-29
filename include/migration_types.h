@@ -33,6 +33,10 @@ typedef struct {
     pid_t pid;
     uint64_t start_time_ticks;
     bool start_time_ticks_available;
+    /* Runtime binds pre-attempt Phase 5/6 evidence to the generated attempt. */
+    bool benefit_evidence_bound;
+    uint64_t benefit_evidence_runtime_generation;
+    char benefit_evidence_attempt_id[128];
     pid_t tid;
     int source_numa_node;
     int destination_numa_node;
@@ -43,6 +47,8 @@ typedef struct {
     void **pages;
     size_t page_count;
     bool page_metadata_available;
+    /* True only when an upstream page selector supplied these exact addresses. */
+    bool page_addresses_authoritative;
     bool memory_region_verified;
     bool explicit_placement_required;
     bool memory_locked;

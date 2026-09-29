@@ -34,6 +34,7 @@ typedef struct {
 
 const char *FeedbackClassName(FeedbackClass feedback_class);
 const char *FeedbackStatusName(FeedbackUpdateStatus status);
+const char *FeedbackTerminalOutcomeName(FeedbackTerminalOutcome outcome);
 bool Feedback_Init(const FeedbackConfig *config);
 FeedbackUpdateStatus ProcessFeedback(const FeedbackEvent *event,
                                      FeedbackResult *result);

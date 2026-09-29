@@ -18,6 +18,22 @@ static char log_path[1024];
 static FeedbackConfig config;
 static int failures;
 
+static bool file_contains(const char *path, const char *text)
+{
+    char line[4096];
+    FILE *file = fopen(path, "r");
+
+    if (file == NULL)
+        return false;
+    while (fgets(line, sizeof(line), file) != NULL)
+        if (strstr(line, text) != NULL) {
+            fclose(file);
+            return true;
+        }
+    fclose(file);
+    return false;
+}
+
 static void report_test(const char *name, const char *expected, const char *actual, bool pass)
 {
     printf("%s | %s | %s | %s\n", name, expected, actual, pass ? "PASS" : "FAIL");
@@ -445,6 +461,20 @@ int main(void)
     snprintf(event.migration_result, sizeof(event.migration_result), "MIGRATION_INSUFFICIENT_INFORMATION");
     integration_status = ProcessFeedback(&event, &result);
     report_test("I05", "real insufficient pipeline produces no learning", FeedbackStatusName(integration_status), integration_status == FEEDBACK_UPDATE_NO_UPDATE);
+
+    event = event_for("APP_TERMINAL", "F29", VALIDATION_ACTION_MOVE_MEMORY, true);
+    event.event_kind = FEEDBACK_EVENT_MIGRATION_TERMINAL;
+    event.terminal_outcome = FEEDBACK_TERMINAL_ROLLBACK_FAILED;
+    snprintf(event.terminal_reason, sizeof(event.terminal_reason), "rollback could not be completed");
+    snprintf(event.target_selection_reason, sizeof(event.target_selection_reason),
+             "THREAD_TARGET_NO_ALLOWED_ALTERNATE");
+    integration_status = ProcessFeedback(&event, &result);
+    report_test("F29", "terminal migration safety event is persisted without learning",
+                 FeedbackStatusName(integration_status),
+                 integration_status == FEEDBACK_UPDATE_TERMINAL_RECORDED &&
+                 result.feedback_class == FEEDBACK_NOT_LEARNABLE &&
+                 file_contains(history_path, "target_selection_reason") &&
+                 file_contains(history_path, "THREAD_TARGET_NO_ALLOWED_ALTERNATE"));
 
     remove_state();
     for (int index = 0; index < 12; index++) {
