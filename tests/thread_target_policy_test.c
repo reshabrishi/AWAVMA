@@ -320,10 +320,12 @@ int main(void)
 
     input = input_for();
     input.action = VALIDATION_ACTION_MOVE_MEMORY;
-    test_passed = thread_target_policy_select(&input, &two, &target) ==
-                      MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE &&
-                  terminal_policy_once(&input, &two, MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE);
-    report("TS11_PAGE_ACTION_RECOVERY_UNAVAILABLE", test_passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
+                  target.action == VALIDATION_ACTION_MOVE_MEMORY &&
+                  target.source_node_known && target.source_numa_node == 0 &&
+                  target.has_target_numa_node && target.target_numa_node == 1 &&
+                  target.candidate_count == 1;
+    report("TS11_MEMORY_TARGET_SINGLE_ALTERNATE", test_passed);
     suite_passed = suite_passed && test_passed;
 
     test_passed = selected_execution_disabled();
