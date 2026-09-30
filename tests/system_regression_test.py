@@ -265,12 +265,41 @@ def fixture_safety(run: SystemRun) -> None:
 
 
 def static_audit(run: SystemRun) -> None:
-    migration_sources = [path for path in (ROOT / "src").glob("*.c") if any(token in path.read_text(encoding="utf-8") for token in ("move_pages", "sched_setaffinity", "migrate_pages"))]
+    operation = re.compile(r"\b(?:sched_setaffinity|migrate_pages|move_pages)\s*\(|"
+                           r"\bsyscall\s*\(\s*SYS_move_pages\s*,")
+    source_texts = {path.name: path.read_text(encoding="utf-8")
+                    for path in (ROOT / "src").glob("*.c")}
+    migration_sources = sorted(name for name, text in source_texts.items() if operation.search(text))
+    expected_migration_sources = sorted(("migration.c", "page_checkpoint.c", "page_rollback.c",
+                                         "runtime_migration_metadata.c", "awavma_runtime.c"))
+    checkpoint_query = re.compile(r"syscall\s*\(\s*SYS_move_pages\s*,\s*pid\s*,\s*page_count\s*,"
+                                  r"\s*pages\s*,\s*NULL\s*,\s*status\s*,\s*0\s*\)")
+    rollback_move = re.compile(r"syscall\s*\(\s*SYS_move_pages\s*,.*?MPOL_MF_MOVE", re.DOTALL)
+    rollback_query = re.compile(r"syscall\s*\(\s*SYS_move_pages\s*,\s*pid\s*,\s*count\s*,"
+                                 r"\s*pages\s*,\s*NULL\s*,\s*status\s*,\s*0\s*\)")
+    checkpoint_text = source_texts["page_checkpoint.c"]
+    rollback_text = source_texts["page_rollback.c"]
+    metadata_text = source_texts["runtime_migration_metadata.c"]
+    runtime_owner_text = source_texts["awavma_runtime.c"]
+    runtime_affinity = runtime_owner_text.find("sched_setaffinity(")
+    testing_start = runtime_owner_text.rfind("#ifdef AWAVMA_RUNTIME_TESTING", 0, runtime_affinity)
+    testing_end = runtime_owner_text.find("#endif", runtime_affinity)
+    metadata_restore = metadata_text.find("RuntimeMigrationRollbackResult runtime_migration_restore_affinity")
+    checkpoint_query_only = bool(checkpoint_query.search(checkpoint_text)) and "MPOL_MF_MOVE" not in checkpoint_text
+    rollback_recovery = bool(rollback_move.search(rollback_text) and rollback_query.search(rollback_text))
+    metadata_restore_only = metadata_text.count("sched_setaffinity(") == 1 and metadata_restore >= 0 and \
+        metadata_text.find("sched_setaffinity(", metadata_restore) >= 0 and \
+        "runtime_get_migration_metadata(checkpoint->pid, checkpoint->start_time_ticks, &current)" in metadata_text and \
+        "sched_getaffinity(checkpoint->pid, sizeof(restored), &restored)" in metadata_text
+    runtime_test_only = runtime_owner_text.count("sched_setaffinity(") == 1 and runtime_affinity >= 0 and \
+        testing_start >= 0 and testing_end > runtime_affinity
     runtime_text = (ROOT / "src/runtime_monitor.c").read_text(encoding="utf-8")
     discovery_text = (ROOT / "src/application_discovery.c").read_text(encoding="utf-8")
     worker_text = (ROOT / "src/worker_pool.c").read_text(encoding="utf-8")
     graph_text = (ROOT / "scripts/generate_graphs.py").read_text(encoding="utf-8")
-    checks = (("Y-MIGRATION-OWNER", "Phase 7 owns migration syscalls", [path.name for path in migration_sources] == ["migration.c"]),
+    checks = (("Y-MIGRATION-OWNER", "Phase 7, checkpoint, rollback, and test hooks own migration syscalls",
+               migration_sources == expected_migration_sources and checkpoint_query_only and rollback_recovery and
+               metadata_restore_only and runtime_test_only),
               ("Y-RUNTIME-BOUNDARY", "runtime monitor excludes migration/feedback/validation", not any(token in runtime_text for token in ("move_pages", "sched_setaffinity", "Feedback_", "Validation_"))),
               ("Y-DISCOVERY-READONLY", "discovery excludes migration operations", not any(token in discovery_text for token in ("move_pages", "sched_setaffinity", "Migration_"))),
               ("Y-WORKER-GENERIC", "worker pool excludes migration and adaptive state", not any(token in worker_text for token in ("move_pages", "Feedback_", "biases.csv"))),
