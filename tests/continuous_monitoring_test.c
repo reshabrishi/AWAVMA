@@ -159,7 +159,6 @@ static int make_stack(const paths_t *paths, filter_context_t *filter,
     runtime_monitor_config_t monitor_config;
 
     application_manager_config_default(&manager_config);
-    manager_config.max_applications = 512;
     manager_config.log_path = paths->manager_log;
     manager_config.results_path = paths->manager_results;
     manager_config.table_path = paths->manager_table;
