@@ -14,18 +14,20 @@ MEMORY_MB=1024
 WORKLOAD=mixed
 LOCAL_NODE=
 REMOTE_NODE=
+CALIBRATION_FILE=
 
 usage() {
     cat <<'EOF'
-Usage: scripts/run_full_experiment.sh [--check-only|--tests-only|--baseline-only|--awavma-only] [--skip-graphs] [--output-dir DIR]
+Usage: scripts/run_full_experiment.sh [--check-only|--tests-only|--baseline-only|--awavma-only] [--skip-graphs] [--output-dir DIR] [--calibration FILE]
 
-Public options (exactly six):
+Public options:
   --check-only      validate the allocation without collecting
   --tests-only      build and run the required project tests
   --baseline-only   collect the three baseline scenarios
   --awavma-only     collect the AWAVMA scenario
   --skip-graphs     aggregate but do not generate graphs
   --output-dir DIR  collection root (default: results/cloudlab)
+  --calibration FILE  validated benefit calibration required for adaptive AWAVMA execution
 EOF
 }
 
@@ -38,6 +40,7 @@ while (($#)); do
         --awavma-only) MODE=awavma ;;
         --skip-graphs) SKIP_GRAPHS=true ;;
         --output-dir) need_value "$@"; OUTPUT_DIR=$2; shift ;;
+        --calibration) need_value "$@"; CALIBRATION_FILE=$2; shift ;;
         *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
     shift
@@ -65,7 +68,7 @@ preflight() {
 }
 run_required_tests() {
     make -C "$ROOT" test-runtime test-awavma-runtime test-runtime-migration-validation \
-        test-phase5-benefit-evidence test-decision-benefit-evidence test-validation \
+        test-benefit-calibration test-phase5-benefit-evidence test-decision-benefit-evidence test-validation \
         test-migration test-feedback test-phase4d-tooling test-phase4d-aggregation
 }
 
@@ -85,7 +88,7 @@ fi
 EXPERIMENT_ID="phase4d-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_DIR="$OUTPUT_DIR/raw/$EXPERIMENT_ID"
 [[ ! -e "$RUN_DIR" ]] || { printf 'run directory already exists: %s\n' "$RUN_DIR" >&2; exit 2; }
-mkdir -p "$RUN_DIR/metadata" "$RUN_DIR/baseline/logs" "$RUN_DIR/awavma/logs" "$RUN_DIR/awavma/runtime"
+mkdir -p "$RUN_DIR/metadata" "$RUN_DIR/baseline/logs" "$RUN_DIR/baseline/native" "$RUN_DIR/awavma/logs" "$RUN_DIR/awavma/native" "$RUN_DIR/awavma/runtime"
 
 # Required order: metadata, build, tests, environment check, preflight,
 # baseline, AWAVMA, aggregate, graphs, manifests.
@@ -99,10 +102,10 @@ locale >"$RUN_DIR/metadata/locale.txt"
 (gcc --version || cc --version) >"$RUN_DIR/metadata/compiler.txt" 2>&1
 git -C "$ROOT" rev-parse HEAD >"$RUN_DIR/metadata/git_revision.txt" 2>/dev/null || true
 git -C "$ROOT" status --short >"$RUN_DIR/metadata/git_status.txt" 2>/dev/null || true
-printf '%s\n' 'schema_version,experiment_id,timestamp_utc,run_id,scenario,workload,repetition,thread_node,memory_node,runtime_enabled,threads,memory_mb,duration_seconds,elapsed_seconds,exit_code,status' >"$RUN_DIR/measurements.csv"
+printf '%s\n' 'schema_version,experiment_id,timestamp_utc,run_id,scenario,workload,repetition,thread_node,memory_node,runtime_enabled,threads,memory_mb,duration_seconds,elapsed_seconds,operations,benchmark_execution_time_sec,throughput_ops_sec,exit_code,status' >"$RUN_DIR/measurements.csv"
 
 run_one() {
-    local scenario=$1 repetition=$2 directory placement=() runtime=false code=0 start end elapsed status=FAILED
+    local scenario=$1 repetition=$2 directory placement=() numa_args=() runtime=false code=0 runtime_code=0 start end elapsed status=FAILED native_csv operations= execution_time= throughput=
     local thread_node= memory_node=
     case "$scenario" in
         baseline-default) directory="$RUN_DIR/baseline" ;;
@@ -110,22 +113,27 @@ run_one() {
         baseline-remote) directory="$RUN_DIR/baseline"; placement=(numactl "--cpunodebind=$LOCAL_NODE" "--membind=$REMOTE_NODE"); thread_node=$LOCAL_NODE; memory_node=$REMOTE_NODE ;;
         awavma) directory="$RUN_DIR/awavma"; placement=(numactl "--cpunodebind=$LOCAL_NODE" "--membind=$LOCAL_NODE"); thread_node=$LOCAL_NODE; memory_node=$LOCAL_NODE; runtime=true ;;
     esac
+    [[ -n "$thread_node" ]] && numa_args=(--thread-node "$thread_node" --memory-node "$memory_node")
+    native_csv="$directory/native/$scenario-$repetition.csv"
     start=$(date +%s%N)
     if [[ "$scenario" == awavma ]]; then
-        "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
+        [[ -n "$CALIBRATION_FILE" ]] || { printf 'awavma execution requires --calibration FILE\n' >&2; return 1; }
+        "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" "${numa_args[@]}" --output "$native_csv" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
         local benchmark_pid=$!
-        "$ROOT/bin/awavma-runtime" --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" --root-dir "$RUN_DIR/awavma/runtime/$repetition" --config "$ROOT/config/awavma.conf" >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
+        "$ROOT/bin/awavma-runtime" --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" --root-dir "$RUN_DIR/awavma/runtime/$repetition" --config "$ROOT/config/awavma.conf" --migration-safety-enabled --migration-execution-enabled --benefit-calibration "$CALIBRATION_FILE" >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
         local runtime_pid=$!
         wait "$benchmark_pid" || code=$?
         kill -TERM "$runtime_pid" 2>/dev/null || true
-        wait "$runtime_pid" || true
+        wait "$runtime_pid" || runtime_code=$?
+        [[ "$runtime_code" == 0 ]] || code=$runtime_code
     else
-        "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 || code=$?
+        "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" "${numa_args[@]}" --output "$native_csv" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 || code=$?
     fi
     end=$(date +%s%N)
     elapsed=$(printf '%d.%09d' $(((end - start) / 1000000000)) $(((end - start) % 1000000000)))
     [[ "$code" == 0 ]] && status=MEASURED
-    printf '%s\n' "4,$EXPERIMENT_ID,$(date -u +%Y-%m-%dT%H:%M:%SZ),$EXPERIMENT_ID-$scenario-$repetition,$scenario,$WORKLOAD,$repetition,$thread_node,$memory_node,$runtime,$THREADS,$MEMORY_MB,$DURATION_SECONDS,$elapsed,$code,$status" >>"$RUN_DIR/measurements.csv"
+    if [[ "$status" == MEASURED ]]; then IFS=, read -r _ _ _ _ _ _ _ _ _ operations execution_time throughput < <(tail -n 1 "$native_csv"); fi
+    printf '%s\n' "4,$EXPERIMENT_ID,$(date -u +%Y-%m-%dT%H:%M:%SZ),$EXPERIMENT_ID-$scenario-$repetition,$scenario,$WORKLOAD,$repetition,$thread_node,$memory_node,$runtime,$THREADS,$MEMORY_MB,$DURATION_SECONDS,$elapsed,$operations,$execution_time,$throughput,$code,$status" >>"$RUN_DIR/measurements.csv"
     [[ "$status" == MEASURED ]]
 }
 

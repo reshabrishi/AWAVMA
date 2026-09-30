@@ -21,7 +21,7 @@ ADAPTERS = {
     "phase7": ("migration", {"timestamp_utc":("timestamp",),"run_id":("migration_id",),"migrations":("successful",),"migration_execution_ms":("execution_time_ms",),"status":("result",)}),
     "phase8": ("feedback", {"timestamp_utc":("timestamp",),"run_id":("feedback_id",),"feedback_reward":("effective_reward",),"status":("update_status","feedback_class")} ),
     "runtime": ("runtime", {"run_id":("app_id",),"status":("status",)}),
-    "performance": ("measurement", {"timestamp_utc":("timestamp_utc",),"run_id":("run_id",),"scenario":("scenario",),"workload":("workload",),"repetition":("repetition",),"thread_node":("thread_node",),"memory_node":("memory_node",),"runtime_enabled":("runtime_enabled",),"threads":("threads",),"memory_mb":("memory_mb",),"duration_seconds":("duration_seconds",),"elapsed_seconds":("elapsed_seconds",),"exit_code":("exit_code",),"status":("status",)}),
+    "performance": ("measurement", {"timestamp_utc":("timestamp_utc",),"run_id":("run_id",),"scenario":("scenario",),"workload":("workload",),"repetition":("repetition",),"thread_node":("thread_node",),"memory_node":("memory_node",),"runtime_enabled":("runtime_enabled",),"threads":("threads",),"memory_mb":("memory_mb",),"duration_seconds":("duration_seconds",),"elapsed_seconds":("benchmark_execution_time_sec","elapsed_seconds"),"throughput":("throughput_ops_sec",),"exit_code":("exit_code",),"status":("status",)}),
 }
 
 def unsafe(value: str) -> bool:

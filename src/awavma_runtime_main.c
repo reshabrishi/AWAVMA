@@ -1,4 +1,5 @@
 #include "awavma_runtime.h"
+#include "benefit_calibration.h"
 #include "runtime_target_filter.h"
 
 #include <errno.h>
@@ -47,6 +48,7 @@ static void usage(const char *program)
     printf("  --phase4-mode MODE    subprocess or in-process (default: subprocess)\n");
     printf("  --migration-safety-enabled  Record safe Phase 7 terminal outcomes (default: disabled)\n");
     printf("  --migration-execution-enabled  Request Phase 7 execution; verified metadata remains required\n");
+    printf("  --benefit-calibration FILE  Strict production thread-benefit calibration artifact\n");
     printf("  --page-registration-enabled  Enable the runtime-owned local page-registration socket\n");
     printf("  --page-registration-ttl-ms N  Registration lifetime; requires page registration\n");
     printf("  --pid PID             Monitor an existing application PID (repeatable)\n");
@@ -68,6 +70,7 @@ int main(int argc, char **argv)
         {"phase4-mode", required_argument, NULL, 'P'},
         {"migration-safety-enabled", no_argument, NULL, 'S'},
         {"migration-execution-enabled", no_argument, NULL, 'M'},
+        {"benefit-calibration", required_argument, NULL, 'B'},
         {"page-registration-enabled", no_argument, NULL, 'R'},
         {"page-registration-ttl-ms", required_argument, NULL, 'T'},
         {"pid", required_argument, NULL, 'p'},
@@ -79,12 +82,13 @@ int main(int argc, char **argv)
     uint64_t duration_ms = 1000;
     uint64_t value;
     runtime_target_filter_t target_filter;
+    BenefitCalibrationArtifact calibration = {0};
     int option;
     int result = EXIT_FAILURE;
 
     awavma_runtime_config_default(&config);
     runtime_target_filter_init(&target_filter);
-    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMRT:p:h", options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMB:RT:p:h", options, NULL)) != -1) {
         switch (option) {
         case 'd':
             if (parse_u64(optarg, &duration_ms, true) != 0) goto invalid;
@@ -122,6 +126,10 @@ int main(int argc, char **argv)
             break;
         case 'S': config.migration_safety_enabled = true; break;
         case 'M': config.migration_execution_enabled = true; break;
+        case 'B':
+            config.benefit_calibration_state = benefit_calibration_load(optarg, &calibration);
+            config.benefit_calibration_provenance = calibration.provenance;
+            break;
         case 'R': config.page_registration_enabled = true; break;
         case 'T':
             if (parse_u64(optarg, &value, false) != 0) goto invalid;
@@ -145,6 +153,11 @@ int main(int argc, char **argv)
     }
     if (optind != argc)
         goto invalid;
+    if (config.migration_execution_enabled &&
+        config.benefit_calibration_state != BENEFIT_CALIBRATION_VALIDATED_PRODUCTION) {
+        fprintf(stderr, "Error: migration execution requires a validated benefit calibration artifact.\n");
+        goto failed;
+    }
     if (target_filter.count > 0) {
         config.application_filter = runtime_target_filter_matches;
         config.application_filter_context = &target_filter;

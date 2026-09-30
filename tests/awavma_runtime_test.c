@@ -50,6 +50,8 @@ int main(void)
     snprintf(bin_dir, sizeof(bin_dir), "%s/bin", cwd);
     snprintf(config_path, sizeof(config_path), "%s/config/awavma.conf", cwd);
     awavma_runtime_config_default(&config);
+    passed = config.benefit_calibration_state == BENEFIT_CALIBRATION_UNAVAILABLE;
+    report("AR00_DEFAULT_CALIBRATION_UNAVAILABLE", passed);
     config.root_dir = root;
     config.bin_dir = bin_dir;
     config.phase_config_path = config_path;

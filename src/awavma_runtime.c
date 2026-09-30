@@ -1931,10 +1931,15 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     }
     if (config->monitor_interval_ms == 0 || config->evaluation_interval_ms == 0 ||
         config->max_applications == 0 || config->worker_count == 0 || config->queue_capacity == 0 ||
-        (config->phase4_mode != AWAVMA_PHASE4_SUBPROCESS &&
-         config->phase4_mode != AWAVMA_PHASE4_IN_PROCESS) ||
-        config->root_dir == NULL || config->bin_dir == NULL || config->phase_config_path == NULL ||
-        (config->page_registration_enabled && config->page_registration_ttl_ms == 0))
+         (config->phase4_mode != AWAVMA_PHASE4_SUBPROCESS &&
+          config->phase4_mode != AWAVMA_PHASE4_IN_PROCESS) ||
+         config->root_dir == NULL || config->bin_dir == NULL || config->phase_config_path == NULL ||
+         config->benefit_calibration_state < BENEFIT_CALIBRATION_UNAVAILABLE ||
+         config->benefit_calibration_state > BENEFIT_CALIBRATION_VALIDATED_PRODUCTION ||
+         config->benefit_calibration_provenance == NULL ||
+         (config->migration_execution_enabled &&
+          config->benefit_calibration_state != BENEFIT_CALIBRATION_VALIDATED_PRODUCTION) ||
+         (config->page_registration_enabled && config->page_registration_ttl_ms == 0))
         return EINVAL;
     memset(runtime, 0, sizeof(*runtime));
     runtime->config = *config;
