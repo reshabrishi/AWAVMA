@@ -1,2 +1,0 @@
-migration_id,app_id,pid,tid,entity_id,action,status,updated_at_epoch
-test-migration-1,,3364,3364,target-integration,MOVE_THREAD,MIGRATION_SUCCESS,1790762581

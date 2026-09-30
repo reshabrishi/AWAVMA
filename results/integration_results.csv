@@ -1,6 +1,6 @@
 TEST,EXPECTED,ACTUAL,RESULT,REASON
-ENV,tool and hardware inventory recorded,"{'tools': {'gcc': True, 'make': True, 'python3': True}, 'numa_header': True, 'numa_library': True, 'numa_nodes': ['node0', 'node1'], 'cpus': 64}",PASS,
-BUILD-benchmark,target builds,0,PASS,
+ENV,tool and hardware inventory recorded,"{'tools': {'gcc': True, 'make': True, 'python3': True}, 'numa_header': False, 'numa_library': True, 'numa_nodes': ['node0'], 'cpus': 8}",PASS,NUMA header/library unavailable
+BUILD-benchmark,target builds,2,NOT TESTED — ENVIRONMENT LIMITATION,NOT TESTED — ENVIRONMENT LIMITATION: missing numa.h
 BUILD-monitor,target builds,0,PASS,
 BUILD-classifier,target builds,0,PASS,
 BUILD-decision,target builds,0,PASS,
@@ -28,9 +28,9 @@ REAL-mixed-P2P3,benchmark and monitor outputs exist,benchmark=1 monitoring=5,PAS
 REAL-mixed-P4P5,unavailable access propagates to insufficient decision,class=True decision=True,PASS,
 REAL-mixed-P5P7,rejected validation prevents migration,validation_rejected=True migration_rows=5,PASS,
 REAL-mixed-P7P8,missing observations do not learn,feedback=True,PASS,
-REAL-changing-P2P3,benchmark and monitor outputs exist,benchmark=1 monitoring=5,PASS,
+REAL-changing-P2P3,benchmark and monitor outputs exist,benchmark=1 monitoring=4,PASS,
 REAL-changing-P4P5,unavailable access propagates to insufficient decision,class=True decision=True,PASS,
-REAL-changing-P5P7,rejected validation prevents migration,validation_rejected=True migration_rows=5,PASS,
+REAL-changing-P5P7,rejected validation prevents migration,validation_rejected=True migration_rows=4,PASS,
 REAL-changing-P7P8,missing observations do not learn,feedback=True,PASS,
 REAL-local-P2P3,benchmark and monitor outputs exist,benchmark=1 monitoring=5,PASS,
 REAL-local-P4P5,unavailable access propagates to insufficient decision,class=True decision=True,PASS,
@@ -47,7 +47,7 @@ I09,Phase 9 consumes pipeline outputs,generated=36,PASS,
 I25,graph records and files are consistent,generated=36 files=True,PASS,
 I22,repeated graph generation is stable,rows=59->59,PASS,
 I29,concurrent monitoring where supported,"[(0, True), (0, True)]",PASS,
-I01,Phase 2 build/run,build recorded and real workloads attempted,PASS,
+I01,Phase 2 build/run,build recorded and real workloads attempted,NOT TESTED — ENVIRONMENT LIMITATION,benchmark build is NUMA environment-limited when unavailable
 I02,Phase 2 reaches Phase 3,real monitor outputs checked,PASS,
 I03,Phase 3 reaches Phase 4,classifier outputs checked,PASS,
 I04,Phase 4 reaches Phase 5,insufficient decisions checked,PASS,
