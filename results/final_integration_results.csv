@@ -1,6 +1,6 @@
 test_id,pipeline,expected,actual,result,reason
-ENV,REGRESSION,tool and hardware inventory recorded,"{'tools': {'gcc': True, 'make': True, 'python3': True}, 'numa_header': False, 'numa_library': True, 'numa_nodes': ['node0'], 'cpus': 8}",PASS,NUMA header/library unavailable
-BUILD-benchmark,REGRESSION,target builds,2,NOT TESTED — ENVIRONMENT LIMITATION,NOT TESTED — ENVIRONMENT LIMITATION: missing numa.h
+ENV,REGRESSION,tool and hardware inventory recorded,"{'tools': {'gcc': True, 'make': True, 'python3': True}, 'numa_header': True, 'numa_library': True, 'numa_nodes': ['node0', 'node1'], 'cpus': 64}",PASS,
+BUILD-benchmark,REGRESSION,target builds,0,PASS,
 BUILD-monitor,REGRESSION,target builds,0,PASS,
 BUILD-classifier,REGRESSION,target builds,0,PASS,
 BUILD-decision,REGRESSION,target builds,0,PASS,
@@ -28,9 +28,9 @@ REAL-mixed-P2P3,REAL,benchmark and monitor outputs exist,benchmark=1 monitoring=
 REAL-mixed-P4P5,REAL,unavailable access propagates to insufficient decision,class=True decision=True,PASS,
 REAL-mixed-P5P7,REAL,rejected validation prevents migration,validation_rejected=True migration_rows=5,PASS,
 REAL-mixed-P7P8,REAL,missing observations do not learn,feedback=True,PASS,
-REAL-changing-P2P3,REAL,benchmark and monitor outputs exist,benchmark=1 monitoring=4,PASS,
+REAL-changing-P2P3,REAL,benchmark and monitor outputs exist,benchmark=1 monitoring=5,PASS,
 REAL-changing-P4P5,REAL,unavailable access propagates to insufficient decision,class=True decision=True,PASS,
-REAL-changing-P5P7,REAL,rejected validation prevents migration,validation_rejected=True migration_rows=4,PASS,
+REAL-changing-P5P7,REAL,rejected validation prevents migration,validation_rejected=True migration_rows=5,PASS,
 REAL-changing-P7P8,REAL,missing observations do not learn,feedback=True,PASS,
 REAL-local-P2P3,REAL,benchmark and monitor outputs exist,benchmark=1 monitoring=5,PASS,
 REAL-local-P4P5,REAL,unavailable access propagates to insufficient decision,class=True decision=True,PASS,
@@ -47,7 +47,7 @@ I09,REGRESSION,Phase 9 consumes pipeline outputs,generated=36,PASS,
 I25,REGRESSION,graph records and files are consistent,generated=36 files=True,PASS,
 I22,REGRESSION,repeated graph generation is stable,rows=59->59,PASS,
 I29,REGRESSION,concurrent monitoring where supported,"[(0, True), (0, True)]",PASS,
-I01,REGRESSION,Phase 2 build/run,build recorded and real workloads attempted,NOT TESTED — ENVIRONMENT LIMITATION,benchmark build is NUMA environment-limited when unavailable
+I01,REGRESSION,Phase 2 build/run,build recorded and real workloads attempted,PASS,
 I02,REGRESSION,Phase 2 reaches Phase 3,real monitor outputs checked,PASS,
 I03,REGRESSION,Phase 3 reaches Phase 4,classifier outputs checked,PASS,
 I04,REGRESSION,Phase 4 reaches Phase 5,insufficient decisions checked,PASS,
