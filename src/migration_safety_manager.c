@@ -282,6 +282,14 @@ static void finish(MigrationSafetyManager *manager, app_safety_state_t *state,
     else if (ProcessFeedback(&event, &feedback_result) == FEEDBACK_UPDATE_TERMINAL_RECORDED)
         result->feedback_recorded = true;
     result->persistence_recorded = append_history(manager, request, result);
+    /* Attempt history is safety state, not optional telemetry: stop future attempts on failure. */
+    if (!result->persistence_recorded) {
+        state->quarantined = true;
+        state->quarantines++;
+        result->quarantined = true;
+        result->state = MIGRATION_SAFETY_QUARANTINED;
+        snprintf(result->detail, sizeof(result->detail), "safety history persistence failed; application quarantined");
+    }
     monitor_profile_counter("phase7", "migration_safety_terminal", request->app_id, request->pid,
                             state->sequence, 1, migration_safety_state_name(result->state));
 }
@@ -389,15 +397,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                    result->target_reason);
             return true;
         }
-        /* Page rollback is intentionally unavailable; do not make memory execution reachable. */
-        result->target_result = MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE;
-        snprintf(result->target_reason, sizeof(result->target_reason),
-                 "PAGE_ROLLBACK_UNAVAILABLE checkpoint_complete=true requested_pages=%zu",
-                 result->page_checkpoint_requested_count);
-        page_checkpoint_release(&page_checkpoint);
-        finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_UNAVAILABLE,
-               result->target_reason);
-        return true;
+        /* Keep the complete checkpoint alive through execution so rollback has immutable source nodes. */
     }
     if (manager->config.target_fn != NULL) {
         prepared = *request;
@@ -477,9 +477,15 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
         !request->migration_request.start_time_ticks_available ||
         request->migration_request.phase5_decision.action != request->action ||
         strcmp(request->migration_request.phase6_validation.final_decision, "APPROVED") != 0 ||
-        !request->placement_available || !request->target_valid || !request->system_safe ||
-        (request->action == VALIDATION_ACTION_MOVE_MEMORY &&
-         request->source_numa_node == request->destination_numa_node)) {
+         !request->placement_available || !request->target_valid || !request->system_safe ||
+         (request->action == VALIDATION_ACTION_MOVE_MEMORY &&
+          (request->source_numa_node == request->destination_numa_node ||
+           !request->migration_request.page_metadata_available ||
+           !request->migration_request.page_addresses_authoritative ||
+           !request->migration_request.memory_region_verified ||
+           request->migration_request.pages == NULL || request->migration_request.page_count == 0 ||
+           request->migration_request.page_count > PAGE_CHECKPOINT_MAX_PAGES ||
+           !result->page_checkpoint_complete))) {
         finish(manager, state, request, result, MIGRATION_SAFETY_REJECTED, "placement, target, system, or identity evidence is unavailable");
         return true;
     }

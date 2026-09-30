@@ -95,10 +95,7 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
     if (!input->migration_intent_approved)
         return reject(target, MIGRATION_TARGET_NO_MIGRATION_INTENT,
                       "result=no_migration_intent reason=upstream_intent_not_approved");
-    if (input->action == VALIDATION_ACTION_MOVE_MEMORY)
-        return reject(target, MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE,
-                      "result=page_recovery_unavailable reason=page_rollback_not_available");
-    if (input->action != VALIDATION_ACTION_MOVE_THREAD)
+    if (input->action != VALIDATION_ACTION_MOVE_THREAD && input->action != VALIDATION_ACTION_MOVE_MEMORY)
         return reject(target, MIGRATION_TARGET_UNSUPPORTED_ACTION,
                       "result=unsupported_action reason=thread_policy_only");
     if (!input->identity_match)
@@ -188,7 +185,7 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
     provider_input.pid = input->pid;
     provider_input.start_time_ticks = input->start_time_ticks;
     provider_input.attempt_id = input->attempt_id;
-    provider_input.action = VALIDATION_ACTION_MOVE_THREAD;
+    provider_input.action = input->action;
     provider_input.source_node_available = true;
     provider_input.source_numa_node = source_node;
     provider_input.requires_cross_node = true;
@@ -215,7 +212,8 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
     target->candidate_count = candidate_nodes;
     target->policy_result = MIGRATION_TARGET_AVAILABLE;
     snprintf(target->reason, sizeof(target->reason),
-             "result=selected action=MOVE_THREAD source_node=%d candidates=1 selected_node=%d reason=single_valid_alternative",
-             source_node, candidate_node);
+              "result=selected action=%s source_node=%d candidates=1 selected_node=%d reason=single_valid_alternative",
+              input->action == VALIDATION_ACTION_MOVE_MEMORY ? "MOVE_MEMORY" : "MOVE_THREAD",
+              source_node, candidate_node);
     return MIGRATION_TARGET_AVAILABLE;
 }

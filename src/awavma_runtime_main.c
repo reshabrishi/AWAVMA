@@ -47,6 +47,8 @@ static void usage(const char *program)
     printf("  --phase4-mode MODE    subprocess or in-process (default: subprocess)\n");
     printf("  --migration-safety-enabled  Record safe Phase 7 terminal outcomes (default: disabled)\n");
     printf("  --migration-execution-enabled  Request Phase 7 execution; verified metadata remains required\n");
+    printf("  --page-registration-enabled  Enable the runtime-owned local page-registration socket\n");
+    printf("  --page-registration-ttl-ms N  Registration lifetime; requires page registration\n");
     printf("  --pid PID             Monitor an existing application PID (repeatable)\n");
     printf("  --help                Show this help\n");
 }
@@ -66,6 +68,8 @@ int main(int argc, char **argv)
         {"phase4-mode", required_argument, NULL, 'P'},
         {"migration-safety-enabled", no_argument, NULL, 'S'},
         {"migration-execution-enabled", no_argument, NULL, 'M'},
+        {"page-registration-enabled", no_argument, NULL, 'R'},
+        {"page-registration-ttl-ms", required_argument, NULL, 'T'},
         {"pid", required_argument, NULL, 'p'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
@@ -80,7 +84,7 @@ int main(int argc, char **argv)
 
     awavma_runtime_config_default(&config);
     runtime_target_filter_init(&target_filter);
-    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMp:h", options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMRT:p:h", options, NULL)) != -1) {
         switch (option) {
         case 'd':
             if (parse_u64(optarg, &duration_ms, true) != 0) goto invalid;
@@ -118,6 +122,11 @@ int main(int argc, char **argv)
             break;
         case 'S': config.migration_safety_enabled = true; break;
         case 'M': config.migration_execution_enabled = true; break;
+        case 'R': config.page_registration_enabled = true; break;
+        case 'T':
+            if (parse_u64(optarg, &value, false) != 0) goto invalid;
+            config.page_registration_ttl_ms = value;
+            break;
         case 'p':
             if (parse_u64(optarg, &value, false) != 0 || value > (uint64_t)INT_MAX)
                 goto invalid;

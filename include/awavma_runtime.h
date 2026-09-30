@@ -4,6 +4,7 @@
 #include "runtime_monitor.h"
 #include "benefit_classifier.h"
 #include "page_checkpoint.h"
+#include "page_candidate_provider.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,6 +39,11 @@ typedef struct {
     const char *phase_config_path;
     bool migration_safety_enabled;
     bool migration_execution_enabled;
+    /* Disabled by default: enables the runtime-owned local page-registration socket. */
+    bool page_registration_enabled;
+    uint64_t page_registration_ttl_ms;
+    /* Controlled workloads may register an owned region; arbitrary processes remain unsupported. */
+    page_candidate_provider_t *page_candidate_provider;
     BenefitCalibrationState benefit_calibration_state;
     const char *benefit_calibration_provenance;
     application_discovery_config_t discovery_config;
