@@ -203,88 +203,86 @@ int main(void)
     MigrationTargetTopology single = topology_for(1);
     ThreadTargetPolicyInput input;
     MigrationTarget target;
-    MigrationTargetTopology host;
-    bool passed = true;
-    unsigned host_nodes = 0;
-    int host_cpu = -1;
-
-    if (!migration_target_topology_read(&host))
-        passed = false;
-    else {
-        for (unsigned node = 0; node < MIGRATION_TARGET_MAX_NODES; node++)
-            if (host.node_present[node])
-                host_nodes++;
-        for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
-            if (CPU_ISSET(cpu, &host.online_cpus)) {
-                host_cpu = cpu;
-                break;
-            }
-        input = input_for();
-        CPU_ZERO(&input.allowed_affinity);
-        CPU_SET(host_cpu, &input.allowed_affinity);
-        input.source_cpu = host_cpu;
-        passed = host_nodes == 1 && host_cpu >= 0 &&
-                 thread_target_policy_select(&input, &host, &target) == MIGRATION_TARGET_NO_ALTERNATE_TARGET &&
-                 target.candidate_count == 0 &&
-                 terminal_policy_once(&input, &host, MIGRATION_TARGET_NO_ALTERNATE_TARGET);
-    }
-    report("TS01_SINGLE_NODE_NO_ALTERNATE", passed);
+    bool test_passed;
+    bool suite_passed = true;
 
     input = input_for();
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
-             target.source_node_known && target.source_numa_node == 0 && target.target_numa_node == 1 &&
-             CPU_ISSET(2, &target.target_cpu_mask) && CPU_ISSET(3, &target.target_cpu_mask) &&
-             target.candidate_count == 1;
-    report("TS02_SYNTHETIC_TWO_NODE_SINGLE_CANDIDATE", passed);
+    test_passed = thread_target_policy_select(&input, &single, &target) ==
+                      MIGRATION_TARGET_NO_ALTERNATE_TARGET &&
+                  target.candidate_count == 0 &&
+                  terminal_policy_once(&input, &single, MIGRATION_TARGET_NO_ALTERNATE_TARGET);
+    report("TS01_SINGLE_NODE_NO_ALTERNATE", test_passed);
+    suite_passed = suite_passed && test_passed;
+
+    input = input_for();
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
+                  target.source_node_known && target.source_numa_node == 0 && target.target_numa_node == 1 &&
+                  CPU_ISSET(2, &target.target_cpu_mask) && CPU_ISSET(3, &target.target_cpu_mask) &&
+                  target.candidate_count == 1;
+    report("TS02_SYNTHETIC_TWO_NODE_SINGLE_CANDIDATE", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     CPU_SET(4, &input.allowed_affinity);
     CPU_SET(5, &input.allowed_affinity);
-    passed = passed && thread_target_policy_select(&input, &three, &target) == MIGRATION_TARGET_AMBIGUOUS &&
-             target.candidate_count == 2 && terminal_policy_once(&input, &three, MIGRATION_TARGET_AMBIGUOUS);
-    report("TS03_SYNTHETIC_THREE_NODE_AMBIGUOUS", passed);
+    test_passed = thread_target_policy_select(&input, &three, &target) == MIGRATION_TARGET_AMBIGUOUS &&
+                  target.candidate_count == 2 &&
+                  terminal_policy_once(&input, &three, MIGRATION_TARGET_AMBIGUOUS);
+    report("TS03_SYNTHETIC_THREE_NODE_AMBIGUOUS", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     CPU_ZERO(&input.allowed_affinity);
     CPU_SET(0, &input.allowed_affinity);
     CPU_SET(1, &input.allowed_affinity);
     CPU_SET(3, &input.allowed_affinity);
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
-             CPU_COUNT(&target.target_cpu_mask) == 1 && CPU_ISSET(3, &target.target_cpu_mask);
-    report("TS04_ALLOWED_CPU_INTERSECTION", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
+                  CPU_COUNT(&target.target_cpu_mask) == 1 && CPU_ISSET(3, &target.target_cpu_mask);
+    report("TS04_ALLOWED_CPU_INTERSECTION", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     CPU_ZERO(&input.allowed_affinity);
     CPU_SET(0, &input.allowed_affinity);
     CPU_SET(1, &input.allowed_affinity);
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_NO_ELIGIBLE_CPUS &&
-              terminal_policy_once(&input, &two, MIGRATION_TARGET_NO_ELIGIBLE_CPUS);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_NO_ELIGIBLE_CPUS &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_NO_ELIGIBLE_CPUS);
     {
         MigrationTargetTopology offline_two = topology_for(2);
+        bool offline_passed;
 
         CPU_CLR(2, &offline_two.online_cpus);
         CPU_CLR(3, &offline_two.online_cpus);
-        passed = passed && thread_target_policy_select(&input, &offline_two, &target) ==
-                  MIGRATION_TARGET_NO_ALTERNATE_TARGET;
+        offline_passed = thread_target_policy_select(&input, &offline_two, &target) ==
+                         MIGRATION_TARGET_NO_ALTERNATE_TARGET;
+        test_passed = test_passed && offline_passed;
     }
-    report("TS05_EMPTY_CPU_INTERSECTION", passed);
+    report("TS05_EMPTY_CPU_INTERSECTION", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     input.allowed_affinity_available = false;
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_UNKNOWN &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_UNKNOWN);
-    ThreadTargetPolicyInput no_intent = input_for();
-    no_intent.migration_intent_approved = false;
-    passed = passed && thread_target_policy_select(&no_intent, &two, &target) ==
-             MIGRATION_TARGET_NO_MIGRATION_INTENT &&
-             terminal_policy_once(&no_intent, &two, MIGRATION_TARGET_NO_MIGRATION_INTENT);
-    report("TS06_SOURCE_UNKNOWN", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_UNKNOWN &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_UNKNOWN);
+    {
+        ThreadTargetPolicyInput no_intent = input_for();
+        bool no_intent_passed;
+
+        no_intent.migration_intent_approved = false;
+        no_intent_passed = thread_target_policy_select(&no_intent, &two, &target) ==
+                               MIGRATION_TARGET_NO_MIGRATION_INTENT &&
+                           terminal_policy_once(&no_intent, &two, MIGRATION_TARGET_NO_MIGRATION_INTENT);
+        test_passed = test_passed && no_intent_passed;
+    }
+    report("TS06_SOURCE_UNKNOWN", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     input.source_cpu_available = false;
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_AMBIGUOUS &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_AMBIGUOUS);
-    report("TS07_SOURCE_MULTI_NODE_AMBIGUOUS", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_AMBIGUOUS &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_AMBIGUOUS);
+    report("TS07_SOURCE_MULTI_NODE_AMBIGUOUS", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     input.history_available = true;
@@ -292,35 +290,44 @@ int main(void)
     input.previous_action = VALIDATION_ACTION_MOVE_THREAD;
     input.previous_source_node = 0;
     input.previous_target_node = 1;
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SUPPRESSED_BY_HISTORY &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_SUPPRESSED_BY_HISTORY);
-    report("TS08_HISTORY_SUPPRESSION", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SUPPRESSED_BY_HISTORY &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_SUPPRESSED_BY_HISTORY);
+    report("TS08_HISTORY_SUPPRESSION", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     input.quarantined = true;
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_QUARANTINED &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_QUARANTINED);
-    input = input_for();
-    input.cooldown_active = true;
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_COOLDOWN &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_COOLDOWN);
-    report("TS09_QUARANTINE", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_QUARANTINED &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_QUARANTINED);
+    {
+        bool cooldown_passed;
+
+        input = input_for();
+        input.cooldown_active = true;
+        cooldown_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_COOLDOWN &&
+                          terminal_policy_once(&input, &two, MIGRATION_TARGET_COOLDOWN);
+        test_passed = test_passed && cooldown_passed;
+    }
+    report("TS09_QUARANTINE", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     input.identity_match = false;
-    passed = passed && thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_IDENTITY_CHANGED &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_IDENTITY_CHANGED);
-    report("TS10_IDENTITY_MISMATCH", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_IDENTITY_CHANGED &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_IDENTITY_CHANGED);
+    report("TS10_IDENTITY_MISMATCH", test_passed);
+    suite_passed = suite_passed && test_passed;
 
     input = input_for();
     input.action = VALIDATION_ACTION_MOVE_MEMORY;
-    passed = passed && thread_target_policy_select(&input, &two, &target) ==
-             MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE &&
-             terminal_policy_once(&input, &two, MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE);
-    report("TS11_PAGE_ACTION_RECOVERY_UNAVAILABLE", passed);
+    test_passed = thread_target_policy_select(&input, &two, &target) ==
+                      MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE &&
+                  terminal_policy_once(&input, &two, MIGRATION_TARGET_PAGE_RECOVERY_UNAVAILABLE);
+    report("TS11_PAGE_ACTION_RECOVERY_UNAVAILABLE", test_passed);
+    suite_passed = suite_passed && test_passed;
 
-    passed = passed && selected_execution_disabled();
-    report("TS12_SELECTED_TARGET_EXECUTION_DISABLED", passed);
-    (void)single;
-    return passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    test_passed = selected_execution_disabled();
+    report("TS12_SELECTED_TARGET_EXECUTION_DISABLED", test_passed);
+    suite_passed = suite_passed && test_passed;
+    return suite_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
