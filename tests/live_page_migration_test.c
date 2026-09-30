@@ -158,8 +158,8 @@ int main(void)
     MigrationRequest request = {0};
     MigrationPageCheckpoint checkpoint = {0};
     MigrationReport report;
-    PageRollbackRequest rollback_request;
-    PageRollbackSummary rollback_summary;
+    PageRollbackRequest rollback_request = {0};
+    PageRollbackSummary rollback_summary = {0};
     ChildReady ready = {0};
     char root[] = "/tmp/awavma-live-page-XXXXXX";
     char socket_path[108], results[PATH_MAX], history[PATH_MAX], log[PATH_MAX], state[PATH_MAX];
