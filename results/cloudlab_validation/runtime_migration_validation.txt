@@ -1,0 +1,15 @@
+mkdir -p bin
+cc -std=c11 -O2 -Wall -Wextra -Wpedantic -D_GNU_SOURCE -Iinclude -DAWAVMA_RUNTIME_TESTING  -o bin/runtime-migration-validation-test tests/runtime_migration_validation_test.c src/awavma_runtime.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c src/runtime_monitor.c src/application_manager.c src/application_discovery.c src/worker_pool.c src/monitor.c src/environment_capabilities.c src/page_candidate_provider.c -pthread -lnuma -lm
+src/environment_capabilities.c:1: warning: "_GNU_SOURCE" redefined
+    1 | #define _GNU_SOURCE
+      | 
+<command-line>: note: this is the location of the previous definition
+./bin/runtime-migration-validation-test
+RV01_EXECUTION_DEFAULT_DISABLED: PASS
+RV02_ACTIVE_CHILD_CPU_SNAPSHOT_STRUCTURAL: PASS
+RV03_PLACEMENT_MISMATCH_REAL_ROLLBACK: PASS
+RV04_IDENTITY_MISMATCH_AFTER_EXEC: PASS
+RV05_AFTER_CAPTURE_FAILURE: PASS
+RV06_IDLE_CHILD_STRUCTURAL_NO_PROGRESS_CLAIM: PASS
+RV07_TARGET_PRETERMINAL_NO_SNAPSHOTS: PASS
+RV08_EXECUTION_DISABLED_PRETERMINAL_NO_SNAPSHOTS: PASS

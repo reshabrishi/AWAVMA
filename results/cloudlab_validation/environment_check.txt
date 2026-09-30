@@ -1,0 +1,1 @@
+state=READY numa_nodes=2 thread_ready=true page_ready=true phase7_ready=true reason=cross-node topology detected

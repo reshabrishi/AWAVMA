@@ -1,0 +1,28 @@
+mkdir -p bin
+cc -std=c11 -O2 -Wall -Wextra -Wpedantic -D_GNU_SOURCE -Iinclude  -o bin/live-page-migration-test tests/live_page_migration_test.c src/page_candidate_provider.c src/runtime_migration_metadata.c src/page_checkpoint.c src/page_rollback.c src/migration_target_provider.c src/migration.c src/migration_log.c -pthread -lm
+tests/live_page_migration_test.c:1: warning: "_GNU_SOURCE" redefined
+    1 | #define _GNU_SOURCE
+      | 
+<command-line>: note: this is the location of the previous definition
+tests/live_page_migration_test.c: In function ‘main’:
+tests/live_page_migration_test.c:345:15: warning: ignoring return value of ‘write’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  345 |         (void)write(release_pipe[1], "x", 1);
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/live_page_migration_test.c: In function ‘child_workload’:
+tests/live_page_migration_test.c:130:11: warning: ignoring return value of ‘write’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  130 |     (void)write(ready_fd, &ready, sizeof(ready));
+      |           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+tests/live_page_migration_test.c:134:15: warning: ignoring return value of ‘read’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  134 |         (void)read(release_fd, &release, 1);
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+./bin/live-page-migration-test
+LPM01_ENVIRONMENT_READY: PASS
+LPM02_CHILD_REGION_CREATED: PASS
+LPM03_AUTHENTICATED_REGISTRATION: PASS
+LPM04_AUTHORITATIVE_CANDIDATES: PASS
+LPM05_CHECKPOINT_NODE0: PASS
+LPM06_REAL_MIGRATION_NODE0_TO_NODE1: PASS
+LPM07_DESTINATION_VERIFIED_NODE1: PASS
+LPM08_REAL_ROLLBACK: PASS
+LPM09_ROLLBACK_VERIFIED_NODE0: PASS
+LPM10_CLEANUP: PASS
