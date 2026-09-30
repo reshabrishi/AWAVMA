@@ -109,7 +109,9 @@ def main() -> int:
         shutil.copytree(ROOT / "tests/graph_inputs", phase_root / "tests/graph_inputs")
         for relative in ("benchmark_results.csv", "monitoring_results.csv", "monitoring_threads.csv", "classification_results.csv", "decision_results.csv", "feedback_results.csv"):
             shutil.copy2(ROOT / "results" / relative, phase_root / "results" / relative)
-        shutil.copy2(ROOT / "state/application_state.csv", phase_root / "state/application_state.csv")
+        application_state = ROOT / "state/application_state.csv"
+        if application_state.is_file():
+            shutil.copy2(application_state, phase_root / "state/application_state.csv")
         validation_command = [str(ROOT / "bin/validation"), "--input", str(ROOT / "tests/validation_inputs/validation_fixtures.csv"), "--config", str(ROOT / "tests/validation_inputs/compaction.conf"), "--output", str(phase_root / "results/validation_results.csv"), "--history", str(phase_root / "history/validation.csv"), "--log", str(phase_root / "logs/validation.log")]
         migration_command = [str(ROOT / "bin/migration"), "--input", str(ROOT / "tests/migration_inputs/authorization.csv"), "--output", str(phase_root / "results/migration_results.csv"), "--history", str(phase_root / "history/migration.csv"), "--log", str(phase_root / "logs/migration.log"), "--state", str(phase_root / "state/migration.csv")]
         validation_run = subprocess.run(validation_command, capture_output=True, text=True)
