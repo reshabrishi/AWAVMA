@@ -380,7 +380,20 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
         awavma_runtime_t *runtime = context;
 
         runtime->test_target_stats.target_provider_calls++;
-        if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_INVALID) {
+        if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_NO_ALTERNATE) {
+            memset(target, 0, sizeof(*target));
+            target->action = request->action;
+            target->pid = request->pid;
+            target->start_time_ticks = request->start_time_ticks;
+            snprintf(target->attempt_id, sizeof(target->attempt_id), "%s", attempt_id);
+            target->target_numa_node = -1;
+            target->source_numa_node = -1;
+            target->policy_result = MIGRATION_TARGET_NO_ALTERNATE_TARGET;
+            target->source = MIGRATION_TARGET_SOURCE_TEST;
+            snprintf(target->reason, sizeof(target->reason),
+                     "result=no_alternate candidates=0 reason=forced_test_no_alternate_target");
+            return MIGRATION_TARGET_NO_ALTERNATE_TARGET;
+        } else if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_INVALID) {
             input.has_authoritative_cpu_mask = true;
             CPU_SET(CPU_SETSIZE - 1, &input.authoritative_cpu_mask);
         } else if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_VALID ||
