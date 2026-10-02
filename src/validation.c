@@ -64,6 +64,8 @@ static void copy_identity(ValidationResult *result, const DecisionData *decision
     snprintf(result->entity_id, sizeof(result->entity_id), "%s", decision->entity_id);
     result->pid = decision->pid;
     result->action = decision->action;
+    result->source_node = decision->nodes_available ? decision->source_node : -1;
+    result->destination_node = decision->nodes_available ? decision->destination_node : -1;
 }
 
 static ValidationResult base_result(const DecisionData *decision)

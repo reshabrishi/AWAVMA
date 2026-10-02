@@ -105,6 +105,8 @@ typedef struct {
     long pid;
     char entity_id[128];
     ValidationAction action;
+    int source_node;
+    int destination_node;
     double confidence_score;
     double roi_score;
     double safety_score;

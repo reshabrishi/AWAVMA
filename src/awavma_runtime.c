@@ -1144,8 +1144,6 @@ static int write_validation_input(const char *decision_path, const char *output_
     int action;
     int status;
     int classification;
-    int predicted_gain;
-    int estimated_cost;
     int phase5_columns[sizeof(phase5_names) / sizeof(phase5_names[0])];
     size_t row = 0;
     int result = -1;
@@ -1163,8 +1161,6 @@ static int write_validation_input(const char *decision_path, const char *output_
     action = column_index(fields, field_count, "decision");
     status = column_index(fields, field_count, "status");
     classification = column_index(fields, field_count, "classification");
-    predicted_gain = column_index(fields, field_count, "predicted_gain");
-    estimated_cost = column_index(fields, field_count, "estimated_cost");
     if (timestamp < 0 || app_id < 0 || pid < 0 || entity_id < 0 || action < 0 || status < 0 ||
         classification < 0)
         goto cleanup;
@@ -1225,14 +1221,14 @@ static int write_validation_input(const char *decision_path, const char *output_
                          100.0 * cost.migration_cost_seconds / runtime->config.thread_evaluation_horizon_seconds);
             }
         }
-        fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,%d,%d,%s,%s,%s,N/A,N/A,%s,false,false,false",
+        fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%zu,NA,NA,NA,%d,%d,%s,%s,%s,N/A,N/A,%s,false,false,false",
                  timestamp_value, migration_id,
                  field_or_na(fields, field_count, app_id), field_or_na(fields, field_count, pid),
                  field_or_na(fields, field_count, entity_id), action_value,
                  field_or_na(fields, field_count, status),
                  field_or_na(fields, field_count, classification),
                   confidence.valid_sample_count >= 3 ? "100" : "NA", confidence.valid_sample_count >= 3 ? "100" : "NA",
-                  (long)confidence.valid_sample_count, target.source_numa_node, target.target_numa_node,
+                   confidence.valid_sample_count, target.source_numa_node, target.target_numa_node,
                  gain, cost_percent,
                  empirical ? "EMPIRICAL_GAIN_COST_EVIDENCE" : "UTILITY_POLICY_EVIDENCE",
                  safety.cooldown_active ? "true" : "false");
@@ -1250,7 +1246,7 @@ static int write_validation_input(const char *decision_path, const char *output_
                 confidence.valid_sample_count, confidence.valid_sample_count,
                 confidence.latest_classification, confidence.latest_placement_relation,
                 confidence.valid_sample_count >= 3 ? "VALID" : "INVALID",
-                confidence.reason != NULL ? confidence.reason : "EVIDENCE_UNAVAILABLE");
+                confidence.reason);
         fputc('\n', output);
     }
     result = ferror(input) || ferror(output) ? -1 : 0;

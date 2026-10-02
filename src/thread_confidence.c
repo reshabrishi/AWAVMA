@@ -79,7 +79,9 @@ bool thread_confidence_append(const char *cycle_path, const char *history_path, 
         if ((size_t)pid_col >= count || (size_t)start_col >= count || (size_t)tid_col >= count ||
             (size_t)class_col >= count || (size_t)placement_col >= count || (size_t)status_col >= count ||
             !parse_positive_long(fields[pid_col], &row_pid) || !parse_u64(fields[start_col], &row_start) ||
-            !parse_positive_long(fields[tid_col], &row_tid) || row_pid != pid || row_start != start_ticks)
+            row_pid != pid || row_start != start_ticks ||
+            (strcmp(fields[status_col], "MEASURED_REMOTE_THREAD_TO_MEMORY") == 0 &&
+             !parse_positive_long(fields[tid_col], &row_tid)))
             goto fail;
     }
     if (ferror(cycle)) goto fail;

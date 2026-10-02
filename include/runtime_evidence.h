@@ -7,6 +7,7 @@
 int runtime_evidence_write_classifier_input(const char *monitor_path, const char *app_id,
                                             const char *output_path);
 int runtime_evidence_write_decision_input(const char *evidence_path, const char *thread_path,
-                                          const char *classification_path, const char *output_path);
+                                           const char *classification_path, uint64_t start_time_ticks,
+                                           const char *output_path);
 
 #endif
