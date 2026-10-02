@@ -25,6 +25,7 @@ typedef struct {
     application_manager_record_t application;
     uint64_t next_due_ms;
     uint64_t next_due_ns;
+    monitor_session_t *session;
     bool seen;
 } monitor_entry_t;
 
@@ -234,7 +235,9 @@ static void monitor_job(void *argument)
         config.log_path = NULL;
         config.target_is_child = false;
         config.stop_requested = NULL;
-        result = monitor_run_pid_once(&config);
+        if (entry->session == NULL)
+            entry->session = monitor_session_create(&config);
+        result = entry->session == NULL ? MONITOR_RESULT_ERROR : monitor_session_sample(entry->session);
     }
     monitor_profile_scope_end(&execution_profile, result == 0 ? "OK" : "ERROR");
     monitor_profile_scope_end(&worker_profile, result == 0 ? "OK" : "ERROR");
@@ -248,6 +251,10 @@ static void monitor_job(void *argument)
         bool target_gone = !valid || result == MONITOR_RESULT_TARGET_GONE;
 
         entry->record.status = target_gone ? RUNTIME_MONITOR_TARGET_GONE : RUNTIME_MONITOR_ERROR;
+        if (target_gone) {
+            monitor_session_destroy(entry->session);
+            entry->session = NULL;
+        }
         log_locked(monitor, target_gone ? "TARGET_GONE" : "SAMPLE_ERROR", entry,
                     target_gone ? "application identity no longer matches" : "Phase 3 one-sample call failed");
     } else {
@@ -357,6 +364,8 @@ static int schedule_active(runtime_monitor_t *monitor,
         if (!entry->seen && !entry->record.in_flight &&
             entry->record.status == RUNTIME_MONITOR_ACTIVE) {
             entry->record.status = RUNTIME_MONITOR_TERMINATED;
+            monitor_session_destroy(entry->session);
+            entry->session = NULL;
             monitor->discovery_stats.applications_terminated++;
 #ifdef AWAVMA_PROFILE
             monitor_profile_counter("discovery", "applications_terminated", entry->record.app_id,
@@ -624,6 +633,10 @@ void runtime_monitor_shutdown(runtime_monitor_t *monitor)
         return;
     atomic_store(&monitor->stop_requested, true);
     worker_pool_wait_idle(monitor->pool);
+    for (size_t index = 0; index < monitor->count; index++) {
+        monitor_session_destroy(monitor->entries[index].session);
+        monitor->entries[index].session = NULL;
+    }
     if (monitor->results_file != NULL)
         fclose(monitor->results_file);
     if (monitor->log_file != NULL)

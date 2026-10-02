@@ -31,6 +31,13 @@ typedef struct {
 #define MONITOR_RESULT_ERROR (-1)
 #define MONITOR_RESULT_TARGET_GONE (-2)
 
+typedef struct monitor_session monitor_session_t;
+
+/* An opaque persistent state for repeated samples of one exact process identity. */
+monitor_session_t *monitor_session_create(const monitor_config_t *config);
+int monitor_session_sample(monitor_session_t *session);
+void monitor_session_destroy(monitor_session_t *session);
+
 /* Collect one sample for an existing PID using the existing CSV formats. */
 int monitor_run_pid_once(const monitor_config_t *config);
 

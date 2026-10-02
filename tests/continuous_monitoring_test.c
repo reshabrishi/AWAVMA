@@ -241,6 +241,38 @@ static int file_has_sample_for(const runtime_monitor_record_t *record,
     return rows > 0;
 }
 
+static int temporal_metrics_for(const runtime_monitor_record_t *record, const char *directory,
+                                int *first_unavailable, int *second_available)
+{
+    char path[512], line[4096];
+    FILE *file;
+    int rows = 0;
+
+    snprintf(path, sizeof(path), "%s/%s_monitoring.csv", directory, record->app_id);
+    file = fopen(path, "r");
+    if (file == NULL) return 0;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *fields[24], *save = NULL, *token;
+        size_t count = 0;
+
+        if (strstr(line, "timestamp,") != NULL) continue;
+        token = strtok_r(line, ",\r\n", &save);
+        while (token != NULL && count < sizeof(fields) / sizeof(fields[0])) {
+            fields[count++] = token;
+            token = strtok_r(NULL, ",\r\n", &save);
+        }
+        rows++;
+        if (count >= 12 && rows == 1 && first_unavailable != NULL)
+            *first_unavailable = strcmp(fields[4], "-1.000") == 0 && strcmp(fields[10], "-1") == 0 &&
+                                 strcmp(fields[11], "-1") == 0;
+        if (count >= 12 && rows == 2 && second_available != NULL)
+            *second_available = strcmp(fields[4], "-1.000") != 0 && strcmp(fields[10], "-1") != 0 &&
+                                strcmp(fields[11], "-1") != 0;
+    }
+    fclose(file);
+    return rows;
+}
+
 int main(void)
 {
     paths_t paths;
@@ -254,6 +286,7 @@ int main(void)
     pid_t a = -1, b = -1, c = -1;
     size_t b_submissions_before = 0;
     int has_unavailable = 0;
+    int first_unavailable = 0, second_available = 0;
     int passed;
     int pid_reuse_pass = 0;
     size_t final_peak_active = 0;
@@ -314,6 +347,10 @@ int main(void)
     find_record(monitor, a, &a_record);
     passed = a_record.submissions > 1;
     report_result("CM13", "multiple cycles", passed ? "rescheduled" : "not rescheduled", passed, "scheduler cycles");
+    passed = temporal_metrics_for(&a_record, paths.monitor_results, &first_unavailable, &second_available) >= 2 &&
+             first_unavailable && second_available;
+    report_result("CM26", "persistent temporal monitoring", passed ? "second sample has deltas" : "delta state reset", passed,
+                  "same PID/start-time worker sessions");
     passed = strcmp(a_record.app_id, b_record.app_id) != 0 && strcmp(a_record.app_id, c_record.app_id) != 0;
     report_result("CM14", "application isolation", passed ? "isolated IDs" : "cross-contaminated", passed, "per-identity paths");
     passed = file_has_sample_for(&a_record, paths.monitor_results, NULL) &&

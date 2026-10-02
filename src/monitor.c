@@ -118,6 +118,11 @@ typedef struct {
     const monitor_config_t *config;
 } monitor_state_t;
 
+struct monitor_session {
+    monitor_config_t config;
+    monitor_state_t state;
+};
+
 static const char *monitor_csv_header(void)
 {
     return "timestamp,elapsed_ms,pid,system_cpu_utilization_percent,process_cpu_utilization_percent,rss_kb,vms_kb,rss_delta_kb,minor_page_faults,major_page_faults,interval_minor_faults,interval_major_faults,cache_references,cache_misses,thread_count,numa_nodes,process_numa_pages,benchmark_pattern,benchmark_threads,benchmark_memory_mb,benchmark_iterations,benchmark_duration_sec";
@@ -594,7 +599,7 @@ static void human_timestamp(char *buffer, size_t size)
 
     clock_gettime(CLOCK_REALTIME, &now);
     gmtime_r(&now.tv_sec, &utc);
-    strftime(buffer, size, "%Y-%m-%dT%H:%M:%S", &utc);
+    strftime(buffer, size, "%Y-%m-%dT%H:%M:%SZ", &utc);
 }
 
 static int collect_sample(monitor_state_t *state, monitor_sample_t *sample)
@@ -810,59 +815,87 @@ static void cleanup_monitor_state(monitor_state_t *state)
         fclose(state->log);
 }
 
+monitor_session_t *monitor_session_create(const monitor_config_t *config)
+{
+    monitor_session_t *session;
+
+    if (config == NULL)
+        return NULL;
+    session = calloc(1, sizeof(*session));
+    if (session == NULL)
+        return NULL;
+    session->config = *config;
+    if (initialize_monitor_state(&session->config, &session->state) != 0) {
+        free(session);
+        return NULL;
+    }
+    return session;
+}
+
+int monitor_session_sample(monitor_session_t *session)
+{
+    monitor_sample_t sample;
+    char timestamp[32];
+    int result;
+
+    if (session == NULL)
+        return MONITOR_RESULT_ERROR;
+    if (!target_alive(&session->state))
+        return MONITOR_RESULT_TARGET_GONE;
+    if (collect_sample(&session->state, &sample) != 0) {
+        free(sample.threads);
+        return target_alive(&session->state) ? MONITOR_RESULT_ERROR : MONITOR_RESULT_TARGET_GONE;
+    }
+    if (!target_alive(&session->state)) {
+        free(sample.threads);
+        return MONITOR_RESULT_TARGET_GONE;
+    }
+    human_timestamp(timestamp, sizeof(timestamp));
+    write_sample(&session->state, &sample, timestamp);
+    free(sample.threads);
+    session->state.sample_count++;
+    result = 0;
+    return result;
+}
+
+void monitor_session_destroy(monitor_session_t *session)
+{
+    if (session == NULL)
+        return;
+    cleanup_monitor_state(&session->state);
+    free(session);
+}
+
 int monitor_run_pid_once(const monitor_config_t *config)
 {
     monitor_profile_scope_t total_profile;
     monitor_profile_scope_t lifecycle_profile;
     monitor_profile_scope_t sample_profile;
-    monitor_state_t state;
-    monitor_sample_t sample;
-    char timestamp[32];
-    int init_result;
+    monitor_session_t *session;
+    int result;
 
     monitor_profile_scope_begin(&total_profile, "lifecycle", "monitor_run_pid_once", NULL,
                                 config == NULL ? -1 : config->pid, 0);
     monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "initialization", NULL,
                                 config == NULL ? -1 : config->pid, 0);
-    init_result = initialize_monitor_state(config, &state);
-    monitor_profile_scope_end(&lifecycle_profile, init_result == 0 ? "OK" : "ERROR");
-    if (init_result != 0) {
+    session = monitor_session_create(config);
+    monitor_profile_scope_end(&lifecycle_profile, session != NULL ? "OK" : "ERROR");
+    if (session == NULL) {
         if (config != NULL && config->pid > 0)
             fprintf(stderr, "Error: target PID %ld is unavailable for one sample.\n", (long)config->pid);
         monitor_profile_scope_end(&total_profile, "ERROR");
-        return init_result == MONITOR_RESULT_TARGET_GONE ?
-                   MONITOR_RESULT_TARGET_GONE : MONITOR_RESULT_ERROR;
+        return MONITOR_RESULT_ERROR;
     }
-    monitor_profile_scope_begin(&sample_profile, "sample", "monitor_sample_total", NULL, state.pid, 0);
-    if (collect_sample(&state, &sample) != 0) {
-        int result = target_alive(&state) ? MONITOR_RESULT_ERROR : MONITOR_RESULT_TARGET_GONE;
-
-        free(sample.threads);
-        monitor_profile_scope_end(&sample_profile, "ERROR");
-        monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL, state.pid, 0);
-        cleanup_monitor_state(&state);
-        monitor_profile_scope_end(&lifecycle_profile, "OK");
-        monitor_profile_scope_end(&total_profile, "ERROR");
-        return result;
-    }
-    if (!target_alive(&state)) {
-        free(sample.threads);
-        monitor_profile_scope_end(&sample_profile, "TARGET_GONE");
-        monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL, state.pid, 0);
-        cleanup_monitor_state(&state);
-        monitor_profile_scope_end(&lifecycle_profile, "OK");
-        monitor_profile_scope_end(&total_profile, "TARGET_GONE");
-        return MONITOR_RESULT_TARGET_GONE;
-    }
-    human_timestamp(timestamp, sizeof(timestamp));
-    write_sample(&state, &sample, timestamp);
-    monitor_profile_scope_end(&sample_profile, "OK");
-    free(sample.threads);
-    monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL, state.pid, 0);
-    cleanup_monitor_state(&state);
+    monitor_profile_scope_begin(&sample_profile, "sample", "monitor_sample_total", NULL,
+                                session->state.pid, 0);
+    result = monitor_session_sample(session);
+    monitor_profile_scope_end(&sample_profile, result == 0 ? "OK" : "ERROR");
+    monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL,
+                                session->state.pid, 0);
+    monitor_session_destroy(session);
     monitor_profile_scope_end(&lifecycle_profile, "OK");
-    monitor_profile_scope_end(&total_profile, "OK");
-    return 0;
+    monitor_profile_scope_end(&total_profile, result == 0 ? "OK" : "ERROR");
+    return result;
 }
 
 int monitor_run_pid(const monitor_config_t *config)
