@@ -1,0 +1,2 @@
+timestamp,pattern,threads,memory_mb,iterations,duration_sec,thread_node,memory_node,numa_nodes,operations,execution_time_sec,throughput_ops_sec
+2026-10-02T11:50:00Z,mixed,2,1024,1000000,10.000000,1,0,2,122563584,10.000154,12256169.311

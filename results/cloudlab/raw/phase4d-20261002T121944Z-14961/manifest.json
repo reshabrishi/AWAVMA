@@ -1,0 +1,1 @@
+{"schema_version":4,"run_id":"phase4d-20261002T121944Z-14961","data_source":"REAL","collection_status":"IN_PROGRESS","local_node":0,"remote_node":1,"topology_source":"metadata/numa_topology.txt","stage_order":"metadata,build,tests,environment-check,preflight,calibration,manifests,baseline,awavma,aggregate,graphs"}

@@ -1,0 +1,174 @@
+make: Entering directory '/users/pragnya/AWAVMA-validation'
+./bin/awavma-runtime-test
+AR00_DEFAULT_CALIBRATION_UNAVAILABLE: PASS
+AR01: PASS
+AR02: PASS
+AR03: PASS
+AR04: PASS
+AR05: PASS
+AR06: PASS
+AR07: PASS
+./bin/runtime-target-filter-test
+RTF01: PASS
+RTF02: PASS
+RTF02B_DISCOVERY_IDENTITY_MATCH: PASS
+RTF02C_DISCOVERY_START_TIME_MISMATCH: PASS
+RTF03: PASS
+RTF04: PASS
+python3 tests/runtime_target_filter_cli_test.py
+RTFCLI01: PASS
+RTFCLI02: PASS
+RTFCLI03: PASS
+RTFCLI04: PASS
+./bin/thread-target-policy-test
+TS01_SINGLE_NODE_NO_ALTERNATE: PASS
+TS02_SYNTHETIC_TWO_NODE_SINGLE_CANDIDATE: PASS
+TS03_SYNTHETIC_THREE_NODE_AMBIGUOUS: PASS
+TS04_ALLOWED_CPU_INTERSECTION: PASS
+TS05_EMPTY_CPU_INTERSECTION: PASS
+TS06_SOURCE_UNKNOWN: PASS
+TS07_SOURCE_MULTI_NODE_AMBIGUOUS: PASS
+TS08_HISTORY_SUPPRESSION: PASS
+TS09_QUARANTINE: PASS
+TS10_IDENTITY_MISMATCH: PASS
+TS11_MEMORY_TARGET_SINGLE_ALTERNATE: PASS
+TS12_SELECTED_TARGET_EXECUTION_DISABLED: PASS
+./bin/runtime-migration-validation-test
+RV01_EXECUTION_DEFAULT_DISABLED: PASS
+RV02_ACTIVE_CHILD_CPU_SNAPSHOT_STRUCTURAL: PASS
+RV03_PLACEMENT_MISMATCH_REAL_ROLLBACK: PASS
+RV03B_DIAGNOSTIC submit_return=0 executor_calls=1 validation_before_calls=1 validation_after_calls=0 rollback_calls=1 rollback_succeeded=true execution_result=13(MIGRATION_VERIFICATION_UNAVAILABLE) recovery=1 terminal_state=9 terminal_feedback_calls=1 CPU_EQUAL=true CPU_COUNT_before=64 CPU_COUNT_after=64
+RV03B_POST_MUTATION_EXECUTOR_VERIFICATION_ROLLBACK: PASS
+RV04_IDENTITY_MISMATCH_AFTER_EXEC: PASS
+RV05_AFTER_CAPTURE_FAILURE: PASS
+RV06_IDLE_CHILD_STRUCTURAL_NO_PROGRESS_CLAIM: PASS
+RV07_TARGET_PRETERMINAL_NO_SNAPSHOTS: PASS
+RV08_EXECUTION_DISABLED_PRETERMINAL_NO_SNAPSHOTS: PASS
+make: Nothing to be done for 'test-awavma-runtime'.
+make: Nothing to be done for 'test-runtime-migration-validation'.
+./bin/benefit-calibration-test
+BCL01_MISSING_UNAVAILABLE: PASS
+BCL02_MALFORMED: PASS
+BCL03_INCOMPLETE: PASS
+BCL04_WRONG_SCHEMA: PASS
+BCL05_SOURCE_EQUALS_TARGET: PASS
+BCL06_NONFINITE: PASS
+BCL07_TOPOLOGY_MISMATCH: PASS
+BCL09_CPU_MODEL_MISMATCH: PASS
+BCL10_SOCKET_COUNT_MISMATCH: PASS
+BCL11_DISTANCE_FINGERPRINT_MISMATCH: PASS
+BCL08_VALID_SYNTHETIC_FIXTURE: PASS
+BCL08B_LOADER_TO_MATCHING_THREAD_AUTHORIZATION: PASS
+BCL08C_REVERSE_THREAD_ROUTE_REJECTED: PASS
+BCL16_MISSING_EVIDENCE_MANIFEST_REJECTED: PASS
+BCL17_MISSING_RAW_EVIDENCE_REJECTED: PASS
+BCL18_TAMPERED_RAW_EVIDENCE_REJECTED: PASS
+BCL12_ZERO_GAIN_VALID_ARTIFACT: PASS
+BCL13_NEGATIVE_GAIN_VALID_ARTIFACT: PASS
+BCL14_NONFINITE_GAIN_INVALID_ARTIFACT: PASS
+BCL15_NONPRODUCTION_METHODOLOGY_REJECTED: PASS
+python3 tests/benefit_calibration_cli_test.py
+benefit_calibration_cli_test: PASS
+./bin/runtime-evidence-test
+RE01_MEASURED_EVIDENCE_AND_DIRECTED_PLACEMENT: PASS
+./bin/phase5-benefit-evidence-test
+P5BE01_ADAPTER_AND_JOIN_PRESERVE_EVIDENCE: PASS
+P5BE02_STALE_GENERATION_REJECTED: PASS
+P5BE03_COMPLETE_EVIDENCE_UNCALIBRATED: PASS
+./bin/decision-benefit-evidence-test
+DBE01_DECISION_ENGINE_RUNS: PASS
+DBE02_FACTORS_UNCHANGED: PASS
+DBE03_UTILITY_MARGIN_AND_RANKING_UNCHANGED: PASS
+DBE04_EPSILON_BEHAVIOR_UNCHANGED: PASS
+DBE05_ZERO_MARGIN_IS_AVAILABLE: PASS
+DBE06_UNAVAILABLE_MARGIN_REMAINS_UNAVAILABLE: PASS
+DBE07_THREAD_ONLY_EVIDENCE_SUPPORTED: PASS
+DBE08_VERSION_AND_SUMMARY_UNCHANGED: PASS
+sh tests/run_validation_fixtures.sh
+Validation fixtures passed.
+./bin/migration_test
+T03 | MIGRATION_NO_ACTION | MIGRATION_NO_ACTION | PASS
+T04 | MIGRATION_INSUFFICIENT_INFORMATION | MIGRATION_INSUFFICIENT_INFORMATION | PASS
+T05 | MIGRATION_NOT_AUTHORIZED | MIGRATION_NOT_AUTHORIZED | PASS
+T06 | MIGRATION_NOT_AUTHORIZED | MIGRATION_NOT_AUTHORIZED | PASS
+T19 | MIGRATION_NOT_AUTHORIZED | MIGRATION_NOT_AUTHORIZED | PASS
+T20 | MIGRATION_NOT_AUTHORIZED | MIGRATION_NOT_AUTHORIZED | PASS
+T21 | MIGRATION_NO_ACTION | MIGRATION_NO_ACTION | PASS
+T22 | MIGRATION_INSUFFICIENT_INFORMATION | MIGRATION_INSUFFICIENT_INFORMATION | PASS
+T01 | approved memory migration attempted when remote node and verified pages exist | remote NUMA node unavailable | NOT TESTED — ENVIRONMENT LIMITATION
+T02 | MIGRATION_SUCCESS | MIGRATION_SUCCESS | PASS
+T07 | MIGRATION_SUCCESS | MIGRATION_SUCCESS | PASS
+T08 | MIGRATION_SUCCESS | MIGRATION_SUCCESS | PASS
+T35 | MIGRATION_TARGET_GONE | MIGRATION_TARGET_GONE | PASS
+T09 | MIGRATION_INVALID_DESTINATION | MIGRATION_INVALID_DESTINATION | PASS
+T10 | MIGRATION_TARGET_GONE | MIGRATION_TARGET_GONE | PASS
+T11 | MIGRATION_INVALID_TARGET | MIGRATION_INVALID_TARGET | PASS
+T12 | MIGRATION_NO_MIGRATION_REQUIRED | MIGRATION_NO_MIGRATION_REQUIRED | PASS
+T13 | MIGRATION_ALREADY_IN_PROGRESS | MIGRATION_ALREADY_IN_PROGRESS | PASS
+T14 | MIGRATION_NO_MIGRATION_REQUIRED | MIGRATION_NO_MIGRATION_REQUIRED | PASS
+T15 | MIGRATION_INVALID_DESTINATION | MIGRATION_INVALID_DESTINATION | PASS
+T16 | MIGRATION_INSUFFICIENT_INFORMATION | MIGRATION_INSUFFICIENT_INFORMATION | PASS
+T17 | MIGRATION_INVALID_SOURCE | MIGRATION_INVALID_SOURCE | PASS
+T18 | controlled locked/pinned memory rejection | not safely reproduced | NOT TESTED — ENVIRONMENT LIMITATION
+T23 | MIGRATION_TARGET_GONE | MIGRATION_TARGET_GONE | PASS
+T24 | MIGRATION_TARGET_GONE | MIGRATION_TARGET_GONE | PASS
+T25 | successful migration CSV record | record present | PASS
+T26 | failed migration CSV record | record present | PASS
+T27 | human-readable migration log | record present | PASS
+T28 | 3 records retained | 3 records retained | PASS
+T29 | old record removed, new retained | cleanup executed | PASS
+T30 | original history preserved on cleanup failure | original retained | PASS
+T31 | MIGRATION_SUCCESS | MIGRATION_SUCCESS | PASS
+T32 | MIGRATION_NOT_AUTHORIZED and unchanged affinity | MIGRATION_NOT_AUTHORIZED | PASS
+T33 | remote NUMA migration only with >=2 nodes | multiple NUMA nodes | PASS
+T34 overhead | expected execution overhead measurements | min=0.020 ms max=0.021 ms avg=0.020 ms | PASS
+sh tests/run_migration_cli.sh
+Migration CLI fixtures passed.
+./bin/feedback_test
+F01 | positive reward and memory update | FEEDBACK_UPDATED | PASS
+F02 | negative reward and memory decrease | FEEDBACK_UPDATED | PASS
+F03 | positive thread update | FEEDBACK_UPDATED | PASS
+F04 | negative thread update | FEEDBACK_UPDATED | PASS
+F05 | opposite applications diverge | APP_A up / APP_B down | PASS
+F06 | APP_B state unchanged by APP_A | unchanged | PASS
+F07 | all 12 individual factor deltas explainable | memory 6 + thread 6 match | PASS
+F08 | only relevant bias changes | thread bias delta matches | PASS
+F09 | weight remains within [min_weight,max_weight] | bounded | PASS
+F10 | bias remains inside bounds | bounded | PASS
+F11 | FEEDBACK_NO_UPDATE inside deadband | FEEDBACK_NO_UPDATE | PASS
+F12 | insufficient observations | FEEDBACK_INSUFFICIENT_OBSERVATION | PASS
+F13 | low confidence produces no update | FEEDBACK_NO_UPDATE | PASS
+F14 | NaN/infinity metric rejected | FEEDBACK_INVALID_INPUT | PASS
+F15 | unavailable metric excluded | FEEDBACK_UPDATED | PASS
+F16 | execution failure not learnable | FEEDBACK_NOT_LEARNABLE | PASS
+F17 | target gone not learnable | FEEDBACK_NOT_LEARNABLE | PASS
+F18 | successful harmful migration is negative | FEEDBACK_NEGATIVE | PASS
+F19 | successful beneficial migration is positive | FEEDBACK_POSITIVE | PASS
+F20 | neutral outcome has no update | FEEDBACK_NO_UPDATE | PASS
+F21 | recent feedback has greater influence | recent delta > old delta | PASS
+F22 | opposite sequence remains bounded | finite bounded weight | PASS
+F23 | expired application is not updated | FEEDBACK_NO_UPDATE | PASS
+F24 | state survives restart | bias preserved | PASS
+F25 | invalid state preserved and rejected | FEEDBACK_INVALID_STATE | PASS
+F26 | 3 feedback records retained | header plus 3 records | PASS
+F27 | original history preserved on compaction failure | original retained | PASS
+F28 | identical event/state is deterministic | identical reward and state | PASS
+I01 | approved beneficial memory integration | FEEDBACK_UPDATED | PASS
+I02 | approved harmful memory integration | FEEDBACK_UPDATED | PASS
+I03 | approved beneficial thread integration | FEEDBACK_UPDATED | PASS
+I04 | approved harmful thread integration | FEEDBACK_UPDATED | PASS
+I05 | real insufficient pipeline produces no learning | FEEDBACK_NO_UPDATE | PASS
+F29 | terminal migration safety event is persisted without learning | FEEDBACK_TERMINAL_RECORDED | PASS
+ADAPT | APP_A trends up and APP_B trends down | opposite isolated trends | PASS
+STABILITY | finite bounded opposite movement | positive then negative bounded | PASS
+LEARNING_RATE | 0.01 < 0.05 < 0.10 update magnitude | monotonic update magnitude | PASS
+sh tests/run_feedback_cli.sh
+Feedback CLI fixtures passed.
+python3 tests/cloudlab_phase4d_tooling_test.py
+cloudlab_phase4d_tooling_test: PASS
+python3 tests/cloudlab_phase4d_aggregation_test.py
+cloudlab_phase4d_aggregation_test: PASS
+make: Leaving directory '/users/pragnya/AWAVMA-validation'
+runtime_diagnostic_builder_test: PASS
+runtime_diagnostic_graph_test: PASS
+adaptive_outcome_test: PASS

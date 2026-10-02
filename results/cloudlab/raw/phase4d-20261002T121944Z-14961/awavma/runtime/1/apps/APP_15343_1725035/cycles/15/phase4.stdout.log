@@ -1,0 +1,19 @@
+AWAVMA Workload Classifier
+--------------------------
+Input              : /users/pragnya/AWAVMA-validation/results/cloudlab/raw/phase4d-20261002T121944Z-14961/awavma/runtime/1/apps/APP_15343_1725035/cycles/15/monitoring_normalized.csv
+Output             : /users/pragnya/AWAVMA-validation/results/cloudlab/raw/phase4d-20261002T121944Z-14961/awavma/runtime/1/apps/APP_15343_1725035/cycles/15/classification_full.csv
+Access column      : access_value
+Window             : 10 observations
+Decay factor       : 0.100000
+Hot threshold      : 100.000000
+Moderate threshold : 20.000000
+Hysteresis         : 5.000000
+
+Classification results
+HOT       : 0 rows
+MODERATE  : 0 rows
+COLD      : 0 rows
+UNAVAILABLE: 133 rows
+Rows      : 133
+Runtime   : 0.000843 sec
+Classification completed.

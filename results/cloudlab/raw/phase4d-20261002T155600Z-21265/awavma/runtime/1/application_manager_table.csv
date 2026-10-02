@@ -1,0 +1,2 @@
+app_id,pid,parent_pid,process_name,executable_path,start_time_ticks,discovered_at,last_seen,state,status
+APP_21637_3022645,21637,21265,benchmark,/users/pragnya/AWAVMA-validation/bin/benchmark,3022645,1790957053,1790957084,S,TERMINATED

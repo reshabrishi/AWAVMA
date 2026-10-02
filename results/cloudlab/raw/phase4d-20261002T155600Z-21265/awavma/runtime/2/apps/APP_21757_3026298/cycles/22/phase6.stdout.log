@@ -1,0 +1,7 @@
+AWAVMA Validation Module
+------------------------
+Input       : /users/pragnya/AWAVMA-validation/results/cloudlab/raw/phase4d-20261002T155600Z-21265/awavma/runtime/2/apps/APP_21757_3026298/cycles/22/validation_input.csv
+Rows        : 9
+Accepted    : 0
+Rejected    : 9
+Migration was not executed.

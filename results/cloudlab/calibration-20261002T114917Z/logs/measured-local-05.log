@@ -1,0 +1,24 @@
+AWAVMA Benchmark
+----------------
+Pattern          : mixed
+Threads          : 2
+Memory           : 1024 MB
+Iterations       : 1000000 per thread (duration mode)
+Duration         : enabled
+NUMA Nodes       : 2
+Memory Node      : 0
+Thread Node      : 0
+Seed             : 20260930
+Regions          : hot=10% moderate=30% cold=60%
+Starting benchmark...
+
+Completed successfully.
+
+Results
+-------
+Execution Time   : 10.000192 sec
+Operations       : 189049856
+Throughput       : 18904621.956 ops/sec
+Checksum         : 13879146
+Thread 0        : 10.000073 sec, 94373888 ops, CPU 0 (node 0)
+Thread 1        : 10.000091 sec, 94675968 ops, CPU 2 (node 0)
