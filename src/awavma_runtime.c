@@ -1183,6 +1183,7 @@ static int write_validation_input(const char *decision_path, const char *output_
         int destination_node = -1;
         const char *timestamp_value;
         const char *action_value;
+        const char *validation_action;
 
         field_count = split_csv(line, fields, 64);
         target.source_numa_node = -1;
@@ -1190,6 +1191,8 @@ static int write_validation_input(const char *decision_path, const char *output_
         target.policy_result = MIGRATION_TARGET_INTERNAL_ERROR;
         timestamp_value = field_or_na(fields, field_count, timestamp);
         action_value = field_or_na(fields, field_count, action);
+        validation_action = strcmp(action_value, "MOVE_THREAD") == 0 ||
+                            strcmp(action_value, "MOVE_MEMORY") == 0 ? action_value : "NO_MIGRATION";
         snprintf(gain, sizeof(gain), "%s", field_or_na(fields, field_count,
                                                          column_index(fields, field_count, "predicted_gain")));
         snprintf(cost_percent, sizeof(cost_percent), "%s", field_or_na(fields, field_count,
@@ -1224,7 +1227,7 @@ static int write_validation_input(const char *decision_path, const char *output_
         fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%zu,NA,NA,NA,%d,%d,%s,%s,%s,N/A,N/A,%s,false,false,false",
                  timestamp_value, migration_id,
                  field_or_na(fields, field_count, app_id), field_or_na(fields, field_count, pid),
-                 field_or_na(fields, field_count, entity_id), action_value,
+                  field_or_na(fields, field_count, entity_id), validation_action,
                  field_or_na(fields, field_count, status),
                  field_or_na(fields, field_count, classification),
                   confidence.valid_sample_count >= 3 ? "100" : "NA", confidence.valid_sample_count >= 3 ? "100" : "NA",

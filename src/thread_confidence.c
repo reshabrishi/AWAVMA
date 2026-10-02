@@ -158,6 +158,8 @@ bool thread_confidence_evaluate(const char *path, long pid, uint64_t start_ticks
         snprintf(confidence->reason, sizeof(confidence->reason), !hot ? "CLASS_CHANGED" : !remote ? "PLACEMENT_NOT_REMOTE" : confidence->valid_sample_count >= 3 ? "VALID" : "INSUFFICIENT_SAMPLES");
     }
 done:
-    if (file != NULL) fclose(file); free(line);
+    if (file != NULL)
+        fclose(file);
+    free(line);
     return confidence->valid_sample_count >= 3;
 }

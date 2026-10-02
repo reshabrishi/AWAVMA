@@ -39,6 +39,7 @@ int main(void)
     char results_path[PATH_MAX + 32];
     char classification_path[PATH_MAX + 96];
     char decision_path[PATH_MAX + 96];
+    char validation_input_path[PATH_MAX + 96];
     char validation_path[PATH_MAX + 96];
     awavma_runtime_config_t config;
     awavma_runtime_t *runtime;
@@ -115,10 +116,13 @@ int main(void)
                  records[0].app_id);
         snprintf(validation_path, sizeof(validation_path), "%s/apps/%s/cycles/1/validation.csv", root,
                  records[0].app_id);
+        snprintf(validation_input_path, sizeof(validation_input_path), "%s/apps/%s/cycles/1/validation_input.csv", root,
+                 records[0].app_id);
         ar06 = strcmp(records[0].detail, "Phase 6 did not approve migration") == 0 &&
                access(classification_path, R_OK) == 0 && access(decision_path, R_OK) == 0 &&
                 access(validation_path, R_OK) == 0 && file_contains(classification_path, ",COLD,") &&
-                file_contains(decision_path, ",NO_MIGRATION,") &&
+                file_contains(decision_path, "INSUFFICIENT_DECISION_SIGNAL") &&
+                file_contains(validation_input_path, ",NO_MIGRATION,INSUFFICIENT_DECISION_SIGNAL,") &&
                 file_contains(validation_path, ",NO_MIGRATION");
     }
     report("AR06", ar06);
