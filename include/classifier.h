@@ -17,6 +17,7 @@ typedef struct {
     const char *output_path;
     const char *access_column;
     const char *entity_column;
+    const char *confidence_history_path;
     size_t window_size;
     double lambda;
     double hot_threshold;

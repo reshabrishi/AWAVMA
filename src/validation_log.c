@@ -10,8 +10,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#define VALIDATION_HISTORY_HEADER "timestamp,migration_id,app_id,pid,entity_id,action,source_node,destination_node,confidence_score,roi_score,safety_score,validation_score,confidence_status,roi_status,safety_status,validation_status,final_decision,history_relevance,recorded_at_epoch"
-#define VALIDATION_RESULTS_HEADER "timestamp,migration_id,app_id,pid,entity_id,action,source_node,destination_node,confidence_score,roi_score,safety_score,validation_score,confidence_status,roi_status,safety_status,validation_status,final_decision"
+#define VALIDATION_HISTORY_HEADER "timestamp,migration_id,app_id,pid,entity_id,action,source_node,destination_node,confidence_score,roi_score,safety_score,validation_score,confidence_status,roi_status,safety_status,page_locked,memory_pinned,validation_status,final_decision,history_relevance,recorded_at_epoch"
+#define VALIDATION_RESULTS_HEADER "timestamp,migration_id,app_id,pid,entity_id,action,source_node,destination_node,confidence_score,roi_score,safety_score,validation_score,confidence_status,roi_status,safety_status,page_locked,memory_pinned,validation_status,final_decision"
 
 static ValidationConfig log_config;
 static bool log_initialized;
@@ -184,13 +184,14 @@ bool LogValidationResult(const ValidationResult *result, const DecisionData *dec
                     ? result->timestamp : "UNKNOWN";
     source_node = decision->nodes_available ? decision->source_node : -1;
     destination_node = decision->nodes_available ? decision->destination_node : -1;
-    snprintf(line, sizeof(line), "%s,%s,%s,%ld,%s,%s,%d,%d,%.9f,%.9f,%.9f,%.9f,%s,%s,%s,%s,%s",
+    snprintf(line, sizeof(line), "%s,%s,%s,%ld,%s,%s,%d,%d,%.9f,%.9f,%.9f,%.9f,%s,%s,%s,%s,%s,%s,%s",
              timestamp, result->migration_id, result->app_id, result->pid, result->entity_id,
              action_name(result->action), source_node, destination_node,
-             result->confidence_score, result->roi_score, result->safety_score,
-             result->validation_score, gate_name(result->confidence_status),
-             gate_name(result->roi_status), gate_name(result->safety_status),
-             result->validation_status, result->final_decision);
+              result->confidence_score, result->roi_score, result->safety_score,
+              result->validation_score, gate_name(result->confidence_status),
+              gate_name(result->roi_status), gate_name(result->safety_status),
+              result->page_locked_field, result->memory_pinned_field,
+              result->validation_status, result->final_decision);
     now = epoch_seconds();
     snprintf(history_line, sizeof(history_line), "%s,1.000000000,%lld", line, now);
     monitor_profile_scope_t output_profile;

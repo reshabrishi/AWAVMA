@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
 #include "runtime_migration_metadata.h"
@@ -72,8 +73,102 @@ static bool read_stat(pid_t pid, uint64_t *start_ticks, uint64_t *cpu_ticks, int
     return have_start && have_cpu_time;
 }
 
+static bool parse_cpu_list(const char *text, cpu_set_t *set)
+{
+    const char *cursor = text;
+
+    CPU_ZERO(set);
+    while (*cursor != '\0' && *cursor != '\n') {
+        char *end;
+        long first = strtol(cursor, &end, 10);
+        long last = first;
+
+        if (end == cursor || first < 0 || first >= CPU_SETSIZE)
+            return false;
+        if (*end == '-') {
+            last = strtol(end + 1, &end, 10);
+            if (last < first || last >= CPU_SETSIZE)
+                return false;
+        }
+        for (long cpu = first; cpu <= last; cpu++)
+            CPU_SET((int)cpu, set);
+        if (*end == ',')
+            cursor = end + 1;
+        else if (*end == '\0' || *end == '\n')
+            break;
+        else
+            return false;
+    }
+    return CPU_COUNT(set) > 0;
+}
+
+static bool read_cpu_set_file(const char *path, cpu_set_t *set)
+{
+    char line[4096];
+    FILE *file;
+
+    file = fopen(path, "r");
+    if (file == NULL)
+        return false;
+    if (fgets(line, sizeof(line), file) == NULL) {
+        fclose(file);
+        return false;
+    }
+    fclose(file);
+    return line[0] != '\n' && line[0] != '\0' && parse_cpu_list(line, set);
+}
+
+static bool read_cgroup_cpuset(pid_t pid, RuntimeMigrationMetadata *metadata)
+{
+    char proc_path[64], line[4096], group_path[256] = {0}, path[512];
+    FILE *file;
+    unsigned version = 0;
+
+    if (snprintf(proc_path, sizeof(proc_path), "/proc/%ld/cgroup", (long)pid) >= (int)sizeof(proc_path))
+        return false;
+    file = fopen(proc_path, "r");
+    if (file == NULL)
+        return false;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *first = strchr(line, ':');
+        char *second = first == NULL ? NULL : strchr(first + 1, ':');
+
+        if (first == NULL || second == NULL)
+            continue;
+        *second++ = '\0';
+        second[strcspn(second, "\r\n")] = '\0';
+        if (first[1] == '\0') {
+            version = 2;
+            snprintf(group_path, sizeof(group_path), "%s", second);
+            break;
+        }
+        if (strstr(first + 1, "cpuset") != NULL) {
+            version = 1;
+            snprintf(group_path, sizeof(group_path), "%s", second);
+            break;
+        }
+    }
+    fclose(file);
+    if (version == 0 || group_path[0] != '/')
+        return false;
+    metadata->cgroup_version = version;
+    snprintf(metadata->cgroup_path, sizeof(metadata->cgroup_path), "%s", group_path);
+    if (version == 2) {
+        if (snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cpuset.cpus.effective", group_path) >= (int)sizeof(path))
+            return false;
+        if (read_cpu_set_file(path, &metadata->permitted_cpu_set))
+            return true;
+        if (snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cpuset.cpus", group_path) >= (int)sizeof(path))
+            return false;
+        return read_cpu_set_file(path, &metadata->permitted_cpu_set);
+    }
+    if (snprintf(path, sizeof(path), "/sys/fs/cgroup/cpuset%s/cpuset.cpus", group_path) >= (int)sizeof(path))
+        return false;
+    return read_cpu_set_file(path, &metadata->permitted_cpu_set);
+}
+
 bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
-                                    RuntimeMigrationMetadata *metadata)
+                                     RuntimeMigrationMetadata *metadata)
 {
     uint64_t observed_start = 0;
     uint64_t cpu_ticks = 0;
@@ -101,7 +196,36 @@ bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
     }
     if (sched_getaffinity(pid, sizeof(metadata->affinity), &metadata->affinity) == 0)
         metadata->affinity_available = true;
+    metadata->permitted_cpu_set_available = read_cgroup_cpuset(pid, metadata);
     /* The runtime has no node-of-CPU provider without libnuma; do not infer node zero. */
+    return true;
+}
+
+bool runtime_get_thread_migration_metadata(pid_t pid, pid_t tid, uint64_t start_time_ticks,
+                                            RuntimeMigrationMetadata *metadata)
+{
+    RuntimeMigrationMetadata process;
+    uint64_t ignored_start = 0, cpu_ticks = 0;
+    int cpu = -1;
+    char path[160];
+
+    if (metadata == NULL || tid <= 0 ||
+        !runtime_get_migration_metadata(pid, start_time_ticks, &process))
+        return false;
+    *metadata = process;
+    if (!process.identity_match ||
+        snprintf(path, sizeof(path), "/proc/%ld/task/%ld", (long)pid, (long)tid) >= (int)sizeof(path))
+        return true;
+    metadata->thread_exists = access(path, F_OK) == 0;
+    metadata->thread_belongs_to_process = metadata->thread_exists;
+    if (!metadata->thread_belongs_to_process || !read_stat(tid, &ignored_start, &cpu_ticks, &cpu))
+        return true;
+    metadata->current_cpu_available = cpu >= 0;
+    metadata->current_cpu = cpu;
+    metadata->process_cpu_time_available = true;
+    metadata->process_cpu_time_ticks = cpu_ticks;
+    metadata->affinity_available = sched_getaffinity(tid, sizeof(metadata->affinity), &metadata->affinity) == 0;
+    metadata->thread_metadata_available = metadata->current_cpu_available && metadata->affinity_available;
     return true;
 }
 

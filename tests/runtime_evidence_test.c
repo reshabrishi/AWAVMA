@@ -34,7 +34,7 @@ int main(void)
 {
     char directory[] = "/tmp/runtime-evidence-XXXXXX";
     char monitor[256], threads[256], classified[256], evidence[256], decision[256];
-    int passed;
+    int passed, suite_passed;
 
     if (mkdtemp(directory) == NULL)
         return EXIT_FAILURE;
@@ -48,16 +48,43 @@ int main(void)
         "2026-10-02T00:00:00Z,0,42,80,50,0,1000,100,N0=4 N3=12\n") == 0 &&
         write_file(threads,
         "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
-        "2026-10-02T00:00:00Z,0,42,42,7,0,90,R\n") == 0 &&
+        "2026-10-02T00:00:00Z,0,42,100,7,3,90,R\n"
+        "2026-10-02T00:00:00Z,0,42,101,7,0,80,R\n") == 0 &&
         write_file(classified,
         "timestamp,elapsed_ms,pid,entity_id,score,previous_class,current_class,lambda,window_size,hot_threshold,moderate_threshold,hysteresis,status\n"
         "2026-10-02T00:00:00Z,0,42,process,90,COLD,HOT,0.1,10,100,20,5,CLASSIFIED\n") == 0 &&
         runtime_evidence_write_classifier_input(monitor, "evidence-app", evidence) == 0 &&
         runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
         has_text(evidence, "evidence-app,process,") &&
-        has_text(decision, ",3,0,REMOTE,MEASURED_REMOTE_THREAD_TO_MEMORY") &&
-        has_text(decision, ",NA,NA,NA,NA,");
-    printf("RE01_MEASURED_EVIDENCE_AND_DIRECTED_PLACEMENT: %s\n", passed ? "PASS" : "FAIL");
+         has_text(decision, ",evidence-app,101,") &&
+         has_text(decision, ",3,0,REMOTE,MEASURED_REMOTE_THREAD_TO_MEMORY") &&
+         has_text(decision, ",NA,NA,NA,NA,");
+    printf("TID01_LOCAL_HOTTER_REMOTE_SELECTED: %s\n", passed ? "PASS" : "FAIL");
+    suite_passed = passed;
+    passed = write_file(threads,
+        "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
+        "2026-10-02T00:00:00Z,0,42,101,7,0,70,R\n"
+        "2026-10-02T00:00:00Z,0,42,102,7,0,90,R\n") == 0 &&
+        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+        has_text(decision, ",evidence-app,102,");
+    printf("TID02_HIGHEST_REMOTE_SELECTED: %s\n", passed ? "PASS" : "FAIL");
+    suite_passed = suite_passed && passed;
+    passed = write_file(threads,
+        "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
+        "2026-10-02T00:00:00Z,0,42,102,7,0,80,R\n"
+        "2026-10-02T00:00:00Z,0,42,101,7,0,80,R\n") == 0 &&
+        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+        has_text(decision, ",evidence-app,101,");
+    printf("TID03_EQUAL_REMOTE_LOWEST_TID: %s\n", passed ? "PASS" : "FAIL");
+    suite_passed = suite_passed && passed;
+    passed = write_file(threads,
+        "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
+        "2026-10-02T00:00:00Z,0,42,101,7,3,90,R\n"
+        "2026-10-02T00:00:00Z,0,42,102,7,3,80,R\n") == 0 &&
+        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+        has_text(decision, ",LOCAL,NO_REMOTE_THREAD");
+    printf("TID04_ALL_LOCAL_NO_CANDIDATE: %s\n", passed ? "PASS" : "FAIL");
+    suite_passed = suite_passed && passed;
     unlink(monitor); unlink(threads); unlink(classified); unlink(evidence); unlink(decision); rmdir(directory);
-    return passed ? EXIT_SUCCESS : EXIT_FAILURE;
+    return suite_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -40,12 +40,12 @@ static MigrationTargetResult source_from_affinity(const ThreadTargetPolicyInput 
 {
     int observed_node = -1;
 
-    if (!input->allowed_affinity_available)
+    if (!input->permitted_cpu_set_available)
         return MIGRATION_TARGET_SOURCE_UNKNOWN;
     if (input->source_cpu_available) {
         if (input->source_cpu < 0 || input->source_cpu >= CPU_SETSIZE ||
             !CPU_ISSET(input->source_cpu, &topology->online_cpus) ||
-            !CPU_ISSET(input->source_cpu, &input->allowed_affinity) ||
+             !CPU_ISSET(input->source_cpu, &input->permitted_cpu_set) ||
             topology->cpu_node[input->source_cpu] < 0)
             return MIGRATION_TARGET_SOURCE_AMBIGUOUS;
         *source_node = topology->cpu_node[input->source_cpu];
@@ -54,7 +54,7 @@ static MigrationTargetResult source_from_affinity(const ThreadTargetPolicyInput 
     for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
         int node;
 
-        if (!CPU_ISSET(cpu, &input->allowed_affinity))
+        if (!CPU_ISSET(cpu, &input->permitted_cpu_set))
             continue;
         if (!CPU_ISSET(cpu, &topology->online_cpus) || topology->cpu_node[cpu] < 0)
             return MIGRATION_TARGET_SOURCE_UNKNOWN;
@@ -119,7 +119,11 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
     if (!active->available)
         return reject(target, MIGRATION_TARGET_TOPOLOGY_UNAVAILABLE,
                       "result=topology_unavailable reason=no_online_numa_cpus");
-    result = source_from_affinity(input, active, &source_node);
+    if (input->source_node_available) {
+        source_node = input->source_numa_node;
+        result = MIGRATION_TARGET_AVAILABLE;
+    } else
+        result = source_from_affinity(input, active, &source_node);
     if (result != MIGRATION_TARGET_AVAILABLE)
         return reject(target, result, result == MIGRATION_TARGET_SOURCE_AMBIGUOUS ?
                       "result=source_ambiguous reason=affinity_spans_nodes_without_current_cpu" :
@@ -130,6 +134,12 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
                       "result=source_unknown reason=source_cpu_has_no_online_numa_node");
     target->source_node_known = true;
     target->source_numa_node = source_node;
+    if (!input->requested_destination_available)
+        return reject(target, MIGRATION_TARGET_INVALID,
+                      "result=invalid reason=requested_destination_unavailable");
+    if (input->requested_destination_node == source_node)
+        return reject(target, MIGRATION_TARGET_NO_ALTERNATE_TARGET,
+                      "result=no_alternate source_node=%d reason=already_on_requested_destination", source_node);
     CPU_ZERO(&candidate_mask);
     for (unsigned node = 0; node < MIGRATION_TARGET_MAX_NODES; node++) {
         cpu_set_t node_mask;
@@ -139,6 +149,8 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
                            input->previous_source_node == source_node &&
                            input->previous_target_node == (int)node;
 
+        if ((int)node != input->requested_destination_node)
+            continue;
         if (!active->node_present[node] || (int)node == source_node)
             continue;
         CPU_ZERO(&node_mask);
@@ -146,7 +158,7 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
             if (active->cpu_node[cpu] != (int)node || !CPU_ISSET(cpu, &active->online_cpus))
                 continue;
             node_has_online_cpu = true;
-            if (CPU_ISSET(cpu, &input->allowed_affinity))
+            if (CPU_ISSET(cpu, &input->permitted_cpu_set))
                 CPU_SET(cpu, &node_mask);
         }
         /* A sysfs-present node with no online CPU is not a destination candidate. */
@@ -173,14 +185,15 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
                           "result=no_alternate source_node=%d candidates=0 reason=no_other_online_numa_node",
                           source_node);
         return reject(target, MIGRATION_TARGET_NO_ELIGIBLE_CPUS,
-                      "result=no_eligible_cpus source_node=%d candidates=0 reason=allowed_affinity_has_no_alternate_node_cpu",
+                      "result=no_eligible_cpus source_node=%d candidates=0 reason=permitted_cpu_set_has_no_requested_node_cpu",
                       source_node);
     }
-    if (candidate_nodes > 1)
-        return reject(target, MIGRATION_TARGET_AMBIGUOUS,
-                      "result=ambiguous source_node=%d candidates=%u reason=no_authoritative_ranking_metric",
-                      source_node, candidate_nodes);
-
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+        if (CPU_ISSET(cpu, &candidate_mask)) {
+            CPU_ZERO(&candidate_mask);
+            CPU_SET(cpu, &candidate_mask);
+            break;
+        }
     memset(&provider_input, 0, sizeof(provider_input));
     provider_input.pid = input->pid;
     provider_input.start_time_ticks = input->start_time_ticks;
@@ -216,4 +229,30 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
               input->action == VALIDATION_ACTION_MOVE_MEMORY ? "MOVE_MEMORY" : "MOVE_THREAD",
               source_node, candidate_node);
     return MIGRATION_TARGET_AVAILABLE;
+}
+
+bool thread_target_policy_preview(const ThreadTargetPolicyInput *input,
+                                  const MigrationTargetTopology *topology,
+                                  ThreadTargetPreview *preview)
+{
+    if (preview == NULL)
+        return false;
+    memset(preview, 0, sizeof(*preview));
+    preview->target.source_numa_node = -1;
+    preview->target.target_numa_node = -1;
+    if (input == NULL || input->action != VALIDATION_ACTION_MOVE_THREAD) {
+        preview->result = MIGRATION_TARGET_UNSUPPORTED_ACTION;
+        snprintf(preview->target.reason, sizeof(preview->target.reason),
+                 "result=unsupported_action reason=thread_preview_only");
+        return false;
+    }
+    /* Pin to the lowest permitted online CPU on the requested node deterministically. */
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+        if (CPU_ISSET(cpu, &candidate_mask)) {
+            CPU_ZERO(&candidate_mask);
+            CPU_SET(cpu, &candidate_mask);
+            break;
+        }
+    preview->result = thread_target_policy_select(input, topology, &preview->target);
+    return preview->result == MIGRATION_TARGET_AVAILABLE;
 }

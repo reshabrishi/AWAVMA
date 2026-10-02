@@ -13,7 +13,15 @@ typedef struct {
     bool identity_match;
     bool process_exists;
     bool affinity_available;
+    /* Current thread affinity is placement/checkpoint state, not permission. */
     cpu_set_t affinity;
+    bool permitted_cpu_set_available;
+    cpu_set_t permitted_cpu_set;
+    unsigned cgroup_version;
+    char cgroup_path[256];
+    bool thread_exists;
+    bool thread_belongs_to_process;
+    bool thread_metadata_available;
     bool current_cpu_available;
     int current_cpu;
     bool current_numa_node_available;
@@ -43,7 +51,9 @@ typedef enum {
 
 /* Reads only live Linux state. Unavailable observations remain unavailable. */
 bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
-                                    RuntimeMigrationMetadata *metadata);
+                                     RuntimeMigrationMetadata *metadata);
+bool runtime_get_thread_migration_metadata(pid_t pid, pid_t tid, uint64_t start_time_ticks,
+                                            RuntimeMigrationMetadata *metadata);
 bool runtime_migration_checkpoint_affinity(const RuntimeMigrationMetadata *metadata,
                                            RuntimeMigrationCheckpoint *checkpoint);
 RuntimeMigrationRollbackResult runtime_migration_restore_affinity(

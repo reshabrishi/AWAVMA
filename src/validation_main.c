@@ -402,10 +402,16 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
     monitor->available = stability_available && sample_available && cpu_available && memory_available && concurrency_available && monitor->stability >= 0.0 && monitor->stability <= 100.0;
     monitor->hard_constraints_available = true;
     bool hard_available;
-    if (!parse_optional_bool(fields, count, columns->page_locked, &monitor->page_locked, &hard_available)) return false;
-    monitor->hard_constraints_available = monitor->hard_constraints_available && hard_available;
-    if (!parse_optional_bool(fields, count, columns->memory_pinned, &monitor->memory_pinned, &hard_available)) return false;
-    monitor->hard_constraints_available = monitor->hard_constraints_available && hard_available;
+    if (decision->action == VALIDATION_ACTION_MOVE_THREAD) {
+        /* Thread moves do not operate on pages; N/A is the required explicit representation. */
+        monitor->page_locked = false;
+        monitor->memory_pinned = false;
+    } else {
+        if (!parse_optional_bool(fields, count, columns->page_locked, &monitor->page_locked, &hard_available)) return false;
+        monitor->hard_constraints_available = monitor->hard_constraints_available && hard_available;
+        if (!parse_optional_bool(fields, count, columns->memory_pinned, &monitor->memory_pinned, &hard_available)) return false;
+        monitor->hard_constraints_available = monitor->hard_constraints_available && hard_available;
+    }
     if (!parse_optional_bool(fields, count, columns->cooldown, &monitor->cooldown_active, &hard_available)) return false;
     monitor->hard_constraints_available = monitor->hard_constraints_available && hard_available;
     if (!parse_optional_bool(fields, count, columns->thread_locked, &monitor->thread_locked, &hard_available)) return false;

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "runtime_evidence.h"
 
@@ -9,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 
 #define MAX_FIELDS 64
 
@@ -140,12 +142,13 @@ done:
     return result;
 }
 
-static int thread_node_for_sample(const char *thread_path, const char *timestamp, const char *pid)
+static int thread_node_for_sample(const char *thread_path, const char *timestamp, const char *pid,
+                                  int dominant_memory_node, pid_t *selected_tid)
 {
     FILE *file = fopen(thread_path, "r");
     char *line = NULL, *fields[MAX_FIELDS];
     size_t capacity = 0;
-    int timestamp_column, pid_column, node_column, usage_column, result = -1;
+    int timestamp_column, pid_column, tid_column, node_column, usage_column, result = -1;
     double highest = -1.0;
 
     if (file == NULL || getline(&line, &capacity, file) < 0)
@@ -153,9 +156,10 @@ static int thread_node_for_sample(const char *thread_path, const char *timestamp
     size_t count = split_csv(line, fields);
     timestamp_column = column(fields, count, "timestamp");
     pid_column = column(fields, count, "pid");
+    tid_column = column(fields, count, "tid");
     node_column = column(fields, count, "cpu_node");
     usage_column = column(fields, count, "cpu_utilization_percent");
-    if (timestamp_column < 0 || pid_column < 0 || node_column < 0 || usage_column < 0)
+    if (timestamp_column < 0 || pid_column < 0 || tid_column < 0 || node_column < 0 || usage_column < 0)
         goto done;
     while (getline(&line, &capacity, file) >= 0) {
         double usage;
@@ -163,13 +167,21 @@ static int thread_node_for_sample(const char *thread_path, const char *timestamp
         long node;
         count = split_csv(line, fields);
         if ((size_t)usage_column >= count || (size_t)timestamp_column >= count || (size_t)pid_column >= count ||
+            (size_t)tid_column >= count ||
             (size_t)node_column >= count || strcmp(fields[timestamp_column], timestamp) != 0 ||
             strcmp(fields[pid_column], pid) != 0 || !number(fields[usage_column], &usage))
             continue;
         node = strtol(fields[node_column], &end, 10);
-        if (end != fields[node_column] && *end == '\0' && node >= 0 && node <= INT_MAX && usage > highest) {
+        char *tid_end = NULL;
+        long tid = strtol(fields[tid_column], &tid_end, 10);
+        if (end != fields[node_column] && *end == '\0' && node >= 0 && node <= INT_MAX &&
+            node != dominant_memory_node &&
+            tid_end != fields[tid_column] && *tid_end == '\0' && tid > 0 &&
+            (usage > highest || (usage == highest && (selected_tid == NULL || *selected_tid <= 0 || tid < *selected_tid)))) {
             highest = usage;
             result = (int)node;
+            if (selected_tid != NULL)
+                *selected_tid = (pid_t)tid;
         }
     }
 done:
@@ -211,6 +223,8 @@ int runtime_evidence_write_decision_input(const char *evidence_path, const char 
            getline(&classification_line, &classification_capacity, classification) >= 0) {
         double access_value;
         int memory_node, thread_node;
+        pid_t selected_tid = -1;
+        char selected_entity[32];
         count = split_csv(evidence_line, fields);
         classified_count = split_csv(classification_line, classified);
         if ((size_t)access >= count || (size_t)memory >= count || (size_t)timestamp >= count ||
@@ -219,20 +233,17 @@ int runtime_evidence_write_decision_input(const char *evidence_path, const char 
             !number(fields[access], &access_value))
             continue;
         memory_node = dominant_memory_node(fields[memory]);
-        thread_node = thread_node_for_sample(thread_path, fields[timestamp], fields[pid]);
+        thread_node = thread_node_for_sample(thread_path, fields[timestamp], fields[pid], memory_node,
+                                             &selected_tid);
+        snprintf(selected_entity, sizeof(selected_entity), "%ld", (long)selected_tid);
         if (memory_node < 0 || thread_node < 0) {
-            fprintf(output, "%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,%d,%d,UNAVAILABLE,PLACEMENT_EVIDENCE_UNAVAILABLE\n",
-                    fields[timestamp], fields[elapsed], fields[pid], fields[app], fields[entity],
+            fprintf(output, "%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,%d,%d,LOCAL,NO_REMOTE_THREAD\n",
+                     fields[timestamp], fields[elapsed], fields[pid], fields[app], selected_entity,
                     classified[classification_value], classified[score], memory_node, thread_node);
-        } else if (memory_node == thread_node) {
-            fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%.9f,%.9f,NA,NA,NA,NA,0,0,%.9f,%.9f,%d,%d,LOCAL,MEASURED_LOCAL_PLACEMENT\n",
-                    fields[timestamp], fields[elapsed], fields[pid], fields[app], fields[entity],
-                    classified[classification_value], classified[score], clamp01(access_value / 125.0),
-                    clamp01(access_value / 100.0), clamp01(access_value / 100.0), 0.0, memory_node, thread_node);
         } else {
             double normalized = clamp01(access_value / 125.0);
             fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%.9f,%.9f,NA,NA,NA,NA,%.9f,%.9f,%.9f,%.9f,%d,%d,REMOTE,MEASURED_REMOTE_THREAD_TO_MEMORY\n",
-                    fields[timestamp], fields[elapsed], fields[pid], fields[app], fields[entity],
+                     fields[timestamp], fields[elapsed], fields[pid], fields[app], selected_entity,
                     classified[classification_value], classified[score], normalized, clamp01(access_value / 100.0),
                     normalized, 0.0, clamp01(access_value / 100.0), 0.0, memory_node, thread_node);
         }

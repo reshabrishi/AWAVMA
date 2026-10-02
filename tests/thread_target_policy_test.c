@@ -51,11 +51,15 @@ static ThreadTargetPolicyInput input_for(void)
     input.safety_state_available = true;
     input.source_cpu_available = true;
     input.source_cpu = 0;
-    input.allowed_affinity_available = true;
-    CPU_SET(0, &input.allowed_affinity);
-    CPU_SET(1, &input.allowed_affinity);
-    CPU_SET(2, &input.allowed_affinity);
-    CPU_SET(3, &input.allowed_affinity);
+    input.source_node_available = true;
+    input.source_numa_node = 0;
+    input.requested_destination_available = true;
+    input.requested_destination_node = 1;
+    input.permitted_cpu_set_available = true;
+    CPU_SET(0, &input.permitted_cpu_set);
+    CPU_SET(1, &input.permitted_cpu_set);
+    CPU_SET(2, &input.permitted_cpu_set);
+    CPU_SET(3, &input.permitted_cpu_set);
     return input;
 }
 
@@ -217,34 +221,34 @@ int main(void)
     input = input_for();
     test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
                   target.source_node_known && target.source_numa_node == 0 && target.target_numa_node == 1 &&
-                  CPU_ISSET(2, &target.target_cpu_mask) && CPU_ISSET(3, &target.target_cpu_mask) &&
+                   CPU_COUNT(&target.target_cpu_mask) == 1 && CPU_ISSET(2, &target.target_cpu_mask) &&
                   target.candidate_count == 1;
     report("TS02_SYNTHETIC_TWO_NODE_SINGLE_CANDIDATE", test_passed);
     suite_passed = suite_passed && test_passed;
 
     input = input_for();
-    CPU_SET(4, &input.allowed_affinity);
-    CPU_SET(5, &input.allowed_affinity);
-    test_passed = thread_target_policy_select(&input, &three, &target) == MIGRATION_TARGET_AMBIGUOUS &&
-                  target.candidate_count == 2 &&
-                  terminal_policy_once(&input, &three, MIGRATION_TARGET_AMBIGUOUS);
-    report("TS03_SYNTHETIC_THREE_NODE_AMBIGUOUS", test_passed);
+    CPU_SET(4, &input.permitted_cpu_set);
+    CPU_SET(5, &input.permitted_cpu_set);
+    input.requested_destination_node = 2;
+    test_passed = thread_target_policy_select(&input, &three, &target) == MIGRATION_TARGET_AVAILABLE &&
+                   target.target_numa_node == 2;
+    report("TP03_REQUESTED_DESTINATION", test_passed);
     suite_passed = suite_passed && test_passed;
 
     input = input_for();
-    CPU_ZERO(&input.allowed_affinity);
-    CPU_SET(0, &input.allowed_affinity);
-    CPU_SET(1, &input.allowed_affinity);
-    CPU_SET(3, &input.allowed_affinity);
+    CPU_ZERO(&input.permitted_cpu_set);
+    CPU_SET(0, &input.permitted_cpu_set);
+    CPU_SET(1, &input.permitted_cpu_set);
+    CPU_SET(3, &input.permitted_cpu_set);
     test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
                   CPU_COUNT(&target.target_cpu_mask) == 1 && CPU_ISSET(3, &target.target_cpu_mask);
-    report("TS04_ALLOWED_CPU_INTERSECTION", test_passed);
+    report("CP01_CGROUP_PERMISSION_CAN_INCLUDE_DESTINATION", test_passed);
     suite_passed = suite_passed && test_passed;
 
     input = input_for();
-    CPU_ZERO(&input.allowed_affinity);
-    CPU_SET(0, &input.allowed_affinity);
-    CPU_SET(1, &input.allowed_affinity);
+    CPU_ZERO(&input.permitted_cpu_set);
+    CPU_SET(0, &input.permitted_cpu_set);
+    CPU_SET(1, &input.permitted_cpu_set);
     test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_NO_ELIGIBLE_CPUS &&
                   terminal_policy_once(&input, &two, MIGRATION_TARGET_NO_ELIGIBLE_CPUS);
     {
@@ -257,11 +261,11 @@ int main(void)
                          MIGRATION_TARGET_NO_ALTERNATE_TARGET;
         test_passed = test_passed && offline_passed;
     }
-    report("TS05_EMPTY_CPU_INTERSECTION", test_passed);
+    report("CP02_DESTINATION_OUTSIDE_PERMISSION_REJECTED", test_passed);
     suite_passed = suite_passed && test_passed;
 
     input = input_for();
-    input.allowed_affinity_available = false;
+    input.permitted_cpu_set_available = false;
     test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_UNKNOWN &&
                   terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_UNKNOWN);
     {
@@ -330,6 +334,26 @@ int main(void)
 
     test_passed = selected_execution_disabled();
     report("TS12_SELECTED_TARGET_EXECUTION_DISABLED", test_passed);
+    suite_passed = suite_passed && test_passed;
+
+    {
+        ThreadTargetPolicyInput preview_input = input_for();
+        ThreadTargetPreview preview;
+        MigrationSafetyConfig config;
+        MigrationSafetySnapshot snapshot;
+        MigrationSafetyManager *manager = migration_safety_manager_create();
+
+        migration_safety_config_default(&config);
+        test_passed = thread_target_policy_preview(&preview_input, &two, &preview) &&
+                      preview.result == MIGRATION_TARGET_AVAILABLE &&
+                      preview.target.target_numa_node == 1 &&
+                      preview_input.action == VALIDATION_ACTION_MOVE_THREAD &&
+                      manager != NULL && migration_safety_manager_init(manager, &config) &&
+                      migration_safety_manager_snapshot(manager, "unseen", 42, 99, &snapshot) &&
+                      !snapshot.found && !snapshot.quarantined;
+        migration_safety_manager_destroy(manager);
+    }
+    report("TP05_READ_ONLY_PREVIEW_AND_SNAPSHOT", test_passed);
     suite_passed = suite_passed && test_passed;
     return suite_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

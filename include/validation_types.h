@@ -112,6 +112,9 @@ typedef struct {
     GateStatus confidence_status;
     GateStatus roi_status;
     GateStatus safety_status;
+    /* Page controls are meaningful only for MOVE_MEMORY; MOVE_THREAD records N/A. */
+    char page_locked_field[8];
+    char memory_pinned_field[8];
     char validation_status[64];
     char final_decision[32];
 } ValidationResult;

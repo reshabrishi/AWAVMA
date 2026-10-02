@@ -80,7 +80,27 @@ static ValidationResult base_result(const DecisionData *decision)
     result.confidence_status = GATE_INVALID;
     result.roi_status = GATE_INVALID;
     result.safety_status = GATE_INVALID;
+    snprintf(result.page_locked_field, sizeof(result.page_locked_field), "%s",
+             decision->action == VALIDATION_ACTION_MOVE_THREAD ? "N/A" : "UNKNOWN");
+    snprintf(result.memory_pinned_field, sizeof(result.memory_pinned_field), "%s",
+             decision->action == VALIDATION_ACTION_MOVE_THREAD ? "N/A" : "UNKNOWN");
     return result;
+}
+
+static void set_action_aware_page_fields(ValidationResult *result, const MonitorData *monitor,
+                                         const DecisionData *decision)
+{
+    if (result == NULL || decision == NULL)
+        return;
+    if (decision->action == VALIDATION_ACTION_MOVE_THREAD) {
+        snprintf(result->page_locked_field, sizeof(result->page_locked_field), "N/A");
+        snprintf(result->memory_pinned_field, sizeof(result->memory_pinned_field), "N/A");
+    } else if (decision->action == VALIDATION_ACTION_MOVE_MEMORY && monitor != NULL) {
+        snprintf(result->page_locked_field, sizeof(result->page_locked_field), "%s",
+                 monitor->page_locked ? "true" : "false");
+        snprintf(result->memory_pinned_field, sizeof(result->memory_pinned_field), "%s",
+                 monitor->memory_pinned ? "true" : "false");
+    }
 }
 
 ValidationResult CalculateValidationScore(const GateResult *confidence,
@@ -163,6 +183,7 @@ ValidationResult ValidateMigration(const MonitorData *monitor,
         return result;
     }
     result = base_result(decision);
+    set_action_aware_page_fields(&result, monitor, decision);
     if (decision->action == VALIDATION_ACTION_NO_MIGRATION) {
         snprintf(result.validation_status, sizeof(result.validation_status), "VALID_NO_MIGRATION");
         snprintf(result.final_decision, sizeof(result.final_decision), "NO_MIGRATION");
@@ -250,6 +271,7 @@ ValidationResult ValidateMigration(const MonitorData *monitor,
     }
     result = CalculateValidationScore(&confidence, &roi, &safety, &active_config);
     copy_identity(&result, decision);
+    set_action_aware_page_fields(&result, monitor, decision);
     return result;
 }
 

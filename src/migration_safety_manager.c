@@ -652,6 +652,43 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
     return true;
 }
 
+bool migration_safety_manager_snapshot(const MigrationSafetyManager *manager, const char *app_id,
+                                       pid_t pid, uint64_t start_time_ticks,
+                                       MigrationSafetySnapshot *snapshot)
+{
+    uint64_t current;
+
+    if (snapshot == NULL)
+        return false;
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->previous_action = VALIDATION_ACTION_INSUFFICIENT;
+    snapshot->previous_source_node = -1;
+    snapshot->previous_target_node = -1;
+    if (manager == NULL || app_id == NULL || app_id[0] == '\0' || pid <= 0 || start_time_ticks == 0)
+        return false;
+    current = now_ms();
+    for (size_t index = 0; index < manager->application_count; index++) {
+        const app_safety_state_t *state = &manager->applications[index];
+        if (state->pid != pid || state->start_time_ticks != start_time_ticks ||
+            strcmp(state->app_id, app_id) != 0)
+            continue;
+        snapshot->found = true;
+        snapshot->quarantined = state->quarantined;
+        snapshot->cooldown_active = current < state->cooldown_until_ms;
+        snapshot->recent_equivalent_failure = state->last_failure_ms > 0 &&
+            current - state->last_failure_ms < manager->config.suppression_window_ms;
+        snapshot->consecutive_failures = state->consecutive_failures;
+        snapshot->attempts = state->attempts;
+        snapshot->successes = state->successes;
+        snapshot->failures = state->failures;
+        snapshot->previous_action = state->last_action;
+        snapshot->previous_source_node = state->last_source;
+        snapshot->previous_target_node = state->last_target;
+        return true;
+    }
+    return true;
+}
+
 void migration_safety_manager_shutdown(MigrationSafetyManager *manager)
 {
     if (manager == NULL)

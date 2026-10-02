@@ -6,6 +6,7 @@
 #include "classifier.h"
 #include "environment_capabilities.h"
 #include "migration_safety_manager.h"
+#include "migration_cost.h"
 #include "migration_validation_snapshot.h"
 #include "monitor_profile.h"
 #include "page_checkpoint.h"
@@ -442,10 +443,13 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
         return result;
     }
 #endif
-    if (!runtime_get_migration_metadata(request->pid, request->start_time_ticks, &metadata))
+    if (!runtime_get_thread_migration_metadata(request->pid, request->migration_request.tid,
+                                               request->start_time_ticks, &metadata) ||
+        !metadata.thread_belongs_to_process || !metadata.thread_metadata_available)
         return MIGRATION_TARGET_INTERNAL_ERROR;
     memset(&policy_input, 0, sizeof(policy_input));
     policy_input.pid = request->pid;
+    policy_input.tid = request->migration_request.tid;
     policy_input.start_time_ticks = request->start_time_ticks;
     policy_input.attempt_id = attempt_id;
     policy_input.action = request->action;
@@ -456,8 +460,12 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
     policy_input.quarantined = request->target_policy_quarantined;
     policy_input.source_cpu_available = metadata.current_cpu_available;
     policy_input.source_cpu = metadata.current_cpu;
-    policy_input.allowed_affinity_available = metadata.affinity_available;
-    policy_input.allowed_affinity = metadata.affinity;
+    policy_input.source_node_available = request->source_numa_node >= 0;
+    policy_input.source_numa_node = request->source_numa_node;
+    policy_input.requested_destination_available = request->destination_numa_node >= 0;
+    policy_input.requested_destination_node = request->destination_numa_node;
+    policy_input.permitted_cpu_set_available = metadata.permitted_cpu_set_available;
+    policy_input.permitted_cpu_set = metadata.permitted_cpu_set;
     policy_input.history_available = request->target_policy_history_available;
     policy_input.recent_equivalent_failure = request->target_policy_recent_equivalent_failure;
     policy_input.previous_action = request->target_policy_previous_action;
@@ -1013,8 +1021,130 @@ static GateStatus parse_gate_status(const char *text)
 }
 
 /* Phase 6 requires operational evidence that Phase 3/4/5 do not currently emit. */
+static bool classifier_history_ready(const char *path, long pid)
+{
+    FILE *file = path == NULL ? NULL : fopen(path, "r");
+    char *line = NULL, *fields[16];
+    size_t capacity = 0, matched = 0;
+    int pid_column, confidence_column, classification_column;
+
+    if (file == NULL || getline(&line, &capacity, file) < 0)
+        goto done;
+    pid_column = column_index(fields, split_csv(line, fields, 16), "pid");
+    confidence_column = column_index(fields, 16, "classifier_confidence");
+    classification_column = column_index(fields, 16, "classification");
+    if (pid_column < 0 || confidence_column < 0 || classification_column < 0)
+        goto done;
+    while (getline(&line, &capacity, file) >= 0) {
+        double confidence;
+        size_t count = split_csv(line, fields, 16);
+
+        if ((size_t)pid_column >= count || (size_t)confidence_column >= count ||
+            (size_t)classification_column >= count || strtol(fields[pid_column], NULL, 10) != pid ||
+            !parse_csv_double(fields[confidence_column], &confidence) || confidence < 70.0 ||
+            strcmp(fields[classification_column], "HOT") != 0) {
+            matched = 0;
+            continue;
+        }
+        if (++matched >= 3)
+            break;
+    }
+done:
+    free(line);
+    if (file != NULL) fclose(file);
+    return matched >= 3;
+}
+
+static bool measured_remote_row(const char *path, const char *timestamp, long pid,
+                                int *source_node, int *destination_node)
+{
+    FILE *file = path == NULL ? NULL : fopen(path, "r");
+    char *line = NULL, *fields[64];
+    size_t capacity = 0;
+    int timestamp_column, pid_column, relation_column, status_column, source_column, destination_column;
+    bool found = false;
+
+    if (file == NULL || getline(&line, &capacity, file) < 0)
+        goto done;
+    size_t count = split_csv(line, fields, 64);
+    timestamp_column = column_index(fields, count, "timestamp");
+    pid_column = column_index(fields, count, "pid");
+    relation_column = column_index(fields, count, "placement_relation");
+    status_column = column_index(fields, count, "evidence_status");
+    source_column = column_index(fields, count, "thread_dominant_node");
+    destination_column = column_index(fields, count, "memory_dominant_node");
+    while (timestamp_column >= 0 && pid_column >= 0 && relation_column >= 0 && status_column >= 0 &&
+           source_column >= 0 && destination_column >= 0 &&
+           getline(&line, &capacity, file) >= 0) {
+        count = split_csv(line, fields, 64);
+        if ((size_t)timestamp_column < count && (size_t)pid_column < count &&
+            (size_t)relation_column < count && (size_t)status_column < count &&
+            (size_t)source_column < count && (size_t)destination_column < count &&
+            strcmp(fields[timestamp_column], timestamp) == 0 &&
+            strtol(fields[pid_column], NULL, 10) == pid && strcmp(fields[relation_column], "REMOTE") == 0 &&
+            strcmp(fields[status_column], "MEASURED_REMOTE_THREAD_TO_MEMORY") == 0) {
+            if (source_node != NULL)
+                *source_node = (int)strtol(fields[source_column], NULL, 10);
+            if (destination_node != NULL)
+                *destination_node = (int)strtol(fields[destination_column], NULL, 10);
+            found = true;
+            break;
+        }
+    }
+done:
+    free(line);
+    if (file != NULL) fclose(file);
+    return found;
+}
+
+static bool thread_validation_evidence(const awavma_runtime_t *runtime,
+                                        const awavma_runtime_record_t *record,
+                                        pid_t tid, int source_node, int destination_node,
+                                        MigrationTarget *target, MigrationSafetySnapshot *safety)
+{
+    RuntimeMigrationMetadata metadata;
+    ThreadTargetPolicyInput input = {0};
+    ThreadTargetPreview preview;
+
+    if (runtime == NULL || runtime->migration_safety == NULL || target == NULL || safety == NULL ||
+        !runtime_get_thread_migration_metadata(record->pid, tid, record->start_time_ticks, &metadata) ||
+        !metadata.thread_belongs_to_process || !metadata.thread_metadata_available ||
+        !migration_safety_manager_snapshot(runtime->migration_safety, record->app_id, record->pid,
+                                           record->start_time_ticks, safety))
+        return false;
+    input.pid = record->pid;
+    input.tid = tid;
+    input.start_time_ticks = record->start_time_ticks;
+    input.attempt_id = "phase6-preview";
+    input.action = VALIDATION_ACTION_MOVE_THREAD;
+    input.migration_intent_approved = true;
+    input.identity_match = metadata.identity_match;
+    input.safety_state_available = true;
+    input.cooldown_active = safety->cooldown_active;
+    input.quarantined = safety->quarantined;
+    input.source_cpu_available = metadata.current_cpu_available;
+    input.source_cpu = metadata.current_cpu;
+    input.source_node_available = source_node >= 0;
+    input.source_numa_node = source_node;
+    input.requested_destination_available = destination_node >= 0;
+    input.requested_destination_node = destination_node;
+    input.permitted_cpu_set_available = metadata.permitted_cpu_set_available;
+    input.permitted_cpu_set = metadata.permitted_cpu_set;
+    input.history_available = safety->found;
+    input.recent_equivalent_failure = safety->recent_equivalent_failure;
+    input.previous_action = safety->previous_action;
+    input.previous_source_node = safety->previous_source_node;
+    input.previous_target_node = safety->previous_target_node;
+    bool available = thread_target_policy_preview(&input, NULL, &preview);
+    *target = preview.target;
+    return available;
+}
+
 static int write_validation_input(const char *decision_path, const char *output_path,
-                                  const awavma_runtime_record_t *record)
+                                  const awavma_runtime_record_t *record,
+                                  const awavma_runtime_t *runtime,
+                                  const char *confidence_history_path,
+                                  const char *decision_evidence_path)
 {
     static const char *header =
         "timestamp,migration_id,app_id,pid,entity_id,action,decision_status,classification,"
@@ -1027,7 +1157,7 @@ static int write_validation_input(const char *decision_path, const char *output_
         "phase5_f_gain_thread,phase5_f_cost_thread,phase5_f_cpu_thread,phase5_f_sharing_thread,"
         "phase5_memory_score_raw,phase5_thread_score_raw,phase5_memory_bias,phase5_thread_bias,"
         "phase5_memory_score_final,phase5_thread_score_final,phase5_decision_margin,phase5_epsilon,phase5_weight_version,"
-        "phase5_bias_version\n";
+        "phase5_bias_version,target_preview,safety_snapshot,evaluation_horizon_seconds,cost_artifact\n";
     static const char *phase5_names[] = {
         "classification_score", "f_access", "f_threshold", "f_gain_memory", "f_cost_memory",
         "f_cpu_memory", "f_sharing_memory", "f_gain_thread", "f_cost_thread", "f_cpu_thread",
@@ -1075,22 +1205,77 @@ static int write_validation_input(const char *decision_path, const char *output_
     fputs(header, output);
     while (getline(&line, &line_capacity, input) >= 0) {
         char migration_id[128];
+        MigrationTarget target = {0};
+        MigrationSafetySnapshot safety = {0};
+        MigrationCostArtifact cost;
+        MigrationCostROI roi;
+        char gain[32];
+        char cost_percent[32];
+        bool thread_evidence = false;
+        bool empirical = false;
+        pid_t candidate_tid = -1;
+        int source_node = -1;
+        int destination_node = -1;
+        const char *timestamp_value;
+        const char *action_value;
 
         field_count = split_csv(line, fields, 64);
+        target.source_numa_node = -1;
+        target.target_numa_node = -1;
+        target.policy_result = MIGRATION_TARGET_INTERNAL_ERROR;
+        timestamp_value = field_or_na(fields, field_count, timestamp);
+        action_value = field_or_na(fields, field_count, action);
+        snprintf(gain, sizeof(gain), "%s", field_or_na(fields, field_count,
+                                                         column_index(fields, field_count, "predicted_gain")));
+        snprintf(cost_percent, sizeof(cost_percent), "%s", field_or_na(fields, field_count,
+                                                                 column_index(fields, field_count, "estimated_cost")));
         snprintf(migration_id, sizeof(migration_id), "m_%ld_%llu_%zu", (long)record->pid,
                  (unsigned long long)record->generation, row++);
-        fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,NA,NA,NA,NA,NA,%s,%s,UTILITY_POLICY_EVIDENCE,NA,NA,NA,NA,NA,NA",
-                 field_or_na(fields, field_count, timestamp), migration_id,
+        if (strcmp(action_value, "MOVE_THREAD") == 0) {
+            candidate_tid = (pid_t)strtol(field_or_na(fields, field_count, entity_id), NULL, 10);
+            thread_evidence = classifier_history_ready(confidence_history_path, (long)record->pid) &&
+                measured_remote_row(decision_evidence_path, timestamp_value, (long)record->pid,
+                                    &source_node, &destination_node) &&
+                candidate_tid > 0 && thread_validation_evidence(runtime, record, candidate_tid,
+                                                                 source_node, destination_node, &target, &safety);
+            empirical = thread_evidence && runtime->config.thread_migration_cost_artifact_path != NULL &&
+                runtime->config.thread_evaluation_horizon_seconds > 0.0 &&
+                runtime->config.benefit_calibration_state == BENEFIT_CALIBRATION_VALIDATED_PRODUCTION &&
+                target.source_node_known && target.has_target_numa_node &&
+                runtime->config.benefit_calibration_source_node == target.source_numa_node &&
+                runtime->config.benefit_calibration_target_node == target.target_numa_node &&
+                migration_cost_artifact_load(runtime->config.thread_migration_cost_artifact_path,
+                                             target.source_numa_node, target.target_numa_node, &cost) &&
+                migration_cost_roi_time_equivalent(runtime->config.thread_evaluation_horizon_seconds,
+                                                    runtime->config.benefit_calibration_throughput_gain_percent,
+                                                   &cost, &roi);
+            if (empirical) {
+                snprintf(gain, sizeof(gain), "%.9f", runtime->config.benefit_calibration_throughput_gain_percent);
+                snprintf(cost_percent, sizeof(cost_percent), "%.9f",
+                         100.0 * cost.migration_cost_seconds / runtime->config.thread_evaluation_horizon_seconds);
+            }
+        }
+        fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,%d,%d,%s,%s,%s,N/A,N/A,%s,false,false,false",
+                 timestamp_value, migration_id,
                  field_or_na(fields, field_count, app_id), field_or_na(fields, field_count, pid),
-                 field_or_na(fields, field_count, entity_id), field_or_na(fields, field_count, action),
+                 field_or_na(fields, field_count, entity_id), action_value,
                  field_or_na(fields, field_count, status),
                  field_or_na(fields, field_count, classification),
-                 field_or_na(fields, field_count, predicted_gain),
-                 field_or_na(fields, field_count, estimated_cost));
+                 thread_evidence ? "100" : "NA", thread_evidence ? "100" : "NA",
+                 thread_evidence ? 3 : -1, target.source_numa_node, target.target_numa_node,
+                 gain, cost_percent,
+                 empirical ? "EMPIRICAL_GAIN_COST_EVIDENCE" : "UTILITY_POLICY_EVIDENCE",
+                 safety.cooldown_active ? "true" : "false");
         fprintf(output, ",%s,%llu,PHASE5_DECISION_ENGINE", field_or_na(fields, field_count, timestamp),
                 (unsigned long long)record->generation);
         for (size_t index = 0; index < sizeof(phase5_columns) / sizeof(phase5_columns[0]); index++)
             fprintf(output, ",%s", field_or_na(fields, field_count, phase5_columns[index]));
+        fprintf(output, ",%s,%s,%.9f,%s",
+                strcmp(action_value, "MOVE_THREAD") == 0 ?
+                migration_target_result_name(target.policy_result) : "NOT_APPLICABLE",
+                strcmp(action_value, "MOVE_THREAD") == 0 ? "CAPTURED" : "NOT_APPLICABLE",
+                empirical ? runtime->config.thread_evaluation_horizon_seconds : 0.0,
+                empirical ? "PASS" : "UNAVAILABLE");
         fputc('\n', output);
     }
     result = ferror(input) || ferror(output) ? -1 : 0;
@@ -1394,9 +1579,9 @@ error:
 
 #ifdef AWAVMA_RUNTIME_TESTING
 int awavma_runtime_test_write_validation_input(const char *decision_path, const char *output_path,
-                                               const awavma_runtime_record_t *record)
+                                                const awavma_runtime_record_t *record)
 {
-    return write_validation_input(decision_path, output_path, record);
+    return write_validation_input(decision_path, output_path, record, NULL, NULL, NULL);
 }
 
 int awavma_runtime_test_load_benefit_evidence(const char *validation_input_path,
@@ -1603,6 +1788,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     char history_dir[4096];
     char log_path[4096];
     char classifier[4096];
+    char classifier_history[4096];
     char decision[4096];
     char validation[4096];
     char generation[64];
@@ -1663,6 +1849,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         path_join(decision_evidence_path, sizeof(decision_evidence_path), cycle_dir,
                   "decision_evidence.csv") != 0 ||
         path_join(classification_path, sizeof(classification_path), cycle_dir, "classification_full.csv") != 0 ||
+        path_join(classifier_history, sizeof(classifier_history), history_dir, "classifier_confidence.csv") != 0 ||
         path_join(decision_delta_path, sizeof(decision_delta_path), cycle_dir, "decision_delta.csv") != 0 ||
         path_join(decision_path, sizeof(decision_path), cycle_dir, "decision.csv") != 0 ||
         path_join(validation_input_path, sizeof(validation_input_path), cycle_dir, "validation_input.csv") != 0 ||
@@ -1676,7 +1863,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         return -1;
     }
     monitor_profile_scope_end(&artifact_profile, "OK");
-    char *classifier_args[] = {classifier, "--input", runtime_evidence_path, "--output", classification_path, NULL};
+    char *classifier_args[] = {classifier, "--input", runtime_evidence_path, "--output", classification_path,
+                               "--confidence-history", classifier_history, NULL};
     monitor_profile_scope_begin(&normalize_profile, "pipeline", "monitoring_normalize_io", record->app_id,
                                 record->pid, record->generation + 1);
     if (normalize_monitoring_elapsed(phase3_path, normalized_monitoring_path,
@@ -1708,6 +1896,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         classifier_config_default(&classifier_config);
         classifier_config.input_path = runtime_evidence_path;
         classifier_config.output_path = classification_path;
+        classifier_config.confidence_history_path = classifier_history;
         monitor_profile_scope_begin(&direct_profile, "pipeline", "phase4_direct_api_total",
                                     record->app_id, record->pid, record->generation + 1);
         phase4_result = run_classifier_in_process(cycle_dir, &classifier_config, &classifier_summary);
@@ -1756,7 +1945,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     record->phase5_committed_rows = samples;
     monitor_profile_scope_begin(&adapter_profile, "pipeline", "validation_input_adapt_io", record->app_id,
                                 record->pid, record->generation);
-    if (write_validation_input(decision_path, validation_input_path, record) != 0) {
+    if (write_validation_input(decision_path, validation_input_path, record, runtime, classifier_history,
+                               decision_evidence_path) != 0) {
         set_status(record, AWAVMA_RUNTIME_ERROR, "cannot adapt Phase 5 output for Phase 6");
         monitor_profile_scope_end(&adapter_profile, "ERROR");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
@@ -1809,8 +1999,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             request.pid = record->pid;
             request.start_time_ticks = record->start_time_ticks;
             request.action = approved_action;
-            request.source_numa_node = -1;
-            request.destination_numa_node = -1;
+            request.source_numa_node = approved_phase6.source_node;
+            request.destination_numa_node = approved_phase6.destination_node;
             request.target_requires_cross_node = true;
             request.system_safe = runtime->capabilities.state == ENVIRONMENT_READY &&
                 (approved_action == VALIDATION_ACTION_MOVE_THREAD ?
@@ -1819,9 +2009,14 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             request.migration_request.start_time_ticks = record->start_time_ticks;
             request.migration_request.start_time_ticks_available = true;
             /* The process leader is a Linux thread and is revalidated by Migration_Execute. */
-            request.migration_request.tid = record->pid;
+            request.migration_request.tid = approved_action == VALIDATION_ACTION_MOVE_THREAD ?
+                (pid_t)strtol(approved_phase5.entity_id, NULL, 10) : record->pid;
+            if (approved_action == VALIDATION_ACTION_MOVE_THREAD && request.migration_request.tid <= 0)
+                request.system_safe = false;
             request.migration_request.phase5_decision = approved_phase5;
             request.migration_request.phase6_validation = approved_phase6;
+            request.migration_request.source_numa_node = request.source_numa_node;
+            request.migration_request.destination_numa_node = request.destination_numa_node;
             request.migration_request.benefit_evidence_runtime_generation = record->generation;
             if (approved_action == VALIDATION_ACTION_MOVE_MEMORY) {
                 /* No registration means no pages: the safety manager rejects before execution. */
@@ -1934,6 +2129,9 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     config->benefit_calibration_target_node = -1;
     config->benefit_calibration_throughput_gain_percent = NAN;
     config->benefit_calibration_execution_time_improvement_percent = NAN;
+    /* Empirical thread ROI is unavailable until an operator explicitly sets this horizon. */
+    config->thread_evaluation_horizon_seconds = NAN;
+    config->thread_migration_cost_artifact_path = NULL;
     application_discovery_config_default(&config->discovery_config);
     config->discovery_filter = NULL;
     config->discovery_filter_context = NULL;
@@ -1982,7 +2180,10 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
          config->root_dir == NULL || config->bin_dir == NULL || config->phase_config_path == NULL ||
          config->benefit_calibration_state < BENEFIT_CALIBRATION_UNAVAILABLE ||
          config->benefit_calibration_state > BENEFIT_CALIBRATION_VALIDATED_PRODUCTION ||
-         config->benefit_calibration_provenance == NULL ||
+          config->benefit_calibration_provenance == NULL ||
+           (config->thread_migration_cost_artifact_path != NULL &&
+            (!isfinite(config->thread_evaluation_horizon_seconds) ||
+             config->thread_evaluation_horizon_seconds <= 0.0)) ||
          (config->migration_execution_enabled &&
           config->benefit_calibration_state != BENEFIT_CALIBRATION_VALIDATED_PRODUCTION) ||
          (config->page_registration_enabled && config->page_registration_ttl_ms == 0))

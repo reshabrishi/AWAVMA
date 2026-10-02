@@ -50,6 +50,7 @@ void classifier_config_default(classifier_config_t *config)
         .output_path = "results/classification_results.csv",
         .access_column = "access_value",
         .entity_column = "entity_id",
+        .confidence_history_path = "history/classifier_confidence_history.csv",
         .window_size = 10U,
         .lambda = 0.1,
         .hot_threshold = 100.0,
@@ -319,6 +320,29 @@ static void write_result(FILE *output, const char *timestamp, uint64_t elapsed_m
             status_name(access_available));
 }
 
+static bool append_confidence_history(const char *path, const char *timestamp, long pid,
+                                      const entity_state_t *entity, const char *classification,
+                                      double confidence, bool available)
+{
+    FILE *file;
+    long position;
+
+    if (path == NULL)
+        return true;
+    file = fopen(path, "a+");
+    if (file == NULL)
+        return false;
+    if (fseek(file, 0, SEEK_END) != 0 || (position = ftell(file)) < 0) {
+        fclose(file);
+        return false;
+    }
+    if (position == 0)
+        fputs("timestamp,pid,entity_id,classification,classifier_confidence,status\n", file);
+    fprintf(file, "%s,%ld,%s,%s,%.9f,%s\n", timestamp, pid, entity->id, classification,
+            available ? confidence : -1.0, status_name(available));
+    return fclose(file) == 0;
+}
+
 static int validate_config(const classifier_config_t *config)
 {
     if (config == NULL || config->input_path == NULL || config->output_path == NULL ||
@@ -469,8 +493,16 @@ int classifier_run(const classifier_config_t *config, classifier_summary_t *summ
                 summary->unavailable_rows++;
         }
         write_result(output, fields[columns.timestamp], elapsed_ms, pid,
-                     &entities[entity_index], score, previous_class, current_class,
-                     config, access_available);
+                      &entities[entity_index], score, previous_class, current_class,
+                      config, access_available);
+        /* Coverage is confidence, not an inferred performance benefit. */
+        if (!append_confidence_history(config->confidence_history_path, fields[columns.timestamp], pid,
+                                        &entities[entity_index], classifier_class_name(current_class),
+                                       100.0 * (double)entities[entity_index].count / config->window_size,
+                                       access_available)) {
+            fprintf(stderr, "Error: cannot persist classifier confidence history.\n");
+            goto cleanup;
+        }
         if (summary != NULL)
             summary->rows++;
     }

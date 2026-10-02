@@ -34,6 +34,14 @@ static int parse_u64(const char *text, uint64_t *value, bool allow_zero)
     return 0;
 }
 
+static int parse_positive_double(const char *text, double *value)
+{
+    char *end = NULL;
+    errno = 0;
+    *value = strtod(text, &end);
+    return errno == 0 && end != text && *end == '\0' && *value > 0.0;
+}
+
 static void usage(const char *program)
 {
     printf("Usage: %s [options]\n\n", program);
@@ -50,6 +58,8 @@ static void usage(const char *program)
     printf("  --migration-safety-enabled  Record safe Phase 7 terminal outcomes (default: disabled)\n");
     printf("  --migration-execution-enabled  Request Phase 7 execution; verified metadata remains required\n");
     printf("  --benefit-calibration FILE  Strict production thread-benefit calibration artifact\n");
+    printf("  --migration-cost-artifact FILE  Exact directed production thread-cost artifact\n");
+    printf("  --thread-evaluation-horizon-seconds N  Explicit active-work ROI horizon in seconds\n");
     printf("  --page-registration-enabled  Enable the runtime-owned local page-registration socket\n");
     printf("  --page-registration-ttl-ms N  Registration lifetime; requires page registration\n");
     printf("  --pid PID             Monitor an existing application PID (repeatable)\n");
@@ -101,6 +111,8 @@ int main(int argc, char **argv)
         {"migration-safety-enabled", no_argument, NULL, 'S'},
         {"migration-execution-enabled", no_argument, NULL, 'M'},
         {"benefit-calibration", required_argument, NULL, 'B'},
+        {"migration-cost-artifact", required_argument, NULL, 'C'},
+        {"thread-evaluation-horizon-seconds", required_argument, NULL, 'E'},
         {"page-registration-enabled", no_argument, NULL, 'R'},
         {"page-registration-ttl-ms", required_argument, NULL, 'T'},
         {"pid", required_argument, NULL, 'p'},
@@ -123,7 +135,7 @@ int main(int argc, char **argv)
 
     awavma_runtime_config_default(&config);
     runtime_target_filter_init(&target_filter);
-    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMB:RT:p:y:Y:h", options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMB:C:E:RT:p:y:Y:h", options, NULL)) != -1) {
         switch (option) {
         case 'd':
             if (parse_u64(optarg, &duration_ms, true) != 0) goto invalid;
@@ -169,6 +181,11 @@ int main(int argc, char **argv)
             config.benefit_calibration_throughput_gain_percent = calibration.throughput_gain_percent;
             config.benefit_calibration_execution_time_improvement_percent =
                 calibration.execution_time_improvement_percent;
+            break;
+        case 'C': config.thread_migration_cost_artifact_path = optarg; break;
+        case 'E':
+            if (parse_positive_double(optarg, &config.thread_evaluation_horizon_seconds) != 0)
+                goto invalid;
             break;
         case 'R': config.page_registration_enabled = true; break;
         case 'T':

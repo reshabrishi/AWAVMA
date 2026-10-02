@@ -170,6 +170,21 @@ typedef struct {
 
 typedef struct migration_safety_manager MigrationSafetyManager;
 
+/* Read-only state for diagnostics and target-policy previews. */
+typedef struct {
+    bool found;
+    bool quarantined;
+    bool cooldown_active;
+    bool recent_equivalent_failure;
+    unsigned consecutive_failures;
+    unsigned attempts;
+    unsigned successes;
+    unsigned failures;
+    ValidationAction previous_action;
+    int previous_source_node;
+    int previous_target_node;
+} MigrationSafetySnapshot;
+
 void migration_safety_config_default(MigrationSafetyConfig *config);
 const char *migration_safety_state_name(MigrationSafetyState state);
 MigrationSafetyManager *migration_safety_manager_create(void);
@@ -177,7 +192,11 @@ bool migration_safety_manager_init(MigrationSafetyManager *manager,
                                    const MigrationSafetyConfig *config);
 bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                                       const MigrationSafetyRequest *request,
-                                      MigrationSafetyResult *result);
+                                       MigrationSafetyResult *result);
+bool migration_safety_manager_snapshot(const MigrationSafetyManager *manager,
+                                       const char *app_id, pid_t pid,
+                                       uint64_t start_time_ticks,
+                                       MigrationSafetySnapshot *snapshot);
 void migration_safety_manager_shutdown(MigrationSafetyManager *manager);
 void migration_safety_manager_destroy(MigrationSafetyManager *manager);
 

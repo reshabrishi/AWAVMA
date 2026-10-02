@@ -31,6 +31,7 @@ static void usage(const char *program)
     printf("  --moderate-threshold V    MODERATE boundary (default: %.3f)\n", DEFAULT_MODERATE_THRESHOLD);
     printf("  --hysteresis VALUE        Boundary margin (default: %.3f)\n", DEFAULT_HYSTERESIS);
     printf("  --require-access          Fail if access observations are unavailable\n");
+    printf("  --confidence-history FILE Persistent classifier-confidence history (default: history/classifier_confidence_history.csv)\n");
     printf("  --help                    Show this help\n");
 }
 
@@ -92,6 +93,7 @@ int main(int argc, char **argv)
         {"moderate-threshold", required_argument, NULL, 'm'},
         {"hysteresis", required_argument, NULL, 'y'},
         {"require-access", no_argument, NULL, 'r'},
+        {"confidence-history", required_argument, NULL, 'c'},
         {"help", no_argument, NULL, '?'}
     };
     classifier_config_t config;
@@ -101,7 +103,7 @@ int main(int argc, char **argv)
     int result;
 
     classifier_config_default(&config);
-    while ((option = getopt_long(argc, argv, "i:o:a:e:w:l:h:m:y:r?", options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "i:o:a:e:w:l:h:m:y:rc:?", options, NULL)) != -1) {
         switch (option) {
         case 'i':
             config.input_path = optarg;
@@ -148,6 +150,9 @@ int main(int argc, char **argv)
             break;
         case 'r':
             config.require_access = true;
+            break;
+        case 'c':
+            config.confidence_history_path = optarg;
             break;
         case '?':
             usage(argv[0]);

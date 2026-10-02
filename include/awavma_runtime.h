@@ -6,6 +6,7 @@
 #include "migration_safety_manager.h"
 #include "page_checkpoint.h"
 #include "page_candidate_provider.h"
+#include "migration_cost.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -51,6 +52,9 @@ typedef struct {
     int benefit_calibration_target_node;
     double benefit_calibration_throughput_gain_percent;
     double benefit_calibration_execution_time_improvement_percent;
+    /* Thread ROI uses active-work time and an exact directed-route cost artifact. */
+    double thread_evaluation_horizon_seconds;
+    const char *thread_migration_cost_artifact_path;
     application_discovery_config_t discovery_config;
     runtime_monitor_discovery_filter_fn discovery_filter;
     void *discovery_filter_context;
