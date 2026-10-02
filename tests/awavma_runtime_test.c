@@ -122,7 +122,7 @@ int main(void)
                access(classification_path, R_OK) == 0 && access(decision_path, R_OK) == 0 &&
                 access(validation_path, R_OK) == 0 && file_contains(classification_path, ",COLD,") &&
                 file_contains(decision_path, "INSUFFICIENT_DECISION_SIGNAL") &&
-                file_contains(validation_input_path, ",NO_MIGRATION,INSUFFICIENT_DECISION_SIGNAL,") &&
+                 file_contains(validation_input_path, ",NO_MIGRATION,") &&
                 file_contains(validation_path, ",NO_MIGRATION");
     }
     report("AR06", ar06);

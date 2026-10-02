@@ -117,6 +117,16 @@ int main(void)
     assert(strcmp(validation.final_decision, "APPROVED") == 0);
     Validation_Shutdown();
 
+    decision = test_decision();
+    decision.action = VALIDATION_ACTION_NO_MIGRATION;
+    decision.nodes_available = false;
+    assert(Validation_Init(&config));
+    validation = ValidateMigration(&(MonitorData){0}, &decision, &(ClassifierData){0});
+    assert(validation.action == VALIDATION_ACTION_NO_MIGRATION);
+    assert(validation.source_node == -1 && validation.destination_node == -1);
+    assert(strcmp(validation.final_decision, "NO_MIGRATION") == 0);
+    Validation_Shutdown();
+
     config.validation_threshold = NAN;
     assert(!Validation_Init(&config));
     return 0;

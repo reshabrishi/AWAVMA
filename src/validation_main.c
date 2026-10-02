@@ -341,8 +341,6 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
         snprintf(decision->status_text, sizeof(decision->status_text), "%s", fields[columns->decision_status]);
     else
         snprintf(decision->status_text, sizeof(decision->status_text), "UNKNOWN");
-    if (strcasecmp(decision->status_text, "INSUFFICIENT_DECISION_SIGNAL") == 0)
-        decision->action = VALIDATION_ACTION_INSUFFICIENT;
     app = columns->app_id >= 0 && (size_t)columns->app_id < count && !unavailable(fields[columns->app_id])
               ? fields[columns->app_id] : fallback_app;
     if (app == NULL || *app == '\0') return false;
