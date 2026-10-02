@@ -27,6 +27,16 @@ GateResult EvaluateROIGate(const DecisionData *decision,
         snprintf(result.reason, sizeof(result.reason), "REJECT_INSUFFICIENT_SIGNAL");
         return result;
     }
+    if (decision->action == VALIDATION_ACTION_MOVE_THREAD &&
+        decision->evidence_model == DECISION_EVIDENCE_EMPIRICAL_GAIN_COST) {
+        /* Adapter values are the helper's horizon-normalized benefit and cost percentages. */
+        score = decision->predicted_gain - decision->estimated_cost;
+        result.status = score > 0.0 ? GATE_PASS : GATE_FAIL;
+        result.score = score;
+        snprintf(result.reason, sizeof(result.reason), "%s",
+                 result.status == GATE_PASS ? "PASS_EMPIRICAL_TIME_EQUIVALENT" : "REJECT_LOW_ROI");
+        return result;
+    }
     /* Raw ROI intentionally remains in approximately [-100, 100]. */
     score = config->gain_weight * decision->predicted_gain -
             config->cost_weight * decision->estimated_cost;

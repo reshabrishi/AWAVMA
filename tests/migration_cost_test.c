@@ -17,10 +17,14 @@ int main(void)
     assert(fclose(file) == 0);
     assert(migration_cost_artifact_load(path, 1, 0, &artifact));
     assert(!migration_cost_artifact_load(path, 0, 1, &artifact));
-    assert(migration_cost_roi_time_equivalent(10.0, 5.0, &artifact, &roi));
-    assert(fabs(roi.saved_time_seconds - 0.5) < 1e-9);
-    assert(fabs(roi.net_time_seconds - 0.25) < 1e-9);
-    assert(fabs(roi.break_even_horizon_seconds - 5.0) < 1e-9);
+    artifact.migration_cost_seconds = 0.5;
+    assert(migration_cost_roi_time_equivalent(10.0, 20.0, &artifact, &roi));
+    assert(fabs(roi.saved_time_seconds - 2.0) < 1e-9);
+    assert(fabs(roi.net_time_seconds - 1.5) < 1e-9);
+    assert(fabs(roi.benefit_cost_ratio - 4.0) < 1e-9);
+    artifact.migration_cost_seconds = 2.0;
+    assert(migration_cost_roi_time_equivalent(10.0, 20.0, &artifact, &roi));
+    assert(fabs(roi.net_time_seconds) < 1e-9);
     puts("migration_cost_test: PASS");
     return 0;
 }

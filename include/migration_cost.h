@@ -18,6 +18,7 @@ typedef struct {
     double migration_cost_seconds;
     double saved_time_seconds;
     double net_time_seconds;
+    double benefit_cost_ratio;
     double break_even_horizon_seconds;
 } MigrationCostROI;
 

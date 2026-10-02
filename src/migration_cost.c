@@ -63,7 +63,8 @@ bool migration_cost_roi_time_equivalent(double horizon_seconds, double gain_perc
     if (roi == NULL) return false;
     memset(roi, 0, sizeof(*roi));
     if (artifact == NULL || !artifact->available || !isfinite(horizon_seconds) || horizon_seconds <= 0.0 ||
-        !isfinite(gain_percent) || gain_percent <= 0.0 || !isfinite(artifact->migration_cost_seconds))
+        !isfinite(gain_percent) || gain_percent <= 0.0 || !isfinite(artifact->migration_cost_seconds) ||
+        artifact->migration_cost_seconds <= 0.0)
         return false;
     gain = gain_percent / 100.0;
     roi->available = true;
@@ -72,6 +73,7 @@ bool migration_cost_roi_time_equivalent(double horizon_seconds, double gain_perc
     roi->migration_cost_seconds = artifact->migration_cost_seconds;
     roi->saved_time_seconds = horizon_seconds * gain;
     roi->net_time_seconds = roi->saved_time_seconds - artifact->migration_cost_seconds;
+    roi->benefit_cost_ratio = roi->saved_time_seconds / artifact->migration_cost_seconds;
     roi->break_even_horizon_seconds = artifact->migration_cost_seconds / gain;
     return true;
 }

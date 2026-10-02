@@ -82,6 +82,18 @@ int main(void)
     assert(roi.status == GATE_PASS);
     assert(fabs(roi.score - 40.0) < 0.000001);
 
+    decision.action = VALIDATION_ACTION_MOVE_THREAD;
+    decision.evidence_model = DECISION_EVIDENCE_EMPIRICAL_GAIN_COST;
+    decision.predicted_gain = 20.0;
+    decision.estimated_cost = 5.0;
+    roi = EvaluateROIGate(&decision, &config);
+    assert(roi.status == GATE_PASS && fabs(roi.score - 15.0) < 0.000001);
+    decision.estimated_cost = 20.0;
+    roi = EvaluateROIGate(&decision, &config);
+    assert(roi.status == GATE_FAIL);
+    decision.action = VALIDATION_ACTION_MOVE_MEMORY;
+    decision.evidence_model = DECISION_EVIDENCE_EMPIRICAL_GAIN_COST;
+
     safety = EvaluateSafetyGate(&monitor, &decision, &config);
     assert(safety.status == GATE_PASS);
     assert(fabs(safety.score - 80.0) < 0.000001);
