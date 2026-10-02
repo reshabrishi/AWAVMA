@@ -350,6 +350,13 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
     snprintf(decision->entity_id, sizeof(decision->entity_id), "%s",
              columns->entity_id >= 0 && (size_t)columns->entity_id < count && !unavailable(fields[columns->entity_id]) ? fields[columns->entity_id] : "workload");
     snprintf(timestamp, timestamp_size, "%s", fields[columns->timestamp]);
+    if (decision->action == VALIDATION_ACTION_NO_MIGRATION) {
+        decision->nodes_available = false;
+        decision->source_node = -1;
+        decision->destination_node = -1;
+        decision->evidence_model = DECISION_EVIDENCE_UNAVAILABLE;
+        return true;
+    }
     decision->nodes_available = columns->source_node >= 0 && columns->destination_node >= 0 &&
                                 (size_t)columns->source_node < count && (size_t)columns->destination_node < count &&
                                 !unavailable(fields[columns->source_node]) && !unavailable(fields[columns->destination_node]);
