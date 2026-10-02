@@ -191,7 +191,8 @@ done:
 }
 
 int runtime_evidence_write_decision_input(const char *evidence_path, const char *thread_path,
-                                          const char *classification_path, const char *output_path)
+                                           const char *classification_path, uint64_t start_time_ticks,
+                                           const char *output_path)
 {
     FILE *evidence = fopen(evidence_path, "r"), *classification = fopen(classification_path, "r"), *output = NULL;
     char *evidence_line = NULL, *classification_line = NULL, *fields[MAX_FIELDS], *classified[MAX_FIELDS];
@@ -218,7 +219,7 @@ int runtime_evidence_write_decision_input(const char *evidence_path, const char 
     if (timestamp < 0 || elapsed < 0 || pid < 0 || app < 0 || entity < 0 || access < 0 || memory < 0 ||
         class_timestamp < 0 || class_pid < 0 || class_entity < 0 || score < 0 || classification_value < 0)
         goto done;
-    fputs("timestamp,elapsed_ms,pid,app_id,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_dominant_node,thread_dominant_node,placement_relation,evidence_status\n", output);
+    fputs("timestamp,elapsed_ms,pid,start_time_ticks,app_id,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_dominant_node,thread_dominant_node,placement_relation,evidence_status\n", output);
     while (getline(&evidence_line, &evidence_capacity, evidence) >= 0 &&
            getline(&classification_line, &classification_capacity, classification) >= 0) {
         double access_value;
@@ -237,13 +238,13 @@ int runtime_evidence_write_decision_input(const char *evidence_path, const char 
                                              &selected_tid);
         snprintf(selected_entity, sizeof(selected_entity), "%ld", (long)selected_tid);
         if (memory_node < 0 || thread_node < 0) {
-            fprintf(output, "%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,%d,%d,LOCAL,NO_REMOTE_THREAD\n",
-                     fields[timestamp], fields[elapsed], fields[pid], fields[app], selected_entity,
+            fprintf(output, "%s,%s,%s,%llu,%s,%s,%s,%s,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,%d,%d,LOCAL,NO_REMOTE_THREAD\n",
+                     fields[timestamp], fields[elapsed], fields[pid], (unsigned long long)start_time_ticks, fields[app], selected_entity,
                     classified[classification_value], classified[score], memory_node, thread_node);
         } else {
             double normalized = clamp01(access_value / 125.0);
-            fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%.9f,%.9f,NA,NA,NA,NA,%.9f,%.9f,%.9f,%.9f,%d,%d,REMOTE,MEASURED_REMOTE_THREAD_TO_MEMORY\n",
-                     fields[timestamp], fields[elapsed], fields[pid], fields[app], selected_entity,
+            fprintf(output, "%s,%s,%s,%llu,%s,%s,%s,%s,%.9f,%.9f,NA,NA,NA,NA,%.9f,%.9f,%.9f,%.9f,%d,%d,REMOTE,MEASURED_REMOTE_THREAD_TO_MEMORY\n",
+                     fields[timestamp], fields[elapsed], fields[pid], (unsigned long long)start_time_ticks, fields[app], selected_entity,
                     classified[classification_value], classified[score], normalized, clamp01(access_value / 100.0),
                     normalized, 0.0, clamp01(access_value / 100.0), 0.0, memory_node, thread_node);
         }

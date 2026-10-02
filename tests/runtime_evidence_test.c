@@ -54,7 +54,7 @@ int main(void)
         "timestamp,elapsed_ms,pid,entity_id,score,previous_class,current_class,lambda,window_size,hot_threshold,moderate_threshold,hysteresis,status\n"
         "2026-10-02T00:00:00Z,0,42,process,90,COLD,HOT,0.1,10,100,20,5,CLASSIFIED\n") == 0 &&
         runtime_evidence_write_classifier_input(monitor, "evidence-app", evidence) == 0 &&
-        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+         runtime_evidence_write_decision_input(evidence, threads, classified, 99, decision) == 0 &&
         has_text(evidence, "evidence-app,process,") &&
          has_text(decision, ",evidence-app,101,") &&
          has_text(decision, ",3,0,REMOTE,MEASURED_REMOTE_THREAD_TO_MEMORY") &&
@@ -65,7 +65,7 @@ int main(void)
         "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
         "2026-10-02T00:00:00Z,0,42,101,7,0,70,R\n"
         "2026-10-02T00:00:00Z,0,42,102,7,0,90,R\n") == 0 &&
-        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+        runtime_evidence_write_decision_input(evidence, threads, classified, 99, decision) == 0 &&
         has_text(decision, ",evidence-app,102,");
     printf("TID02_HIGHEST_REMOTE_SELECTED: %s\n", passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && passed;
@@ -73,7 +73,7 @@ int main(void)
         "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
         "2026-10-02T00:00:00Z,0,42,102,7,0,80,R\n"
         "2026-10-02T00:00:00Z,0,42,101,7,0,80,R\n") == 0 &&
-        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+        runtime_evidence_write_decision_input(evidence, threads, classified, 99, decision) == 0 &&
         has_text(decision, ",evidence-app,101,");
     printf("TID03_EQUAL_REMOTE_LOWEST_TID: %s\n", passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && passed;
@@ -81,7 +81,7 @@ int main(void)
         "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state\n"
         "2026-10-02T00:00:00Z,0,42,101,7,3,90,R\n"
         "2026-10-02T00:00:00Z,0,42,102,7,3,80,R\n") == 0 &&
-        runtime_evidence_write_decision_input(evidence, threads, classified, decision) == 0 &&
+        runtime_evidence_write_decision_input(evidence, threads, classified, 99, decision) == 0 &&
         has_text(decision, ",LOCAL,NO_REMOTE_THREAD");
     printf("TID04_ALL_LOCAL_NO_CANDIDATE: %s\n", passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && passed;

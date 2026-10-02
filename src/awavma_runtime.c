@@ -14,6 +14,7 @@
 #include "runtime_migration_metadata.h"
 #include "runtime_evidence.h"
 #include "thread_target_policy.h"
+#include "thread_confidence.h"
 #include "worker_pool.h"
 
 #include <errno.h>
@@ -1020,41 +1021,6 @@ static GateStatus parse_gate_status(const char *text)
            text != NULL && strcmp(text, "NOT_APPLICABLE") == 0 ? GATE_NOT_APPLICABLE : GATE_INVALID;
 }
 
-/* Phase 6 requires operational evidence that Phase 3/4/5 do not currently emit. */
-static bool classifier_history_ready(const char *path, long pid)
-{
-    FILE *file = path == NULL ? NULL : fopen(path, "r");
-    char *line = NULL, *fields[16];
-    size_t capacity = 0, matched = 0;
-    int pid_column, confidence_column, classification_column;
-
-    if (file == NULL || getline(&line, &capacity, file) < 0)
-        goto done;
-    pid_column = column_index(fields, split_csv(line, fields, 16), "pid");
-    confidence_column = column_index(fields, 16, "classifier_confidence");
-    classification_column = column_index(fields, 16, "classification");
-    if (pid_column < 0 || confidence_column < 0 || classification_column < 0)
-        goto done;
-    while (getline(&line, &capacity, file) >= 0) {
-        double confidence;
-        size_t count = split_csv(line, fields, 16);
-
-        if ((size_t)pid_column >= count || (size_t)confidence_column >= count ||
-            (size_t)classification_column >= count || strtol(fields[pid_column], NULL, 10) != pid ||
-            !parse_csv_double(fields[confidence_column], &confidence) || confidence < 70.0 ||
-            strcmp(fields[classification_column], "HOT") != 0) {
-            matched = 0;
-            continue;
-        }
-        if (++matched >= 3)
-            break;
-    }
-done:
-    free(line);
-    if (file != NULL) fclose(file);
-    return matched >= 3;
-}
-
 static bool measured_remote_row(const char *path, const char *timestamp, long pid,
                                 int *source_node, int *destination_node)
 {
@@ -1157,7 +1123,9 @@ static int write_validation_input(const char *decision_path, const char *output_
         "phase5_f_gain_thread,phase5_f_cost_thread,phase5_f_cpu_thread,phase5_f_sharing_thread,"
         "phase5_memory_score_raw,phase5_thread_score_raw,phase5_memory_bias,phase5_thread_bias,"
         "phase5_memory_score_final,phase5_thread_score_final,phase5_decision_margin,phase5_epsilon,phase5_weight_version,"
-        "phase5_bias_version,target_preview,safety_snapshot,evaluation_horizon_seconds,cost_artifact\n";
+        "phase5_bias_version,target_preview,safety_snapshot,evaluation_horizon_seconds,cost_artifact,"
+        "candidate_tid,candidate_pid,candidate_start_time_ticks,valid_sample_count,consecutive_hot_count,"
+        "consecutive_remote_count,latest_classification,latest_placement_relation,confidence_status,confidence_reason\n";
     static const char *phase5_names[] = {
         "classification_score", "f_access", "f_threshold", "f_gain_memory", "f_cost_memory",
         "f_cpu_memory", "f_sharing_memory", "f_gain_thread", "f_cost_thread", "f_cpu_thread",
@@ -1213,6 +1181,7 @@ static int write_validation_input(const char *decision_path, const char *output_
         char cost_percent[32];
         bool thread_evidence = false;
         bool empirical = false;
+        ThreadConfidence confidence = {0};
         pid_t candidate_tid = -1;
         int source_node = -1;
         int destination_node = -1;
@@ -1233,7 +1202,8 @@ static int write_validation_input(const char *decision_path, const char *output_
                  (unsigned long long)record->generation, row++);
         if (strcmp(action_value, "MOVE_THREAD") == 0) {
             candidate_tid = (pid_t)strtol(field_or_na(fields, field_count, entity_id), NULL, 10);
-            thread_evidence = classifier_history_ready(confidence_history_path, (long)record->pid) &&
+            thread_evidence = thread_confidence_evaluate(confidence_history_path, (long)record->pid,
+                                                       record->start_time_ticks, candidate_tid, &confidence) &&
                 measured_remote_row(decision_evidence_path, timestamp_value, (long)record->pid,
                                     &source_node, &destination_node) &&
                 candidate_tid > 0 && thread_validation_evidence(runtime, record, candidate_tid,
@@ -1261,8 +1231,8 @@ static int write_validation_input(const char *decision_path, const char *output_
                  field_or_na(fields, field_count, entity_id), action_value,
                  field_or_na(fields, field_count, status),
                  field_or_na(fields, field_count, classification),
-                 thread_evidence ? "100" : "NA", thread_evidence ? "100" : "NA",
-                 thread_evidence ? 3 : -1, target.source_numa_node, target.target_numa_node,
+                  confidence.valid_sample_count >= 3 ? "100" : "NA", confidence.valid_sample_count >= 3 ? "100" : "NA",
+                  (long)confidence.valid_sample_count, target.source_numa_node, target.target_numa_node,
                  gain, cost_percent,
                  empirical ? "EMPIRICAL_GAIN_COST_EVIDENCE" : "UTILITY_POLICY_EVIDENCE",
                  safety.cooldown_active ? "true" : "false");
@@ -1270,12 +1240,17 @@ static int write_validation_input(const char *decision_path, const char *output_
                 (unsigned long long)record->generation);
         for (size_t index = 0; index < sizeof(phase5_columns) / sizeof(phase5_columns[0]); index++)
             fprintf(output, ",%s", field_or_na(fields, field_count, phase5_columns[index]));
-        fprintf(output, ",%s,%s,%.9f,%s",
+        fprintf(output, ",%s,%s,%.9f,%s,%ld,%ld,%llu,%zu,%zu,%zu,%s,%s,%s,%s",
                 strcmp(action_value, "MOVE_THREAD") == 0 ?
                 migration_target_result_name(target.policy_result) : "NOT_APPLICABLE",
                 strcmp(action_value, "MOVE_THREAD") == 0 ? "CAPTURED" : "NOT_APPLICABLE",
                 empirical ? runtime->config.thread_evaluation_horizon_seconds : 0.0,
-                empirical ? "PASS" : "UNAVAILABLE");
+                empirical ? "PASS" : "UNAVAILABLE", (long)candidate_tid, (long)record->pid,
+                (unsigned long long)record->start_time_ticks, confidence.valid_sample_count,
+                confidence.valid_sample_count, confidence.valid_sample_count,
+                confidence.latest_classification, confidence.latest_placement_relation,
+                confidence.valid_sample_count >= 3 ? "VALID" : "INVALID",
+                confidence.reason != NULL ? confidence.reason : "EVIDENCE_UNAVAILABLE");
         fputc('\n', output);
     }
     result = ferror(input) || ferror(output) ? -1 : 0;
@@ -1912,7 +1887,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         return -1;
     }
     if (runtime_evidence_write_decision_input(runtime_evidence_path, thread_path, classification_path,
-                                              decision_evidence_path) != 0) {
+                                              record->start_time_ticks, decision_evidence_path) != 0) {
         set_status(record, AWAVMA_RUNTIME_ERROR, "cannot derive Phase 5 runtime evidence");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
@@ -1945,7 +1920,12 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     record->phase5_committed_rows = samples;
     monitor_profile_scope_begin(&adapter_profile, "pipeline", "validation_input_adapt_io", record->app_id,
                                 record->pid, record->generation);
-    if (write_validation_input(decision_path, validation_input_path, record, runtime, classifier_history,
+    char thread_confidence_history[4096];
+    if (path_join(thread_confidence_history, sizeof(thread_confidence_history), history_dir,
+                  "thread_confidence.csv") != 0 ||
+        !thread_confidence_append(decision_evidence_path, thread_confidence_history, record->pid,
+                                  record->start_time_ticks, record->generation) ||
+        write_validation_input(decision_path, validation_input_path, record, runtime, thread_confidence_history,
                                decision_evidence_path) != 0) {
         set_status(record, AWAVMA_RUNTIME_ERROR, "cannot adapt Phase 5 output for Phase 6");
         monitor_profile_scope_end(&adapter_profile, "ERROR");
