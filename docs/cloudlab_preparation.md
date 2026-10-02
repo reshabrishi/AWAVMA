@@ -6,7 +6,7 @@ Use an exclusive Linux machine with at least two visible NUMA nodes, `numactl`, 
 
 ## Exact Order
 
-The required order is **metadata -> build -> tests -> environment check -> preflight -> baseline -> AWAVMA -> aggregate -> graphs -> manifests**. The runner discovers the first two observed NUMA node IDs, records topology, platform, compiler, locale, Git revision/status, and environment-check output, then uses the existing Makefile targets.
+The required order is **metadata -> build -> tests -> environment check -> preflight -> calibration -> manifest IN_PROGRESS -> baseline -> AWAVMA -> aggregate -> graphs -> manifest PASS**. The runner discovers the first two observed NUMA node IDs, records topology, platform, compiler, locale, Git revision/status, and environment-check output, then uses the existing Makefile targets. The final PASS manifest is published only after aggregation and applicable graphs complete.
 
 ## Commands
 
@@ -17,7 +17,7 @@ The required order is **metadata -> build -> tests -> environment check -> prefl
 5. Run the complete collection: `scripts/run_full_experiment.sh --output-dir DIR`.
 6. Aggregate without figures: add `--skip-graphs`.
 
-The public Phase 4D interface is exactly `--check-only`, `--tests-only`, `--baseline-only`, `--awavma-only`, `--skip-graphs`, and `--output-dir DIR`. Exit status `3` means the allocation cannot support collection; `1` means a measured workload failed.
+The public Phase 4D interface is exactly `--check-only`, `--tests-only`, `--baseline-only`, `--awavma-only`, `--skip-graphs`, and `--output-dir DIR`. AWAVMA collection also requires `--calibration FILE` for the selected directed local-to-remote node route with a positive throughput gain. Partial collection modes aggregate their measurements and intentionally skip four-scenario graphs. Exit status `3` means the allocation cannot support collection; `1` means a measured workload failed.
 
 ## Layout And Outputs
 

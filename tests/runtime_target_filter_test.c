@@ -25,6 +25,17 @@ int main(void)
     record.start_time_ticks = 1001;
     passed = passed && runtime_target_filter_matches(&record, &filter);
     report("RTF02", passed);
+    {
+        application_discovery_record_t discovery = {0};
+
+        discovery.pid = 4101;
+        discovery.start_time_ticks = 1001;
+        passed = passed && runtime_target_filter_matches_discovery(&discovery, &filter);
+        report("RTF02B_DISCOVERY_IDENTITY_MATCH", passed);
+        discovery.start_time_ticks = 2001;
+        passed = passed && !runtime_target_filter_matches_discovery(&discovery, &filter);
+        report("RTF02C_DISCOVERY_START_TIME_MISMATCH", passed);
+    }
     record.start_time_ticks = 2001;
     passed = passed && !runtime_target_filter_matches(&record, &filter);
     report("RTF03", passed);

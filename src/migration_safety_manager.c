@@ -294,6 +294,24 @@ static void finish(MigrationSafetyManager *manager, app_safety_state_t *state,
                             state->sequence, 1, migration_safety_state_name(result->state));
 }
 
+static const MigrationSafetyRequest *rollback_possible_mutation(
+    MigrationSafetyManager *manager, const MigrationSafetyRequest *request,
+    MigrationSafetyResult *result, const MigrationReport *report,
+    MigrationSafetyRequest *prepared, PageRollbackSummary *page_rollback_summary)
+{
+    *prepared = *request;
+    memset(page_rollback_summary, 0, sizeof(*page_rollback_summary));
+    page_rollback_summary->result = PAGE_ROLLBACK_UNAVAILABLE;
+    prepared->page_rollback_summary = page_rollback_summary;
+    result->recovery = manager->config.rollback_fn == NULL ? MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE :
+        manager->config.rollback_fn(manager->config.callback_context, prepared, report);
+    if (prepared->action == VALIDATION_ACTION_MOVE_MEMORY) {
+        result->page_rollback_known = true;
+        result->page_rollback_summary = *page_rollback_summary;
+    }
+    return prepared;
+}
+
 void migration_safety_config_default(MigrationSafetyConfig *config)
 {
     if (config == NULL)
@@ -310,7 +328,7 @@ void migration_safety_config_default(MigrationSafetyConfig *config)
 const char *migration_safety_state_name(MigrationSafetyState state)
 {
     static const char *names[] = {"ACTIVE", "PREPARING", "MIGRATING", "VALIDATING", "ROLLING_BACK", "COMMITTED", "MIGRATION_REJECTED", "EXECUTION_FAILED", "MIGRATION_TIMEOUT", "ROLLBACK_SUCCEEDED", "ROLLBACK_FAILED", "COOLDOWN", "QUARANTINED", "TARGET_GONE", "VALIDATION_UNKNOWN", "EXECUTION_DISABLED", "ACTION_TEMPORARILY_SUPPRESSED", "TARGET_UNAVAILABLE", "BENEFIT_REJECTED"};
-    return state >= MIGRATION_SAFETY_ACTIVE && state <= MIGRATION_SAFETY_TARGET_UNAVAILABLE ? names[state] : "UNKNOWN";
+    return state >= MIGRATION_SAFETY_ACTIVE && state <= MIGRATION_SAFETY_BENEFIT_REJECTED ? names[state] : "UNKNOWN";
 }
 
 MigrationSafetyManager *migration_safety_manager_create(void)
@@ -348,6 +366,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
     MigrationTarget target;
     MigrationPageCheckpoint page_checkpoint;
     PageRollbackSummary page_rollback_summary;
+    char execution_detail[160];
 
     if (result == NULL)
         return false;
@@ -532,15 +551,38 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                                                             &request->migration_request, &report);
     result->execution_time_ms = now_ms() - started;
     if (result->execution_time_ms > manager->config.execution_timeout_ms) {
-        if ((result->execution_result == MIGRATION_SUCCESS || result->execution_result == MIGRATION_PARTIAL_SUCCESS) &&
-            identity_matches(manager, request->pid, request->start_time_ticks) &&
-            manager->config.rollback_fn != NULL)
-            result->recovery = manager->config.rollback_fn(manager->config.callback_context, request, &report);
+        if (report.mutation_state == MIGRATION_MUTATION_POSSIBLE &&
+            identity_matches(manager, request->pid, request->start_time_ticks))
+            request = rollback_possible_mutation(manager, request, result, &report, &prepared,
+                                                 &page_rollback_summary);
         finish(manager, state, request, result, MIGRATION_SAFETY_TIMEOUT, "migration exceeded controller timeout");
         return true;
     }
-    if (result->execution_result != MIGRATION_SUCCESS && result->execution_result != MIGRATION_PARTIAL_SUCCESS) {
-        finish(manager, state, request, result, MIGRATION_SAFETY_EXECUTION_FAILED, "migration execution failed safely");
+    if (report.mutation_state != MIGRATION_VERIFIED_SUCCESS) {
+        if (report.mutation_state != MIGRATION_MUTATION_POSSIBLE) {
+            snprintf(execution_detail, sizeof(execution_detail), "execution failed before mutation: %.*s",
+                     (int)(sizeof(execution_detail) - sizeof("execution failed before mutation: ")),
+                     report.error_reason[0] != '\0' ? report.error_reason :
+                     MigrationResultName(result->execution_result));
+            finish(manager, state, request, result, MIGRATION_SAFETY_EXECUTION_FAILED, execution_detail);
+            return true;
+        }
+        if (!identity_matches(manager, request->pid, request->start_time_ticks)) {
+            result->execution_result = MIGRATION_TARGET_GONE;
+            finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_GONE,
+                   "identity changed before rollback of possible mutation");
+            return true;
+        }
+        request = rollback_possible_mutation(manager, request, result, &report, &prepared,
+                                             &page_rollback_summary);
+        if (result->recovery == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT)
+            finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_SUCCEEDED,
+                   report.error_reason[0] != '\0' ? report.error_reason :
+                   "execution verification did not complete; rollback verified");
+        else
+            finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_FAILED,
+                   report.error_reason[0] != '\0' ? report.error_reason :
+                   "execution verification did not complete; rollback failed");
         return true;
     }
     if (!identity_matches(manager, request->pid, request->start_time_ticks)) {
@@ -593,17 +635,8 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                "PID identity changed before rollback");
         return true;
     }
-    prepared = *request;
-    memset(&page_rollback_summary, 0, sizeof(page_rollback_summary));
-    page_rollback_summary.result = PAGE_ROLLBACK_UNAVAILABLE;
-    prepared.page_rollback_summary = &page_rollback_summary;
-    request = &prepared;
-    result->recovery = manager->config.rollback_fn == NULL ? MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE :
-        manager->config.rollback_fn(manager->config.callback_context, request, &report);
-    if (request->action == VALIDATION_ACTION_MOVE_MEMORY) {
-        result->page_rollback_known = true;
-        result->page_rollback_summary = page_rollback_summary;
-    }
+    request = rollback_possible_mutation(manager, request, result, &report, &prepared,
+                                         &page_rollback_summary);
     if (result->recovery == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT)
         finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_SUCCEEDED,
                result->validation == MIGRATION_SAFETY_STRUCTURAL_MISMATCH ?

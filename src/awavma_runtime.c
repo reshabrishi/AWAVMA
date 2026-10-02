@@ -152,6 +152,14 @@ static MigrationResultCode runtime_execute_migration(void *context, const Migrat
     result = Migration_Execute(request, report);
 #ifdef AWAVMA_RUNTIME_TESTING
     if (result == MIGRATION_SUCCESS &&
+        runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_EXECUTION_VERIFICATION_FAILURE) {
+        report->mutation_state = MIGRATION_MUTATION_POSSIBLE;
+        report->result = MIGRATION_VERIFICATION_UNAVAILABLE;
+        snprintf(report->error_reason, sizeof(report->error_reason),
+                 "test-only post-mutation verification failure");
+        result = report->result;
+    }
+    if (result == MIGRATION_SUCCESS &&
         runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_PLACEMENT_MISMATCH &&
         runtime->rollback_checkpoint_available) {
         cpu_set_t mismatched;
@@ -397,9 +405,10 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
             input.has_authoritative_cpu_mask = true;
             CPU_SET(CPU_SETSIZE - 1, &input.authoritative_cpu_mask);
         } else if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_VALID ||
-                   runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_PLACEMENT_MISMATCH ||
-                   runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_CAPTURE_FAILURE ||
-                   runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_IDENTITY_MISMATCH_AFTER_EXEC) {
+                    runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_PLACEMENT_MISMATCH ||
+                    runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_CAPTURE_FAILURE ||
+                    runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_IDENTITY_MISMATCH_AFTER_EXEC ||
+                    runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_EXECUTION_VERIFICATION_FAILURE) {
             RuntimeMigrationMetadata metadata;
 
             if (runtime_get_migration_metadata(request->pid, request->start_time_ticks, &metadata) &&
@@ -524,6 +533,14 @@ static BenefitClassification runtime_classify_benefit(void *context,
         ((awavma_runtime_t *)context)->config.benefit_calibration_provenance != NULL ?
         ((awavma_runtime_t *)context)->config.benefit_calibration_provenance :
         "no_cross_numa_production_calibration";
+    input.calibration.source_node = context != NULL ?
+        ((awavma_runtime_t *)context)->config.benefit_calibration_source_node : -1;
+    input.calibration.target_node = context != NULL ?
+        ((awavma_runtime_t *)context)->config.benefit_calibration_target_node : -1;
+    input.calibration.throughput_gain_percent = context != NULL ?
+        ((awavma_runtime_t *)context)->config.benefit_calibration_throughput_gain_percent : NAN;
+    input.calibration.execution_time_improvement_percent = context != NULL ?
+        ((awavma_runtime_t *)context)->config.benefit_calibration_execution_time_improvement_percent : NAN;
 #ifdef AWAVMA_RUNTIME_TESTING
     if (context != NULL &&
         ((awavma_runtime_t *)context)->test_target_case != AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE) {
@@ -1890,7 +1907,13 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     config->page_candidate_provider = NULL;
     config->benefit_calibration_state = BENEFIT_CALIBRATION_UNAVAILABLE;
     config->benefit_calibration_provenance = "no_cross_numa_production_calibration";
+    config->benefit_calibration_source_node = -1;
+    config->benefit_calibration_target_node = -1;
+    config->benefit_calibration_throughput_gain_percent = NAN;
+    config->benefit_calibration_execution_time_improvement_percent = NAN;
     application_discovery_config_default(&config->discovery_config);
+    config->discovery_filter = NULL;
+    config->discovery_filter_context = NULL;
     config->application_filter = NULL;
     config->application_filter_context = NULL;
 }
@@ -2005,6 +2028,8 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     monitor_config.results_path = runtime->monitor_results_path;
     monitor_config.log_path = runtime->monitor_log_path;
     monitor_config.discovery_config = config->discovery_config;
+    monitor_config.discovery_filter = config->discovery_filter;
+    monitor_config.discovery_filter_context = config->discovery_filter_context;
     monitor_config.application_filter = config->application_filter;
     monitor_config.application_filter_context = config->application_filter_context;
     if (runtime_monitor_init(runtime->monitor, runtime->manager, runtime->pool, &monitor_config) != 0) {
@@ -2192,6 +2217,9 @@ int awavma_runtime_test_submit_approved_migration(
         result.state == MIGRATION_SAFETY_COMMITTED &&
         (result.validation == MIGRATION_SAFETY_STRUCTURALLY_VALID ||
          result.validation == MIGRATION_SAFETY_STRUCTURALLY_VALID_PROGRESS);
+    runtime->test_target_stats.execution_result = result.execution_result;
+    runtime->test_target_stats.recovery = result.recovery;
+    runtime->test_target_stats.terminal_state = result.state;
     *stats = runtime->test_target_stats;
     return 0;
 }

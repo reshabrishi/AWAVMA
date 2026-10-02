@@ -32,6 +32,8 @@ typedef struct {
     unsigned change_phases;
     uint64_t seed;
     const char *output_path;
+    const char *ready_file;
+    const char *start_file;
 } benchmark_config_t;
 
 const char *benchmark_pattern_name(benchmark_pattern_t pattern);

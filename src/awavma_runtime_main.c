@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static volatile sig_atomic_t stop_requested;
 
@@ -52,7 +53,36 @@ static void usage(const char *program)
     printf("  --page-registration-enabled  Enable the runtime-owned local page-registration socket\n");
     printf("  --page-registration-ttl-ms N  Registration lifetime; requires page registration\n");
     printf("  --pid PID             Monitor an existing application PID (repeatable)\n");
+    printf("  --ready-file FILE     Write FILE after runtime initialization\n");
+    printf("  --target-ready-file FILE  Write FILE after a requested target is observed\n");
     printf("  --help                Show this help\n");
+}
+
+static int write_signal_file(const char *path, pid_t pid)
+{
+    FILE *file;
+
+    if (path == NULL)
+        return 0;
+    file = fopen(path, "w");
+    if (file == NULL)
+        return -1;
+    if (fprintf(file, "READY %ld\n", (long)pid) < 0 || fclose(file) != 0)
+        return -1;
+    return 0;
+}
+
+static bool target_is_observed(awavma_runtime_t *runtime, const runtime_target_filter_t *filter)
+{
+    awavma_runtime_record_t records[16];
+    size_t count = awavma_runtime_snapshot(runtime, records, sizeof(records) / sizeof(records[0]));
+
+    for (size_t index = 0; index < count; index++)
+        for (size_t target = 0; target < filter->count; target++)
+            if (records[index].pid == filter->identities[target].pid &&
+                records[index].start_time_ticks == filter->identities[target].start_time_ticks)
+                return true;
+    return false;
 }
 
 int main(int argc, char **argv)
@@ -74,6 +104,8 @@ int main(int argc, char **argv)
         {"page-registration-enabled", no_argument, NULL, 'R'},
         {"page-registration-ttl-ms", required_argument, NULL, 'T'},
         {"pid", required_argument, NULL, 'p'},
+        {"ready-file", required_argument, NULL, 'y'},
+        {"target-ready-file", required_argument, NULL, 'Y'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -83,12 +115,15 @@ int main(int argc, char **argv)
     uint64_t value;
     runtime_target_filter_t target_filter;
     BenefitCalibrationArtifact calibration = {0};
+    const char *ready_file = NULL;
+    const char *target_ready_file = NULL;
+    bool target_ready_written = false;
     int option;
     int result = EXIT_FAILURE;
 
     awavma_runtime_config_default(&config);
     runtime_target_filter_init(&target_filter);
-    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMB:RT:p:h", options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMB:RT:p:y:Y:h", options, NULL)) != -1) {
         switch (option) {
         case 'd':
             if (parse_u64(optarg, &duration_ms, true) != 0) goto invalid;
@@ -129,6 +164,11 @@ int main(int argc, char **argv)
         case 'B':
             config.benefit_calibration_state = benefit_calibration_load(optarg, &calibration);
             config.benefit_calibration_provenance = calibration.provenance;
+            config.benefit_calibration_source_node = calibration.source_node;
+            config.benefit_calibration_target_node = calibration.target_node;
+            config.benefit_calibration_throughput_gain_percent = calibration.throughput_gain_percent;
+            config.benefit_calibration_execution_time_improvement_percent =
+                calibration.execution_time_improvement_percent;
             break;
         case 'R': config.page_registration_enabled = true; break;
         case 'T':
@@ -144,6 +184,8 @@ int main(int argc, char **argv)
                 goto failed;
             }
             break;
+        case 'y': ready_file = optarg; break;
+        case 'Y': target_ready_file = optarg; break;
         case 'h':
             usage(argv[0]);
             runtime_target_filter_cleanup(&target_filter);
@@ -159,6 +201,8 @@ int main(int argc, char **argv)
         goto failed;
     }
     if (target_filter.count > 0) {
+        config.discovery_filter = runtime_target_filter_matches_discovery;
+        config.discovery_filter_context = &target_filter;
         config.application_filter = runtime_target_filter_matches;
         config.application_filter_context = &target_filter;
     }
@@ -167,6 +211,11 @@ int main(int argc, char **argv)
     runtime = awavma_runtime_create();
     if (runtime == NULL || awavma_runtime_init(runtime, &config) != 0) {
         fprintf(stderr, "Error: unable to initialize AWAVMA runtime.\n");
+        awavma_runtime_destroy(runtime);
+        goto failed;
+    }
+    if (write_signal_file(ready_file, getpid()) != 0) {
+        fprintf(stderr, "Error: unable to write runtime ready file.\n");
         awavma_runtime_destroy(runtime);
         goto failed;
     }
@@ -179,6 +228,15 @@ int main(int argc, char **argv)
         if (awavma_runtime_run_for(runtime, slice) != 0) {
             result = EXIT_FAILURE;
             break;
+        }
+        if (!target_ready_written && target_ready_file != NULL && target_filter.count > 0 &&
+            target_is_observed(runtime, &target_filter)) {
+            if (write_signal_file(target_ready_file, target_filter.identities[0].pid) != 0) {
+                fprintf(stderr, "Error: unable to write runtime target ready file.\n");
+                result = EXIT_FAILURE;
+                break;
+            }
+            target_ready_written = true;
         }
         if (duration_ms != 0)
             duration_ms -= slice;

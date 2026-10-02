@@ -23,10 +23,13 @@ typedef enum {
     BENEFIT_CALIBRATION_VALIDATED_PRODUCTION
 } BenefitCalibrationState;
 
-/* Calibration is provenance, not an additional benefit scoring policy. */
 typedef struct {
     BenefitCalibrationState state;
     const char *provenance;
+    int source_node;
+    int target_node;
+    double throughput_gain_percent;
+    double execution_time_improvement_percent;
 } BenefitCalibration;
 
 typedef struct {

@@ -27,6 +27,15 @@ typedef enum {
     MIGRATION_ALREADY_IN_PROGRESS
 } MigrationResultCode;
 
+typedef enum {
+    /* No placement-changing syscall has completed. */
+    MIGRATION_NO_MUTATION,
+    /* A placement-changing syscall completed, but success was not verified. */
+    MIGRATION_MUTATION_POSSIBLE,
+    /* Placement mutation completed and executor verification passed. */
+    MIGRATION_VERIFIED_SUCCESS
+} MigrationMutationState;
+
 typedef struct {
     DecisionData phase5_decision;
     ValidationResult phase6_validation;
@@ -81,6 +90,7 @@ typedef struct {
     char error_reason[128];
     int errno_value;
     MigrationResultCode result;
+    MigrationMutationState mutation_state;
 } MigrationReport;
 
 #endif

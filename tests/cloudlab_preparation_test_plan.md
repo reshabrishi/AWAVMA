@@ -1,9 +1,10 @@
 # CloudLab Preparation Test Plan
 
-CloudLab collection tooling and its input schema are not present in this
-repository. Do not add a runnable test that imports or assumes an unshipped
-tooling interface. When the tooling is introduced, add a standard-library
-Python test alongside it with the following cases.
+CloudLab collection tooling is implemented by `scripts/run_full_experiment.sh`,
+`scripts/aggregate_experiment_results.py`, and
+`scripts/generate_multinuma_graphs.py`. Its focused standard-library tests are
+`cloudlab_phase4d_tooling_test.py` and `cloudlab_phase4d_aggregation_test.py`.
+The following cases remain required coverage for that shipped interface.
 
 ## Tooling Schema Validation
 

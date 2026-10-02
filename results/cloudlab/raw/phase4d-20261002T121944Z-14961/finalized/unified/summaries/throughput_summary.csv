@@ -1,0 +1,5 @@
+schema_version,metric,comparison_key,scenario,records,mean,median,sample_stdev,data_source,provenance
+4,throughput,mixed|2|1024|30|metadata/numa_topology.txt|0->1,baseline-default,5,18549382.7152,18530003.936,44944.129873900776,REAL,aggregated
+4,throughput,mixed|2|1024|30|metadata/numa_topology.txt|0->1,baseline-local,5,18931330.1032,18928755.821,17005.380524048865,REAL,aggregated
+4,throughput,mixed|2|1024|30|metadata/numa_topology.txt|0->1,baseline-remote,5,12226603.9366,12226998.244,3317.820892102751,REAL,aggregated
+4,throughput,mixed|2|1024|30|metadata/numa_topology.txt|0->1,awavma,5,12231047.2884,12230932.414,4129.675936626155,REAL,aggregated

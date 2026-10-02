@@ -3,3 +3,4 @@ timestamp,migration_id,app_id,pid,tid,entity_id,action,phase6_validation,source_
 2026-08-18T00:00:01Z,cli-insufficient,cli-test,999999,0,workload,INSUFFICIENT_DECISION_SIGNAL,REJECTED,NA,NA,NA,0,NA,NA,false,false,false
 2026-08-18T00:00:02Z,cli-memory-rejected,cli-test,999999,0,workload,MOVE_MEMORY,REJECTED,0,0,NA,0,NA,NA,false,false,false
 2026-08-18T00:00:03Z,cli-thread-rejected,cli-test,999999,999999,workload,MOVE_THREAD,REJECTED,NA,NA,1,0,NA,NA,false,false,false
+2026-08-18T00:00:04Z,cli-memory-approved-but-disabled,cli-test,999999,999999,workload,MOVE_MEMORY,APPROVED,0,1,1,1,0x1000,true,false,false

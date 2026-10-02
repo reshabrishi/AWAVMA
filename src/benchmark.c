@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #define DEFAULT_THREADS 1U
 #define DEFAULT_MEMORY_MB 64U
@@ -85,6 +86,8 @@ static void print_usage(const char *program)
     printf("  -M, --memory-node N          Allocate memory on NUMA node N\n");
     printf("  -n, --numa-node N            Set both thread and memory node to N\n");
     printf("  -o, --output FILE            Append one result row to CSV FILE\n");
+    printf("      --ready-file FILE        Write FILE after workers are prepared\n");
+    printf("      --start-file FILE        Wait for FILE before starting workers\n");
     printf("  -h, --help                   Show this help\n");
 }
 
@@ -167,7 +170,9 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         OPTION_HOT_PERCENT = 1000,
         OPTION_MODERATE_PERCENT,
         OPTION_COLD_PERCENT,
-        OPTION_CHANGE_PHASES
+        OPTION_CHANGE_PHASES,
+        OPTION_READY_FILE,
+        OPTION_START_FILE
     };
     static const struct option options[] = {
         {"threads", required_argument, NULL, 't'},
@@ -184,6 +189,8 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         {"change-phases", required_argument, NULL, OPTION_CHANGE_PHASES},
         {"seed", required_argument, NULL, 's'},
         {"output", required_argument, NULL, 'o'},
+        {"ready-file", required_argument, NULL, OPTION_READY_FILE},
+        {"start-file", required_argument, NULL, OPTION_START_FILE},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -237,6 +244,12 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
             break;
         case 'o':
             config->output_path = optarg;
+            break;
+        case OPTION_READY_FILE:
+            config->ready_file = optarg;
+            break;
+        case OPTION_START_FILE:
+            config->start_file = optarg;
             break;
         case OPTION_HOT_PERCENT:
             if (parse_percent(optarg, &config->hot_percent) != 0)
@@ -648,6 +661,34 @@ static void current_timestamp(char *buffer, size_t buffer_size)
     strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%SZ", &utc);
 }
 
+static int write_signal_file(const char *path)
+{
+    FILE *file;
+
+    if (path == NULL)
+        return 0;
+    file = fopen(path, "w");
+    if (file == NULL)
+        return -1;
+    if (fputs("READY\n", file) == EOF || fclose(file) != 0)
+        return -1;
+    return 0;
+}
+
+static int wait_for_start_file(const char *path)
+{
+    const struct timespec delay = {0, 10000000L};
+
+    if (path == NULL)
+        return 0;
+    while (access(path, F_OK) != 0) {
+        if (errno != ENOENT)
+            return -1;
+        nanosleep(&delay, NULL);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     benchmark_config_t config = {
@@ -664,7 +705,9 @@ int main(int argc, char **argv)
         .cold_percent = DEFAULT_COLD_PERCENT,
         .change_phases = DEFAULT_CHANGE_PHASES,
         .seed = DEFAULT_SEED,
-        .output_path = NULL
+        .output_path = NULL,
+        .ready_file = NULL,
+        .start_file = NULL
     };
     pthread_t *threads = NULL;
     worker_context_t *workers = NULL;
@@ -763,6 +806,10 @@ int main(int argc, char **argv)
     while (gate.ready < config.threads)
         pthread_cond_wait(&gate.condition, &gate.mutex);
     if (atomic_load(&worker_error) != 0)
+        gate.abort = true;
+    if (!gate.abort && write_signal_file(config.ready_file) != 0)
+        gate.abort = true;
+    if (!gate.abort && wait_for_start_file(config.start_file) != 0)
         gate.abort = true;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     for (i = 0; i < config.threads; i++)

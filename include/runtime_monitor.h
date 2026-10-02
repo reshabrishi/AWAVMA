@@ -11,6 +11,8 @@
 
 typedef bool (*runtime_monitor_application_filter_fn)(
     const application_manager_record_t *application, void *context);
+typedef bool (*runtime_monitor_discovery_filter_fn)(
+    const application_discovery_record_t *application, void *context);
 
 typedef enum {
     RUNTIME_MONITOR_ACTIVE,
@@ -28,6 +30,8 @@ typedef struct {
     const char *results_path;
     const char *log_path;
     application_discovery_config_t discovery_config;
+    runtime_monitor_discovery_filter_fn discovery_filter;
+    void *discovery_filter_context;
     runtime_monitor_application_filter_fn application_filter;
     void *application_filter_context;
 } runtime_monitor_config_t;

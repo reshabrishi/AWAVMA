@@ -256,6 +256,7 @@ static void report_init(const MigrationRequest *request, MigrationReport *report
     report->destination_numa_node = request->destination_numa_node;
     report->destination_cpu = request->destination_cpu;
     snprintf(report->verification_status, sizeof(report->verification_status), "NOT_REQUESTED");
+    report->mutation_state = MIGRATION_NO_MUTATION;
 }
 
 static void set_error(MigrationReport *report, MigrationResultCode result, const char *reason, int error_number)
@@ -440,6 +441,7 @@ static MigrationResultCode execute_thread_migration(const MigrationRequest *requ
         return report->result;
     }
     report->pages_attempted = 1;
+    report->mutation_state = MIGRATION_MUTATION_POSSIBLE;
     if (!active_config.verification_enabled) {
         snprintf(report->verification_status, sizeof(report->verification_status), "UNAVAILABLE");
         report->pages_failed = 1;
@@ -464,6 +466,7 @@ static MigrationResultCode execute_thread_migration(const MigrationRequest *requ
     }
     snprintf(report->verification_status, sizeof(report->verification_status), "VERIFIED");
     report->pages_migrated = 1;
+    report->mutation_state = MIGRATION_VERIFIED_SUCCESS;
     return MIGRATION_SUCCESS;
 }
 
@@ -554,6 +557,8 @@ static MigrationResultCode execute_memory_migration(const MigrationRequest *requ
     for (size_t index = 0; index < request->page_count; index++)
         nodes[index] = request->destination_numa_node;
     errno = 0;
+    /* move_pages may have moved a subset even when it reports an error. */
+    report->mutation_state = MIGRATION_MUTATION_POSSIBLE;
     result = syscall(SYS_move_pages, request->pid, request->page_count, request->pages,
                      nodes, status, MPOL_MF_MOVE);
     report->pages_attempted = request->page_count;
@@ -565,8 +570,9 @@ static MigrationResultCode execute_memory_migration(const MigrationRequest *requ
             if (status[index] >= 0 && status[index] == request->destination_numa_node)
                 report->pages_migrated++;
         report->pages_failed = report->pages_attempted - report->pages_migrated;
-        if (report->pages_migrated > 0)
+        if (report->pages_migrated > 0) {
             report->result = MIGRATION_PARTIAL_SUCCESS;
+        }
         goto cleanup;
     }
     for (size_t index = 0; index < request->page_count; index++) {
@@ -604,6 +610,7 @@ static MigrationResultCode execute_memory_migration(const MigrationRequest *requ
         }
     snprintf(report->verification_status, sizeof(report->verification_status), "VERIFIED");
     report->result = MIGRATION_SUCCESS;
+    report->mutation_state = MIGRATION_VERIFIED_SUCCESS;
 #else
     set_error(report, MIGRATION_UNSUPPORTED, "move_pages is unavailable", ENOSYS);
 #endif

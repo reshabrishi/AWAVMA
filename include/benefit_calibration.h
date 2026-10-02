@@ -9,6 +9,10 @@
 
 typedef struct {
     BenefitCalibrationState state;
+    int source_node;
+    int target_node;
+    double throughput_gain_percent;
+    double execution_time_improvement_percent;
     char provenance[BENEFIT_CALIBRATION_PROVENANCE_MAX];
 } BenefitCalibrationArtifact;
 

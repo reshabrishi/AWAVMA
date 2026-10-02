@@ -160,6 +160,18 @@ BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *
         input->calibration.state != BENEFIT_CALIBRATION_VALIDATED_TEST_ONLY)
         return reject(decision, BENEFIT_POLICY_UNCALIBRATED, "BENEFIT_POLICY_UNCALIBRATED",
                       "no validated cross-NUMA production benefit calibration is available");
+    if (input->calibration.state == BENEFIT_CALIBRATION_VALIDATED_PRODUCTION) {
+        if (input->calibration.source_node < 0 || input->calibration.target_node < 0 ||
+            input->calibration.source_node != target->source_numa_node ||
+            input->calibration.target_node != target->target_numa_node)
+            return reject(decision, BENEFIT_NOT_SUPPORTED, "CALIBRATION_ROUTE_MISMATCH",
+                          "validated calibration does not match the requested directed NUMA route");
+        /* The collector's signed locality gain must demonstrate a positive benefit; this is not Phase 5 epsilon. */
+        if (!isfinite(input->calibration.throughput_gain_percent) ||
+            !(input->calibration.throughput_gain_percent > 0.0))
+            return reject(decision, BENEFIT_NOT_SUPPORTED, "CALIBRATION_BENEFIT_NOT_POSITIVE",
+                          "validated calibration does not demonstrate positive throughput benefit");
+    }
     return reject(decision, BENEFIT_SUPPORTED, "BENEFIT_SUPPORTED",
                   input->calibration.state == BENEFIT_CALIBRATION_VALIDATED_TEST_ONLY ?
                   "synthetic test-only calibration accepted; not production benefit evidence" :

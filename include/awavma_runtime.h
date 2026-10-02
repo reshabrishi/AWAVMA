@@ -3,6 +3,7 @@
 
 #include "runtime_monitor.h"
 #include "benefit_classifier.h"
+#include "migration_safety_manager.h"
 #include "page_checkpoint.h"
 #include "page_candidate_provider.h"
 
@@ -46,7 +47,13 @@ typedef struct {
     page_candidate_provider_t *page_candidate_provider;
     BenefitCalibrationState benefit_calibration_state;
     const char *benefit_calibration_provenance;
+    int benefit_calibration_source_node;
+    int benefit_calibration_target_node;
+    double benefit_calibration_throughput_gain_percent;
+    double benefit_calibration_execution_time_improvement_percent;
     application_discovery_config_t discovery_config;
+    runtime_monitor_discovery_filter_fn discovery_filter;
+    void *discovery_filter_context;
     runtime_monitor_application_filter_fn application_filter;
     void *application_filter_context;
 } awavma_runtime_config_t;
@@ -84,6 +91,7 @@ typedef enum {
     AWAVMA_RUNTIME_TEST_TARGET_INVALID,
     AWAVMA_RUNTIME_TEST_TARGET_VALID,
     AWAVMA_RUNTIME_TEST_TARGET_PLACEMENT_MISMATCH,
+    AWAVMA_RUNTIME_TEST_TARGET_EXECUTION_VERIFICATION_FAILURE,
     AWAVMA_RUNTIME_TEST_TARGET_CAPTURE_FAILURE,
     AWAVMA_RUNTIME_TEST_TARGET_IDENTITY_MISMATCH_AFTER_EXEC,
     /* Runs the production policy with live metadata; no target is injected. */
@@ -112,6 +120,9 @@ typedef struct {
     bool after_cpu_time_available;
     uint64_t after_cpu_time_ticks;
     bool rollback_succeeded;
+    MigrationResultCode execution_result;
+    MigrationSafetyRecovery recovery;
+    MigrationSafetyState terminal_state;
     char attempt_id[128];
 } awavma_runtime_test_target_stats_t;
 

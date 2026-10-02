@@ -1,6 +1,7 @@
 #ifndef AWAVMA_RUNTIME_TARGET_FILTER_H
 #define AWAVMA_RUNTIME_TARGET_FILTER_H
 
+#include "application_discovery.h"
 #include "application_manager_types.h"
 
 #include <stdbool.h>
@@ -24,6 +25,8 @@ int runtime_target_filter_add_identity(runtime_target_filter_t *filter, pid_t pi
                                        uint64_t start_time_ticks);
 int runtime_target_filter_add_pid(runtime_target_filter_t *filter, pid_t pid);
 bool runtime_target_filter_matches(const application_manager_record_t *application,
-                                   void *context);
+                                    void *context);
+bool runtime_target_filter_matches_discovery(const application_discovery_record_t *application,
+                                              void *context);
 
 #endif

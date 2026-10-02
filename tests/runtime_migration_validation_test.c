@@ -59,6 +59,8 @@ static awavma_runtime_t *start_runtime(char *root, bool execution_enabled)
     config.phase_config_path = config_path;
     config.migration_safety_enabled = true;
     config.migration_execution_enabled = execution_enabled;
+    /* Test-only execution still passes runtime initialization's production gate. */
+    config.benefit_calibration_state = BENEFIT_CALIBRATION_VALIDATED_PRODUCTION;
     runtime = awavma_runtime_create();
     if (runtime == NULL || awavma_runtime_init(runtime, &config) != 0) {
         awavma_runtime_destroy(runtime);
@@ -144,6 +146,51 @@ static bool placement_mismatch_case(pid_t child, uint64_t ticks)
     return passed;
 }
 
+static bool executor_verification_failure_case(pid_t child, uint64_t ticks)
+{
+    char root[] = "/tmp/awavma-runtime-execution-verification-XXXXXX";
+    awavma_runtime_t *runtime;
+    awavma_runtime_test_target_stats_t stats = {0};
+    cpu_set_t before, after;
+    bool have_before = false, have_after = false, cpu_equal = false;
+    int submit_result = -1, before_count = 0, after_count = 0;
+    bool passed;
+
+    runtime = start_runtime(root, true);
+    if (runtime != NULL && sched_getaffinity(child, sizeof(before), &before) == 0) {
+        have_before = true;
+        before_count = CPU_COUNT(&before);
+        if (before_count > 1)
+            submit_result = awavma_runtime_test_submit_approved_migration(
+                runtime, child, ticks,
+                AWAVMA_RUNTIME_TEST_TARGET_EXECUTION_VERIFICATION_FAILURE, &stats);
+    }
+    if (have_before && sched_getaffinity(child, sizeof(after), &after) == 0) {
+        have_after = true;
+        after_count = CPU_COUNT(&after);
+        cpu_equal = CPU_EQUAL(&before, &after);
+    }
+    printf("RV03B_DIAGNOSTIC submit_return=%d executor_calls=%u validation_before_calls=%u "
+           "validation_after_calls=%u rollback_calls=%u rollback_succeeded=%s "
+           "execution_result=%d(%s) recovery=%d terminal_state=%d terminal_feedback_calls=%u "
+           "CPU_EQUAL=%s CPU_COUNT_before=%d CPU_COUNT_after=%d\n",
+           submit_result, stats.executor_calls, stats.validation_before_calls,
+           stats.validation_after_calls, stats.rollback_calls,
+           stats.rollback_succeeded ? "true" : "false", stats.execution_result,
+           MigrationResultName(stats.execution_result), stats.recovery, stats.terminal_state,
+           stats.terminal_feedback_calls, cpu_equal ? "true" : "false", before_count, after_count);
+    passed = runtime != NULL && have_before && before_count > 1 && submit_result == 0 &&
+             stats.executor_calls == 1 && stats.validation_before_calls == 1 &&
+             stats.validation_after_calls == 0 && stats.rollback_calls == 1 &&
+             stats.rollback_succeeded &&
+             stats.execution_result == MIGRATION_VERIFICATION_UNAVAILABLE &&
+             stats.recovery == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT &&
+             stats.terminal_state == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED &&
+             stats.terminal_feedback_calls == 1 && have_after && cpu_equal;
+    awavma_runtime_destroy(runtime);
+    return passed;
+}
+
 static bool idle_validation_case(pid_t child, uint64_t ticks)
 {
     char root[] = "/tmp/awavma-runtime-validation-XXXXXX";
@@ -225,7 +272,7 @@ int main(void)
     pid_t child;
     int ready[2], gate[2];
     uint64_t ticks;
-    bool passed;
+    bool passed, case_pass;
 
     awavma_runtime_config_default(&defaults);
     passed = !defaults.migration_execution_enabled;
@@ -239,14 +286,21 @@ int main(void)
         return EXIT_FAILURE;
     usleep(10000);
     ticks = start_ticks(child);
-    passed = passed && ticks != 0 && structural_validation_case(child, ticks);
-    printf("RV02_ACTIVE_CHILD_CPU_SNAPSHOT_STRUCTURAL: %s\n", passed ? "PASS" : "FAIL");
-    passed = passed && placement_mismatch_case(child, ticks);
-    printf("RV03_PLACEMENT_MISMATCH_REAL_ROLLBACK: %s\n", passed ? "PASS" : "FAIL");
-    passed = passed && identity_mismatch_after_exec_case(child, ticks);
-    printf("RV04_IDENTITY_MISMATCH_AFTER_EXEC: %s\n", passed ? "PASS" : "FAIL");
-    passed = passed && capture_failure_case(child, ticks);
-    printf("RV05_AFTER_CAPTURE_FAILURE: %s\n", passed ? "PASS" : "FAIL");
+    case_pass = ticks != 0 && structural_validation_case(child, ticks);
+    printf("RV02_ACTIVE_CHILD_CPU_SNAPSHOT_STRUCTURAL: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
+    case_pass = ticks != 0 && placement_mismatch_case(child, ticks);
+    printf("RV03_PLACEMENT_MISMATCH_REAL_ROLLBACK: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
+    case_pass = ticks != 0 && executor_verification_failure_case(child, ticks);
+    printf("RV03B_POST_MUTATION_EXECUTOR_VERIFICATION_ROLLBACK: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
+    case_pass = ticks != 0 && identity_mismatch_after_exec_case(child, ticks);
+    printf("RV04_IDENTITY_MISMATCH_AFTER_EXEC: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
+    case_pass = ticks != 0 && capture_failure_case(child, ticks);
+    printf("RV05_AFTER_CAPTURE_FAILURE: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);
     if (pipe(ready) != 0 || pipe(gate) != 0)
@@ -266,12 +320,15 @@ int main(void)
     close(ready[1]); close(gate[0]);
     { char value; if (read(ready[0], &value, 1) != 1) return EXIT_FAILURE; }
     ticks = start_ticks(child);
-    passed = passed && ticks != 0 && idle_validation_case(child, ticks);
-    printf("RV06_IDLE_CHILD_STRUCTURAL_NO_PROGRESS_CLAIM: %s\n", passed ? "PASS" : "FAIL");
-    passed = passed && preterminal_case(child, ticks, AWAVMA_RUNTIME_TEST_TARGET_NO_ALTERNATE, true);
-    printf("RV07_TARGET_PRETERMINAL_NO_SNAPSHOTS: %s\n", passed ? "PASS" : "FAIL");
-    passed = passed && preterminal_case(child, ticks, AWAVMA_RUNTIME_TEST_TARGET_VALID, false);
-    printf("RV08_EXECUTION_DISABLED_PRETERMINAL_NO_SNAPSHOTS: %s\n", passed ? "PASS" : "FAIL");
+    case_pass = ticks != 0 && idle_validation_case(child, ticks);
+    printf("RV06_IDLE_CHILD_STRUCTURAL_NO_PROGRESS_CLAIM: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
+    case_pass = ticks != 0 && preterminal_case(child, ticks, AWAVMA_RUNTIME_TEST_TARGET_NO_ALTERNATE, true);
+    printf("RV07_TARGET_PRETERMINAL_NO_SNAPSHOTS: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
+    case_pass = ticks != 0 && preterminal_case(child, ticks, AWAVMA_RUNTIME_TEST_TARGET_VALID, false);
+    printf("RV08_EXECUTION_DISABLED_PRETERMINAL_NO_SNAPSHOTS: %s\n", case_pass ? "PASS" : "FAIL");
+    passed = passed && case_pass;
     if (write(gate[1], "X", 1) != 1)
         passed = false;
     close(gate[1]);

@@ -75,6 +75,27 @@ static bool expect(const char *id, BenefitClassifierInput *input, BenefitClassif
     return passed;
 }
 
+static bool expect_reason(const char *id, BenefitClassifierInput *input,
+                          BenefitClassification expected, const char *reason)
+{
+    BenefitDecision decision;
+    BenefitClassification actual = benefit_classifier_evaluate(input, &decision);
+    bool passed = actual == expected && strcmp(decision.reason, reason) == 0;
+
+    printf("%s: %s\n", id, passed ? "PASS" : "FAIL");
+    return passed;
+}
+
+static void production_calibration(BenefitClassifierInput *input, double throughput_gain)
+{
+    input->calibration.state = BENEFIT_CALIBRATION_VALIDATED_PRODUCTION;
+    input->calibration.provenance = "production-fixture";
+    input->calibration.source_node = 0;
+    input->calibration.target_node = 1;
+    input->calibration.throughput_gain_percent = throughput_gain;
+    input->calibration.execution_time_improvement_percent = throughput_gain;
+}
+
 int main(void)
 {
     BenefitClassifierInput input;
@@ -118,5 +139,32 @@ int main(void)
     passed = expect("BC18_STALE_PHASE5_PHASE6", &input, STALE_OR_IDENTITY_MISMATCH) && passed;
     input = input_for(); input.action = VALIDATION_ACTION_NO_MIGRATION;
     passed = expect("BC19_NO_MIGRATION_ACTION", &input, ACTION_NOT_ELIGIBLE) && passed;
+    input = input_for(); production_calibration(&input, 1.0);
+    passed = expect("BC20_PRODUCTION_MATCHING_POSITIVE_GAIN", &input, BENEFIT_SUPPORTED) && passed;
+    input = input_for(); production_calibration(&input, 1.0);
+    ((MigrationTarget *)input.target)->source_numa_node = 1;
+    ((MigrationTarget *)input.target)->target_numa_node = 0;
+    passed = expect_reason("BC21_PRODUCTION_REVERSE_ROUTE_REJECTED", &input, BENEFIT_NOT_SUPPORTED,
+                           "CALIBRATION_ROUTE_MISMATCH") && passed;
+    input = input_for(); production_calibration(&input, 1.0);
+    ((MigrationTarget *)input.target)->target_numa_node = 2;
+    passed = expect_reason("BC22_PRODUCTION_OTHER_TARGET_REJECTED", &input, BENEFIT_NOT_SUPPORTED,
+                           "CALIBRATION_ROUTE_MISMATCH") && passed;
+    input = input_for(); production_calibration(&input, 0.0);
+    passed = expect_reason("BC23_PRODUCTION_ZERO_GAIN_REJECTED", &input, BENEFIT_NOT_SUPPORTED,
+                           "CALIBRATION_BENEFIT_NOT_POSITIVE") && passed;
+    input = input_for(); production_calibration(&input, -1.0);
+    passed = expect_reason("BC24_PRODUCTION_NEGATIVE_GAIN_REJECTED", &input, BENEFIT_NOT_SUPPORTED,
+                           "CALIBRATION_BENEFIT_NOT_POSITIVE") && passed;
+    input = input_for(); production_calibration(&input, 1.0);
+    ((ValidationResult *)input.validation)->confidence_status = GATE_INVALID;
+    passed = expect("BC25_PRODUCTION_CONFIDENCE_GATE_PRESERVED", &input,
+                    INSUFFICIENT_BENEFIT_EVIDENCE) && passed;
+    input = input_for(); production_calibration(&input, 1.0);
+    ((ValidationResult *)input.validation)->roi_status = GATE_FAIL;
+    passed = expect("BC26_PRODUCTION_ROI_GATE_PRESERVED", &input, BENEFIT_NOT_SUPPORTED) && passed;
+    input = input_for(); production_calibration(&input, 1.0);
+    ((ValidationResult *)input.validation)->safety_status = GATE_FAIL;
+    passed = expect("BC27_PRODUCTION_SAFETY_GATE_PRESERVED", &input, BENEFIT_NOT_SUPPORTED) && passed;
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -1,4 +1,5 @@
 #include "migration.h"
+#include "migration_log.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -9,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define DEFAULT_CONFIG "config/awavma.conf"
 #define DEFAULT_INPUT "results/validation_results.csv"
@@ -31,19 +33,15 @@ typedef struct {
     int source_node;
     int destination_node;
     int destination_cpu;
-    int page_count;
-    int page_addresses;
-    int page_metadata_verified;
-    int explicit_placement;
-    int memory_locked;
-    int memory_pinned;
     size_t count;
 } input_columns_t;
 
 static void usage(const char *program)
 {
     printf("Usage: %s [options]\n\n", program);
-    printf("  --input FILE       Approved/rejected migration requests (default: %s)\n", DEFAULT_INPUT);
+    printf("  Diagnostic-only: records that standalone migration execution is disabled.\n");
+    printf("  Live migration is performed only by bin/awavma-runtime through its safety manager.\n");
+    printf("  --input FILE       Migration requests to diagnose (default: %s)\n", DEFAULT_INPUT);
     printf("  --output FILE      Migration results CSV (default: %s)\n", DEFAULT_RESULTS);
     printf("  --history FILE     Migration history CSV (default: %s)\n", DEFAULT_HISTORY);
     printf("  --log FILE         Human migration log (default: %s)\n", DEFAULT_LOG);
@@ -262,48 +260,46 @@ static int prepare_columns(char **fields, size_t count, input_columns_t *columns
     columns->source_node = column(fields, count, "source_node");
     columns->destination_node = column(fields, count, "destination_node");
     columns->destination_cpu = column(fields, count, "destination_cpu");
-    columns->page_count = column(fields, count, "page_count");
-    columns->page_addresses = column(fields, count, "page_addresses");
-    columns->page_metadata_verified = column(fields, count, "memory_region_verified");
-    if (columns->page_metadata_verified < 0) columns->page_metadata_verified = column(fields, count, "page_metadata_verified");
-    columns->explicit_placement = column(fields, count, "explicit_placement_required");
-    columns->memory_locked = column(fields, count, "memory_locked");
-    columns->memory_pinned = column(fields, count, "memory_pinned");
     return columns->timestamp >= 0 && columns->pid >= 0 && columns->action >= 0 && columns->phase6_validation >= 0;
 }
 
-static bool parse_pages(char *text, size_t expected, void ***pages)
+static void diagnostic_report(const MigrationRequest *request, MigrationReport *report)
 {
-    void **parsed_pages;
-    size_t count = 0;
-    char *save = NULL;
-    char *token;
+    time_t now = time(NULL);
+    struct tm *utc;
 
-    if (expected == 0 || unavailable(text))
-        return false;
-    parsed_pages = calloc(expected, sizeof(*parsed_pages));
-    if (parsed_pages == NULL)
-        return false;
-    token = strtok_r(text, ";", &save);
-    while (token != NULL && count < expected) {
-        char *end = NULL;
-        unsigned long long address;
-
-        errno = 0;
-        address = strtoull(token, &end, 0);
-        if (errno != 0 || end == token || *end != '\0' || address == 0) {
-            free(parsed_pages);
-            return false;
-        }
-        parsed_pages[count++] = (void *)(uintptr_t)address;
-        token = strtok_r(NULL, ";", &save);
+    memset(report, 0, sizeof(*report));
+    utc = gmtime(&now);
+    if (utc != NULL)
+        strftime(report->timestamp, sizeof(report->timestamp), "%Y-%m-%dT%H:%M:%SZ", utc);
+    snprintf(report->migration_id, sizeof(report->migration_id), "%s",
+             request->phase5_decision.migration_id);
+    snprintf(report->app_id, sizeof(report->app_id), "%s", request->phase5_decision.app_id);
+    snprintf(report->entity_id, sizeof(report->entity_id), "%s", request->phase5_decision.entity_id);
+    snprintf(report->phase5_decision, sizeof(report->phase5_decision), "%s",
+             MigrationActionName(request->phase5_decision.action));
+    snprintf(report->phase6_validation, sizeof(report->phase6_validation), "%s",
+             request->phase6_validation.final_decision);
+    report->pid = request->pid;
+    report->expected_start_time_ticks = request->start_time_ticks;
+    report->tid = request->tid;
+    report->action = request->phase5_decision.action;
+    report->source_numa_node = request->source_numa_node;
+    report->destination_numa_node = request->destination_numa_node;
+    report->destination_cpu = request->destination_cpu;
+    snprintf(report->verification_status, sizeof(report->verification_status), "NOT_EXECUTED");
+    if (request->phase5_decision.action == VALIDATION_ACTION_NO_MIGRATION) {
+        report->result = MIGRATION_NO_ACTION;
+        snprintf(report->error_reason, sizeof(report->error_reason), "Phase 5 selected NO_MIGRATION");
+    } else if (request->phase5_decision.action == VALIDATION_ACTION_INSUFFICIENT) {
+        report->result = MIGRATION_INSUFFICIENT_INFORMATION;
+        snprintf(report->error_reason, sizeof(report->error_reason),
+                 "Phase 5 returned INSUFFICIENT_DECISION_SIGNAL");
+    } else {
+        report->result = MIGRATION_NOT_AUTHORIZED;
+        snprintf(report->error_reason, sizeof(report->error_reason),
+                 "standalone migration execution is disabled; use awavma-runtime safety manager");
     }
-    if (count != expected || token != NULL) {
-        free(parsed_pages);
-        return false;
-    }
-    *pages = parsed_pages;
-    return true;
 }
 
 static bool parse_row(char **fields, size_t count, const input_columns_t *columns,
@@ -311,7 +307,6 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
 {
     uint64_t number;
     int value;
-    bool boolean;
 
     memset(request, 0, sizeof(*request));
     request->source_numa_node = -1;
@@ -364,24 +359,6 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
     }
     if (columns->destination_cpu >= 0 && (size_t)columns->destination_cpu < count && parse_int(fields[columns->destination_cpu], &value) == 0)
         request->destination_cpu = value;
-    if (columns->page_count >= 0 && (size_t)columns->page_count < count && parse_u64(fields[columns->page_count], &number) == 0)
-        request->page_count = (size_t)number;
-    if (request->page_count > 0 && columns->page_addresses >= 0 && (size_t)columns->page_addresses < count &&
-        !parse_pages(fields[columns->page_addresses], request->page_count, &request->pages))
-        return false;
-    request->page_metadata_available = request->pages != NULL && request->page_count > 0;
-    if (columns->page_metadata_verified >= 0 && (size_t)columns->page_metadata_verified < count &&
-        parse_bool(fields[columns->page_metadata_verified], &boolean))
-        request->memory_region_verified = boolean;
-    if (columns->explicit_placement >= 0 && (size_t)columns->explicit_placement < count &&
-        parse_bool(fields[columns->explicit_placement], &boolean))
-        request->explicit_placement_required = boolean;
-    if (columns->memory_locked >= 0 && (size_t)columns->memory_locked < count &&
-        parse_bool(fields[columns->memory_locked], &boolean))
-        request->memory_locked = boolean;
-    if (columns->memory_pinned >= 0 && (size_t)columns->memory_pinned < count &&
-        parse_bool(fields[columns->memory_pinned], &boolean))
-        request->memory_pinned = boolean;
     request->phase5_decision.nodes_available = request->numa_nodes_available;
     request->phase5_decision.source_node = request->source_numa_node;
     request->phase5_decision.destination_node = request->destination_numa_node;
@@ -455,19 +432,18 @@ int main(int argc, char **argv)
     while ((length = getline(&line, &line_capacity, input)) >= 0) {
         MigrationRequest request;
         MigrationReport report;
-        MigrationResultCode result;
         (void)length;
         if (!parse_row(fields, split_csv(line, fields), &columns, fallback_app, &request)) {
             fprintf(stderr, "Error: invalid migration input row %zu.\n", rows + 2);
             Migration_Shutdown(); fclose(input); free(line); return EXIT_FAILURE;
         }
-        result = Migration_Execute(&request, &report);
-        free(request.pages);
+        diagnostic_report(&request, &report);
+        if (!migration_log_report(&request, &report)) {
+            fprintf(stderr, "Error: cannot persist migration diagnostic row %zu.\n", rows + 2);
+            Migration_Shutdown(); fclose(input); free(line); return EXIT_FAILURE;
+        }
         rows++;
-        if (result == MIGRATION_SUCCESS || result == MIGRATION_PARTIAL_SUCCESS)
-            successful++;
-        else
-            refused++;
+        refused++;
     }
     fclose(input); free(line); Migration_Shutdown();
     printf("AWAVMA Migration Module\n");

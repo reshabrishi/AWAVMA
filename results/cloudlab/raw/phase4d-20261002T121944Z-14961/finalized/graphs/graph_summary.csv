@@ -1,0 +1,4 @@
+graph,metric,status,reason,summary_input,output_file,records_used
+elapsed_time_comparison,elapsed_seconds,GENERATED,,results/cloudlab/raw/phase4d-20261002T121944Z-14961/finalized/unified/summaries/elapsed_seconds_summary.csv,results/cloudlab/raw/phase4d-20261002T121944Z-14961/finalized/graphs/elapsed_time_comparison.svg,4
+throughput_comparison,throughput,GENERATED,,results/cloudlab/raw/phase4d-20261002T121944Z-14961/finalized/unified/summaries/throughput_summary.csv,results/cloudlab/raw/phase4d-20261002T121944Z-14961/finalized/graphs/throughput_comparison.svg,4
+latency_comparison,latency_ms,SKIPPED,required real comparable fields unavailable,results/cloudlab/raw/phase4d-20261002T121944Z-14961/finalized/unified/summaries/latency_ms_summary.csv,results/cloudlab/raw/phase4d-20261002T121944Z-14961/finalized/graphs/latency_comparison.svg,0

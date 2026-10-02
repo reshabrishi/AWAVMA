@@ -2,6 +2,7 @@
 """Fail-closed CLI checks that stop before runtime initialization."""
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,8 +24,19 @@ def main():
         assert invalid.returncode != 0
         assert "validated benefit calibration" in invalid.stderr
     with tempfile.TemporaryDirectory() as directory:
-        observation = run("--duration-ms", "1", "--root-dir", str(Path(directory) / "runtime"))
-        assert observation.returncode == 0
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+        try:
+            observation = run("--duration-ms", "1000", "--pid", str(child.pid),
+                              "--root-dir", str(Path(directory) / "runtime"))
+            assert observation.returncode == 0
+        finally:
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=5)
     print("benefit_calibration_cli_test: PASS")
 
 

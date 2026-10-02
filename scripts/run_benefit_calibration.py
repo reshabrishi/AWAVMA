@@ -2,6 +2,7 @@
 """Collect a topology-specific, controlled thread-placement calibration artifact."""
 import argparse
 import csv
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -13,7 +14,15 @@ import sys
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = 1
+SCHEMA = 3
+METHODOLOGY_VERSION = 1
+SCHEDULE_VERSION = 1
+PRODUCTION_WORKLOAD = "mixed"
+PRODUCTION_THREADS = 2
+PRODUCTION_MEMORY_MB = 1024
+PRODUCTION_DURATION_SECONDS = 10.0
+PRODUCTION_RUNS = 5
+PRODUCTION_WARMUPS = 2
 
 
 def utc_now():
@@ -82,13 +91,64 @@ def last_native_row(path):
     return row
 
 
-def run_benchmark(args, output, scenario, run_index, thread_node, memory_node):
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(65536), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def calibration_schedule(local_node, remote_node):
+    schedule = []
+    for condition, node in (("LOCAL", local_node), ("LOCAL", local_node),
+                            ("REMOTE", remote_node), ("REMOTE", remote_node)):
+        index = len(schedule) + 1
+        schedule.append({"sequence_index": index, "logical_run_id": f"warmup-{condition.lower()}-{index if condition == 'LOCAL' else index - 2:02d}",
+                         "role": "WARMUP", "condition": condition, "scenario": f"{condition}_WARMUP",
+                         "run_index": index if condition == "LOCAL" else index - 2, "thread_node": node,
+                         "memory_node": local_node})
+    for run_index in range(1, PRODUCTION_RUNS + 1):
+        for condition, node in (("LOCAL", local_node), ("REMOTE", remote_node)):
+            sequence_index = len(schedule) + 1
+            schedule.append({"sequence_index": sequence_index,
+                             "logical_run_id": f"measured-{condition.lower()}-{run_index:02d}",
+                             "role": "MEASURED", "condition": condition, "scenario": condition,
+                             "run_index": run_index, "thread_node": node, "memory_node": local_node})
+    return schedule
+
+
+def canonical_evidence_manifest(args, available, local_node, remote_node, distance_fingerprint, cpu, sockets, rows, directory):
+    lines = ["AWAVMA_BENEFIT_EVIDENCE_MANIFEST 1",
+             f"calibration_id={args.calibration_id}",
+             f"methodology_version={METHODOLOGY_VERSION}",
+             f"schedule_version={SCHEDULE_VERSION}",
+             f"local_node={local_node}", f"remote_node={remote_node}",
+             f"numa_node_count={len(available)}", f"numa_distance_fingerprint={distance_fingerprint}",
+             f"cpu_model={cpu}", f"socket_count={sockets}",
+             f"workload={args.workload}", f"threads={args.threads}", f"memory_mb={args.memory_mb}",
+             f"duration_seconds={args.duration_seconds:g}", f"warmup_runs={args.warmups}",
+             f"measured_runs_per_scenario={args.runs}",
+             f"file=calibration_runs.csv|{sha256_file(directory / 'calibration_runs.csv')}"]
+    for row in rows:
+        raw_path = row["native_evidence_path"]
+        lines.append("run={}|{}|{}|{}|{}|{}|{}".format(
+            row["sequence_index"], row["logical_run_id"], row["role"], row["condition"], raw_path,
+            sha256_file(directory / raw_path), row["logical_run_id"]))
+    return "\n".join(lines) + "\n"
+
+
+def run_benchmark(args, output, entry):
+    scenario, run_index = entry["scenario"], entry["run_index"]
+    thread_node, memory_node = entry["thread_node"], entry["memory_node"]
     command = [str(ROOT / "bin" / "benchmark"), "--threads", str(args.threads), "--memory", str(args.memory_mb),
                "--duration", str(args.duration_seconds), "--pattern", args.workload, "--seed", str(args.seed),
                "--thread-node", str(thread_node), "--memory-node", str(memory_node), "--output", str(output)]
     completed = command_text(command)
-    row = {"calibration_id": args.calibration_id, "timestamp_utc": utc_now(), "run_index": run_index,
-           "scenario": scenario, "workload": args.workload, "seed": args.seed, "thread_node": thread_node,
+    row = {"calibration_id": args.calibration_id, "timestamp_utc": utc_now(), "sequence_index": entry["sequence_index"],
+           "logical_run_id": entry["logical_run_id"], "role": entry["role"], "condition": entry["condition"],
+           "native_evidence_path": entry["native_evidence_path"], "run_index": run_index, "scenario": scenario,
+           "workload": args.workload, "seed": args.seed, "thread_node": thread_node,
            "memory_node": memory_node, "threads": args.threads, "memory_mb": args.memory_mb,
            "duration_seconds": args.duration_seconds, "operations": "", "execution_time_sec": "",
            "throughput_ops_sec": "", "status": "FAILED"}
@@ -120,6 +180,18 @@ def valid_summary(metrics):
             math.isfinite(metrics["sample_stdev"]) and metrics["sample_stdev"] >= 0)
 
 
+def is_production_methodology(args):
+    return (args.workload == PRODUCTION_WORKLOAD and args.threads == PRODUCTION_THREADS and
+            args.memory_mb == PRODUCTION_MEMORY_MB and
+            args.duration_seconds == PRODUCTION_DURATION_SECONDS and args.runs == PRODUCTION_RUNS and
+            args.warmups == PRODUCTION_WARMUPS)
+
+
+def supported_migration_route(local_node, remote_node):
+    """Positive LOCAL-minus-REMOTE gain supports moving the remote thread back local."""
+    return remote_node, local_node
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default=None)
@@ -133,8 +205,9 @@ def main():
     parser.add_argument("--local-node", type=int)
     parser.add_argument("--remote-node", type=int)
     args = parser.parse_args()
-    if args.threads != 2 or args.memory_mb <= 0 or args.duration_seconds <= 0 or args.runs != 5 or args.warmups != 2:
-        parser.error("controlled calibration requires threads=2, positive memory/duration, runs=5, warmups=2")
+    if not is_production_methodology(args):
+        parser.error("production calibration requires workload=mixed, threads=2, memory-mb=1024, "
+                     "duration-seconds=10, runs=5, warmups=2")
     available, topology = nodes()
     local = available[0] if args.local_node is None else args.local_node
     remote = available[1] if args.remote_node is None else args.remote_node
@@ -148,25 +221,21 @@ def main():
     environment = command_text([str(ROOT / "bin" / "environment-check")])
     environment_text = environment.stdout + environment.stderr
     write_metadata(directory, topology, environment_text)
-    local_csv, remote_csv = directory / "benchmark_local.csv", directory / "benchmark_remote.csv"
     rows = []
+    raw = directory / "raw"
+    raw.mkdir()
     logs = directory / "logs"
     logs.mkdir()
-    for scenario, output, thread_node in (("LOCAL_WARMUP", local_csv, local), ("REMOTE_WARMUP", remote_csv, remote)):
-        for index in range(1, args.warmups + 1):
-            row, completed = run_benchmark(args, output, scenario, index, thread_node, local)
-            rows.append(row)
-            (logs / f"{scenario.lower()}-{index}.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
-    for index in range(1, args.runs + 1):
-        for scenario, output, thread_node in (("LOCAL", local_csv, local), ("REMOTE", remote_csv, remote)):
-            row, completed = run_benchmark(args, output, scenario, index, thread_node, local)
-            rows.append(row)
-            (logs / f"{scenario.lower()}-{index}.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
+    for entry in calibration_schedule(local, remote):
+        entry["native_evidence_path"] = f"raw/{entry['logical_run_id']}.csv"
+        row, completed = run_benchmark(args, directory / entry["native_evidence_path"], entry)
+        rows.append(row)
+        (logs / f"{entry['logical_run_id']}.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
     fields = list(rows[0])
     with (directory / "calibration_runs.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader(); writer.writerows(rows)
-    measured = [row for row in rows if row["scenario"] in ("LOCAL", "REMOTE")]
+    measured = [row for row in rows if row["role"] == "MEASURED"]
     valid = (environment.returncode == 0 and "READY" in environment_text and
              bool((directory / "metadata/git_revision.txt").read_text().strip()) and
              len(successful(measured, "LOCAL")) == args.runs and
@@ -187,18 +256,27 @@ def main():
     with (directory / "calibration_summary.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=["scenario", "metric", "mean", "median", "sample_stdev"])
         writer.writeheader(); writer.writerows(summary_rows)
-    artifact_fields = ["schema_version", "calibration_id", "state", "provenance", "git_revision", "cpu_model", "socket_count", "numa_node_count", "numa_distance_fingerprint", "kernel_release", "source_node", "target_node", "workload", "threads", "memory_mb", "duration_seconds", "measured_runs_per_scenario", "local_mean_throughput", "remote_mean_throughput", "throughput_gain_percent", "local_mean_execution_time", "remote_mean_execution_time", "execution_time_improvement_percent", "environment_check_status", "validation_status", "created_at_utc"]
+    distance_fingerprint = numa_distance_fingerprint(available)
+    model, sockets = cpu_model(), socket_count()
+    manifest = canonical_evidence_manifest(args, available, local, remote, distance_fingerprint, model, sockets, rows, directory)
+    manifest_path = directory / "benefit_evidence.manifest"
+    manifest_path.write_text(manifest, encoding="ascii", newline="\n")
+    artifact_fields = ["schema_version", "calibration_id", "state", "provenance", "git_revision", "cpu_model", "socket_count", "numa_node_count", "numa_distance_fingerprint", "kernel_release", "source_node", "target_node", "workload", "threads", "memory_mb", "duration_seconds", "measured_runs_per_scenario", "local_mean_throughput", "remote_mean_throughput", "throughput_gain_percent", "local_mean_execution_time", "remote_mean_execution_time", "execution_time_improvement_percent", "environment_check_status", "validation_status", "created_at_utc", "warmup_runs", "methodology_version", "schedule_version", "evidence_manifest_path", "evidence_manifest_sha256"]
+    source_node, target_node = supported_migration_route(local, remote)
     artifact = {"schema_version": SCHEMA, "calibration_id": args.calibration_id,
                 "state": "VALIDATED_PRODUCTION" if valid else "CONFIGURED_UNVALIDATED",
-                "provenance": "controlled_cloudlab_thread_placement", "git_revision": (directory / "metadata/git_revision.txt").read_text().strip(),
-                "cpu_model": cpu_model(), "socket_count": socket_count(), "numa_node_count": len(available),
-                "numa_distance_fingerprint": numa_distance_fingerprint(available), "kernel_release": platform.release(),
-                "source_node": local, "target_node": remote, "workload": args.workload, "threads": args.threads,
+                "provenance": "controlled_cloudlab_thread_placement_remote_to_local", "git_revision": (directory / "metadata/git_revision.txt").read_text().strip(),
+                "cpu_model": model, "socket_count": sockets, "numa_node_count": len(available),
+                "numa_distance_fingerprint": distance_fingerprint, "kernel_release": platform.release(),
+                "source_node": source_node, "target_node": target_node, "workload": args.workload, "threads": args.threads,
                 "memory_mb": args.memory_mb, "duration_seconds": args.duration_seconds, "measured_runs_per_scenario": args.runs,
                 "local_mean_throughput": local_t["mean"], "remote_mean_throughput": remote_t["mean"], "throughput_gain_percent": gain,
                 "local_mean_execution_time": local_e["mean"], "remote_mean_execution_time": remote_e["mean"], "execution_time_improvement_percent": improvement,
                 "environment_check_status": "READY" if environment.returncode == 0 and "READY" in environment_text else "NOT_READY",
-                "validation_status": "PASS" if valid else "FAIL", "created_at_utc": utc_now()}
+                "validation_status": "PASS" if valid else "FAIL", "created_at_utc": utc_now(),
+                "warmup_runs": args.warmups, "methodology_version": METHODOLOGY_VERSION,
+                "schedule_version": SCHEDULE_VERSION, "evidence_manifest_path": "benefit_evidence.manifest",
+                "evidence_manifest_sha256": hashlib.sha256(manifest.encode("ascii")).hexdigest()}
     with (directory / "benefit_calibration.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=artifact_fields)
         writer.writeheader(); writer.writerow(artifact)

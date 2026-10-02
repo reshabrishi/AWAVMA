@@ -113,16 +113,30 @@ int runtime_target_filter_add_pid(runtime_target_filter_t *filter, pid_t pid)
     return runtime_target_filter_add_identity(filter, pid, start_time_ticks);
 }
 
+static bool identity_matches(const runtime_target_filter_t *filter, pid_t pid,
+                             uint64_t start_time_ticks)
+{
+    for (size_t index = 0; index < filter->count; index++)
+        if (filter->identities[index].pid == pid &&
+            filter->identities[index].start_time_ticks == start_time_ticks)
+            return true;
+    return false;
+}
+
 bool runtime_target_filter_matches(const application_manager_record_t *application,
                                    void *context)
 {
     const runtime_target_filter_t *filter = context;
 
-    if (application == NULL || filter == NULL)
-        return false;
-    for (size_t index = 0; index < filter->count; index++)
-        if (filter->identities[index].pid == application->pid &&
-            filter->identities[index].start_time_ticks == application->start_time_ticks)
-            return true;
-    return false;
+    return application != NULL && filter != NULL &&
+           identity_matches(filter, application->pid, application->start_time_ticks);
+}
+
+bool runtime_target_filter_matches_discovery(const application_discovery_record_t *application,
+                                             void *context)
+{
+    const runtime_target_filter_t *filter = context;
+
+    return application != NULL && filter != NULL &&
+           identity_matches(filter, application->pid, application->start_time_ticks);
 }

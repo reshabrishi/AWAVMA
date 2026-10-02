@@ -15,6 +15,9 @@ WORKLOAD=mixed
 LOCAL_NODE=
 REMOTE_NODE=
 CALIBRATION_FILE=
+READY_TIMEOUT_SECONDS=30
+CHILD_PIDS=()
+RUN_STATUS=IN_PROGRESS
 
 usage() {
     cat <<'EOF'
@@ -64,7 +67,7 @@ preflight() {
     discover_nodes
     "$ROOT/bin/environment-check" >"$metadata/environment_check.txt" 2>&1 || limited 'environment capability check failed'
     numactl --cpunodebind="$LOCAL_NODE" --membind="$LOCAL_NODE" true >/dev/null 2>&1 || limited 'local NUMA binding is not permitted'
-    numactl --cpunodebind="$LOCAL_NODE" --membind="$REMOTE_NODE" true >/dev/null 2>&1 || limited 'remote NUMA binding is not permitted'
+    numactl --cpunodebind="$REMOTE_NODE" --membind="$LOCAL_NODE" true >/dev/null 2>&1 || limited 'remote-thread/local-memory NUMA binding is not permitted'
 }
 run_required_tests() {
     make -C "$ROOT" test-runtime test-awavma-runtime test-runtime-migration-validation \
@@ -91,7 +94,7 @@ RUN_DIR="$OUTPUT_DIR/raw/$EXPERIMENT_ID"
 mkdir -p "$RUN_DIR/metadata" "$RUN_DIR/baseline/logs" "$RUN_DIR/baseline/native" "$RUN_DIR/awavma/logs" "$RUN_DIR/awavma/native" "$RUN_DIR/awavma/runtime"
 
 # Required order: metadata, build, tests, environment check, preflight,
-# baseline, AWAVMA, aggregate, graphs, manifests.
+# calibration, manifests, baseline, AWAVMA, aggregate, graphs.
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RUN_DIR/metadata/collection_started_utc.txt"
 make -C "$ROOT" benchmark awavma-runtime environment-check >"$RUN_DIR/metadata/build.log" 2>&1
 run_required_tests >"$RUN_DIR/metadata/tests.log" 2>&1
@@ -104,35 +107,147 @@ git -C "$ROOT" rev-parse HEAD >"$RUN_DIR/metadata/git_revision.txt" 2>/dev/null 
 git -C "$ROOT" status --short >"$RUN_DIR/metadata/git_status.txt" 2>/dev/null || true
 printf '%s\n' 'schema_version,experiment_id,timestamp_utc,run_id,scenario,workload,repetition,thread_node,memory_node,runtime_enabled,threads,memory_mb,duration_seconds,elapsed_seconds,operations,benchmark_execution_time_sec,throughput_ops_sec,exit_code,status' >"$RUN_DIR/measurements.csv"
 
+validate_calibration_route() {
+    local source=$1 target=$2
+
+    [[ -n "$CALIBRATION_FILE" && -f "$CALIBRATION_FILE" ]] || {
+        printf 'awavma execution requires --calibration FILE\n' >&2
+        return 1
+    }
+    awk -F, -v source="$source" -v target="$target" '
+        NR == 1 {
+            for (i = 1; i <= NF; i++) column[$i] = i
+            next
+        }
+        NR == 2 {
+            required = "source_node target_node throughput_gain_percent state validation_status environment_check_status"
+            split(required, names, " ")
+            for (i in names) if (!(names[i] in column)) invalid = 1
+            gain = $(column["throughput_gain_percent"])
+            if ($(column["source_node"]) != source || $(column["target_node"]) != target ||
+                gain !~ /^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$/ || gain + 0 <= 0 ||
+                $(column["state"]) != "VALIDATED_PRODUCTION" ||
+                $(column["validation_status"]) != "PASS" ||
+                $(column["environment_check_status"]) != "READY") invalid = 1
+            valid = 1
+            next
+        }
+        { invalid = 1 }
+        END { exit valid && !invalid ? 0 : 1 }
+    ' "$CALIBRATION_FILE"
+}
+
+write_manifest() {
+    local status=$1 temporary="$RUN_DIR/manifest.json.tmp.$$"
+
+    printf '{"schema_version":4,"run_id":"%s","data_source":"REAL","collection_status":"%s","local_node":%s,"remote_node":%s,"topology_source":"metadata/numa_topology.txt","stage_order":"metadata,build,tests,environment-check,preflight,calibration,manifests,baseline,awavma,aggregate,graphs"}\n' \
+        "$EXPERIMENT_ID" "$status" "$LOCAL_NODE" "$REMOTE_NODE" >"$temporary"
+    mv "$temporary" "$RUN_DIR/manifest.json"
+}
+
+cleanup_children() {
+    local pid
+    for pid in "${CHILD_PIDS[@]}"; do
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+    for pid in "${CHILD_PIDS[@]}"; do
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
+        wait "$pid" 2>/dev/null || true
+    done
+    CHILD_PIDS=()
+}
+
+finish_run() {
+    local exit_code=$?
+    cleanup_children
+    if [[ "$RUN_STATUS" == IN_PROGRESS ]]; then
+        RUN_STATUS=FAILED
+        write_manifest "$RUN_STATUS"
+    fi
+    exit "$exit_code"
+}
+
+wait_for_signal() {
+    local path=$1 pid=$2 label=$3 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+
+    while [[ ! -f "$path" ]]; do
+        kill -0 "$pid" 2>/dev/null || {
+            printf '%s exited before signaling readiness\n' "$label" >&2
+            return 1
+        }
+        ((SECONDS < deadline)) || {
+            printf 'timed out waiting for %s readiness\n' "$label" >&2
+            return 1
+        }
+        sleep 0.1
+    done
+}
+
+if [[ "$MODE" != baseline ]]; then
+    validate_calibration_route "$REMOTE_NODE" "$LOCAL_NODE" || {
+        printf 'calibration must be validated for directed route node %s -> node %s with positive throughput gain\n' "$REMOTE_NODE" "$LOCAL_NODE" >&2
+        exit 1
+    }
+fi
+write_manifest "$RUN_STATUS"
+trap finish_run EXIT
+trap 'exit 130' INT TERM
+
 run_one() {
     local scenario=$1 repetition=$2 directory placement=() numa_args=() runtime=false code=0 runtime_code=0 start end elapsed status=FAILED native_csv operations= execution_time= throughput=
     local thread_node= memory_node=
     case "$scenario" in
         baseline-default) directory="$RUN_DIR/baseline" ;;
         baseline-local) directory="$RUN_DIR/baseline"; placement=(numactl "--cpunodebind=$LOCAL_NODE" "--membind=$LOCAL_NODE"); thread_node=$LOCAL_NODE; memory_node=$LOCAL_NODE ;;
-        baseline-remote) directory="$RUN_DIR/baseline"; placement=(numactl "--cpunodebind=$LOCAL_NODE" "--membind=$REMOTE_NODE"); thread_node=$LOCAL_NODE; memory_node=$REMOTE_NODE ;;
-        awavma) directory="$RUN_DIR/awavma"; placement=(numactl "--cpunodebind=$LOCAL_NODE" "--membind=$LOCAL_NODE"); thread_node=$LOCAL_NODE; memory_node=$LOCAL_NODE; runtime=true ;;
+        baseline-remote) directory="$RUN_DIR/baseline"; placement=(numactl "--cpunodebind=$REMOTE_NODE" "--membind=$LOCAL_NODE"); thread_node=$REMOTE_NODE; memory_node=$LOCAL_NODE ;;
+        awavma) directory="$RUN_DIR/awavma"; placement=(numactl "--cpunodebind=$REMOTE_NODE" "--membind=$LOCAL_NODE"); thread_node=$REMOTE_NODE; memory_node=$LOCAL_NODE; runtime=true ;;
     esac
     [[ -n "$thread_node" ]] && numa_args=(--thread-node "$thread_node" --memory-node "$memory_node")
     native_csv="$directory/native/$scenario-$repetition.csv"
     start=$(date +%s%N)
     if [[ "$scenario" == awavma ]]; then
-        [[ -n "$CALIBRATION_FILE" ]] || { printf 'awavma execution requires --calibration FILE\n' >&2; return 1; }
-        "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" "${numa_args[@]}" --output "$native_csv" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
+        local control_dir="$RUN_DIR/awavma/runtime/$repetition/control"
+        local benchmark_ready="$control_dir/benchmark.ready" benchmark_start="$control_dir/benchmark.start"
+        local runtime_ready="$control_dir/runtime.ready" target_ready="$control_dir/target.ready"
+        mkdir -p "$control_dir"
+        "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" "${numa_args[@]}" --output "$native_csv" --ready-file "$benchmark_ready" --start-file "$benchmark_start" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
         local benchmark_pid=$!
-        "$ROOT/bin/awavma-runtime" --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" --root-dir "$RUN_DIR/awavma/runtime/$repetition" --config "$ROOT/config/awavma.conf" --migration-safety-enabled --migration-execution-enabled --benefit-calibration "$CALIBRATION_FILE" >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
-        local runtime_pid=$!
-        wait "$benchmark_pid" || code=$?
-        kill -TERM "$runtime_pid" 2>/dev/null || true
-        wait "$runtime_pid" || runtime_code=$?
-        [[ "$runtime_code" == 0 ]] || code=$runtime_code
+        CHILD_PIDS+=("$benchmark_pid")
+        wait_for_signal "$benchmark_ready" "$benchmark_pid" benchmark || code=1
+        local runtime_pid=
+        if [[ "$code" == 0 ]]; then
+            "$ROOT/bin/awavma-runtime" --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" --root-dir "$RUN_DIR/awavma/runtime/$repetition" --config "$ROOT/config/awavma.conf" --migration-safety-enabled --migration-execution-enabled --benefit-calibration "$CALIBRATION_FILE" --ready-file "$runtime_ready" --target-ready-file "$target_ready" >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
+            runtime_pid=$!
+        fi
+        if [[ "$code" == 0 ]]; then
+            CHILD_PIDS+=("$runtime_pid")
+            wait_for_signal "$runtime_ready" "$runtime_pid" runtime || code=1
+            [[ "$code" != 0 ]] || wait_for_signal "$target_ready" "$runtime_pid" runtime-target || code=1
+            [[ "$code" != 0 ]] || : >"$benchmark_start"
+        fi
+        if [[ "$code" == 0 ]]; then
+            wait "$benchmark_pid" || code=$?
+        else
+            kill -TERM "$benchmark_pid" 2>/dev/null || true
+            wait "$benchmark_pid" 2>/dev/null || true
+        fi
+        if [[ -n "$runtime_pid" ]]; then
+            kill -TERM "$runtime_pid" 2>/dev/null || true
+            wait "$runtime_pid" 2>/dev/null || runtime_code=$?
+            [[ "$runtime_code" == 0 || "$runtime_code" == 143 ]] || code=$runtime_code
+        fi
+        CHILD_PIDS=()
     else
         "${placement[@]}" "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" "${numa_args[@]}" --output "$native_csv" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 || code=$?
     fi
     end=$(date +%s%N)
     elapsed=$(printf '%d.%09d' $(((end - start) / 1000000000)) $(((end - start) % 1000000000)))
     [[ "$code" == 0 ]] && status=MEASURED
-    if [[ "$status" == MEASURED ]]; then IFS=, read -r _ _ _ _ _ _ _ _ _ operations execution_time throughput < <(tail -n 1 "$native_csv"); fi
+    if [[ "$status" == MEASURED ]]; then
+        IFS=, read -r _ _ _ _ _ _ _ _ _ operations execution_time throughput < <(tail -n 1 "$native_csv")
+        [[ "$operations" =~ ^[0-9]+$ && "$execution_time" =~ ^[0-9]+([.][0-9]+)?$ && "$throughput" =~ ^[0-9]+([.][0-9]+)?$ ]] || { status=FAILED; code=1; }
+    fi
     printf '%s\n' "4,$EXPERIMENT_ID,$(date -u +%Y-%m-%dT%H:%M:%SZ),$EXPERIMENT_ID-$scenario-$repetition,$scenario,$WORKLOAD,$repetition,$thread_node,$memory_node,$runtime,$THREADS,$MEMORY_MB,$DURATION_SECONDS,$elapsed,$operations,$execution_time,$throughput,$code,$status" >>"$RUN_DIR/measurements.csv"
     [[ "$status" == MEASURED ]]
 }
@@ -144,12 +259,21 @@ fi
 if [[ "$MODE" != baseline ]]; then
     for repetition in $(seq 1 "$RUNS"); do run_one awavma "$repetition" || failed=$((failed + 1)); done
 fi
-status=PASS; ((failed == 0)) || status=FAIL
-cat >"$RUN_DIR/manifest.json" <<EOF
-{"schema_version":4,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"$status","local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"topology_source":"metadata/numa_topology.txt","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
-EOF
 ((failed == 0)) || exit 1
-UNIFIED="$OUTPUT_DIR/unified"
-python3 "$ROOT/scripts/aggregate_experiment_results.py" --input-dir "$OUTPUT_DIR/raw" --output "$UNIFIED/cloudlab_experiment_results.csv" --comparison-output "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries"
-[[ "$SKIP_GRAPHS" == true ]] || python3 "$ROOT/scripts/generate_multinuma_graphs.py" --input "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries" --summary "$OUTPUT_DIR/graphs/graph_summary.csv" --output-dir "$OUTPUT_DIR/graphs"
+STAGING_DIR="$RUN_DIR/finalized"
+UNIFIED="$STAGING_DIR/unified"
+GRAPHS="$STAGING_DIR/graphs"
+python3 "$ROOT/scripts/aggregate_experiment_results.py" --input-dir "$OUTPUT_DIR/raw" --include-in-progress-run "$EXPERIMENT_ID" --output "$UNIFIED/cloudlab_experiment_results.csv" --comparison-output "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries"
+if [[ "$MODE" == all && "$SKIP_GRAPHS" == false ]]; then
+    python3 "$ROOT/scripts/generate_multinuma_graphs.py" --input "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries" --summary "$GRAPHS/graph_summary.csv" --output-dir "$GRAPHS"
+fi
+mkdir -p "$OUTPUT_DIR/unified" "$OUTPUT_DIR/graphs"
+mv "$UNIFIED/cloudlab_experiment_results.csv" "$UNIFIED/cloudlab_comparator.csv" "$OUTPUT_DIR/unified/"
+mkdir -p "$OUTPUT_DIR/unified/summaries"
+mv "$UNIFIED/summaries"/* "$OUTPUT_DIR/unified/summaries/"
+if [[ -d "$GRAPHS" ]]; then
+    mv "$GRAPHS"/* "$OUTPUT_DIR/graphs/"
+fi
+RUN_STATUS=PASS
+write_manifest "$RUN_STATUS"
 printf 'Phase 4D artifacts: %s\n' "$RUN_DIR"

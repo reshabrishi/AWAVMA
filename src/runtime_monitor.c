@@ -381,6 +381,8 @@ void runtime_monitor_config_default(runtime_monitor_config_t *config)
     config->results_path = DEFAULT_RESULTS_PATH;
     config->log_path = DEFAULT_LOG_PATH;
     application_discovery_config_default(&config->discovery_config);
+    config->discovery_filter = NULL;
+    config->discovery_filter_context = NULL;
     config->application_filter = NULL;
     config->application_filter_context = NULL;
 }
@@ -471,6 +473,15 @@ static int refresh_discovery(runtime_monitor_t *monitor, uint64_t now)
             free(discovered);
             return EIO;
         }
+    if (monitor->config.discovery_filter != NULL) {
+        size_t filtered_count = 0;
+
+        for (size_t index = 0; index < discovered_count; index++)
+            if (monitor->config.discovery_filter(&discovered[index],
+                                                 monitor->config.discovery_filter_context))
+                discovered[filtered_count++] = discovered[index];
+        discovered_count = filtered_count;
+    }
     if (application_manager_process_snapshot(monitor->manager, discovered, discovered_count) != 0) {
         free(discovered);
         return EIO;

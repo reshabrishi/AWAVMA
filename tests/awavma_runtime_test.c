@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "awavma_runtime.h"
+#include "runtime_target_filter.h"
 
 #include <limits.h>
 #include <signal.h>
@@ -15,11 +16,6 @@ static void report(const char *id, int passed)
     printf("%s: %s\n", id, passed ? "PASS" : "FAIL");
 }
 
-static bool target_filter(const application_manager_record_t *application, void *context)
-{
-    return application->pid == *(const pid_t *)context;
-}
-
 int main(void)
 {
     char root[] = "/tmp/awavma-runtime-test-XXXXXX";
@@ -30,6 +26,7 @@ int main(void)
     awavma_runtime_config_t config;
     awavma_runtime_t *runtime;
     awavma_runtime_record_t records[4];
+    runtime_target_filter_t target_filter;
     pid_t child;
     size_t count;
     int passed = 1;
@@ -38,12 +35,21 @@ int main(void)
         report("AR01", 0);
         return EXIT_FAILURE;
     }
+    runtime_target_filter_init(&target_filter);
     child = fork();
     if (child == 0) {
         for (;;)
             pause();
     }
     if (child < 0) {
+        runtime_target_filter_cleanup(&target_filter);
+        report("AR01", 0);
+        return EXIT_FAILURE;
+    }
+    if (runtime_target_filter_add_pid(&target_filter, child) != 0) {
+        kill(child, SIGTERM);
+        waitpid(child, NULL, 0);
+        runtime_target_filter_cleanup(&target_filter);
         report("AR01", 0);
         return EXIT_FAILURE;
     }
@@ -60,8 +66,10 @@ int main(void)
     config.max_applications = 256;
     config.worker_count = 1;
     config.queue_capacity = 4;
-    config.application_filter = target_filter;
-    config.application_filter_context = &child;
+    config.discovery_filter = runtime_target_filter_matches_discovery;
+    config.discovery_filter_context = &target_filter;
+    config.application_filter = runtime_target_filter_matches;
+    config.application_filter_context = &target_filter;
     runtime = awavma_runtime_create();
     passed = runtime != NULL && awavma_runtime_init(runtime, &config) == 0;
     report("AR01", passed);
@@ -83,5 +91,6 @@ int main(void)
     awavma_runtime_destroy(runtime);
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);
+    runtime_target_filter_cleanup(&target_filter);
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

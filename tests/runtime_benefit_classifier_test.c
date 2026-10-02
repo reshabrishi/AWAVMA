@@ -61,9 +61,13 @@ static BenefitClassification benefit(void *context, const MigrationSafetyRequest
     input.target_permitted = true;
     input.source_known = true;
     input.source_target_valid = true;
-    input.calibration.state = fixture->calibrated ? BENEFIT_CALIBRATION_VALIDATED_TEST_ONLY :
-                                                   BENEFIT_CALIBRATION_UNAVAILABLE;
-    input.calibration.provenance = fixture->calibrated ? "synthetic-runtime-fixture" : "production-default";
+    input.calibration.state = fixture->calibrated ? BENEFIT_CALIBRATION_VALIDATED_PRODUCTION :
+                                                    BENEFIT_CALIBRATION_UNAVAILABLE;
+    input.calibration.provenance = fixture->calibrated ? "production-runtime-fixture" : "production-default";
+    input.calibration.source_node = 0;
+    input.calibration.target_node = 1;
+    input.calibration.throughput_gain_percent = fixture->calibrated ? 1.0 : 0.0;
+    input.calibration.execution_time_improvement_percent = fixture->calibrated ? 1.0 : 0.0;
     return benefit_classifier_evaluate(&input, decision);
 }
 
@@ -150,7 +154,7 @@ static bool run_case(const char *id, bool calibrated, MigrationSafetyState expec
 
 int main(void)
 {
-    bool passed = run_case("RBC01_SYNTHETIC_SUPPORTED_EXECUTION_DISABLED", true,
+    bool passed = run_case("RBC01_PRODUCTION_SUPPORTED_EXECUTION_DISABLED", true,
                            MIGRATION_SAFETY_EXECUTION_DISABLED, BENEFIT_SUPPORTED);
     passed = run_case("RBC02_PRODUCTION_UNCALIBRATED_REJECTED", false,
                       MIGRATION_SAFETY_BENEFIT_REJECTED, BENEFIT_POLICY_UNCALIBRATED) && passed;
