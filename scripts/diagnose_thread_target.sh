@@ -17,13 +17,23 @@ fi
 IFS=: read -r hierarchy controllers cgroup_path <<<"$cgroup_line"
 if [[ $hierarchy == 0 ]]; then
     version=2
-    cpuset_file="/sys/fs/cgroup${cgroup_path}/cpuset.cpus.effective"
-    [[ -s $cpuset_file ]] || cpuset_file="/sys/fs/cgroup${cgroup_path}/cpuset.cpus"
+    cgroup_directory="/sys/fs/cgroup${cgroup_path}"
+    cpuset_file=""
+    while :; do
+        candidate="$cgroup_directory/cpuset.cpus.effective"
+        if [[ -e $candidate ]]; then
+            [[ -s $candidate ]] || { echo "preview_result=PERMITTED_CPUSET_UNAVAILABLE"; exit 1; }
+            cpuset_file=$candidate
+            break
+        fi
+        [[ $cgroup_directory == /sys/fs/cgroup ]] && break
+        cgroup_directory=${cgroup_directory%/*}
+    done
 else
     version=1
     cpuset_file="/sys/fs/cgroup/cpuset${cgroup_path}/cpuset.cpus"
 fi
-if [[ ! -s $cpuset_file ]]; then
+if [[ -z $cpuset_file || ! -s $cpuset_file ]]; then
     echo "preview_result=PERMITTED_CPUSET_UNAVAILABLE"
     exit 1
 fi
@@ -49,8 +59,8 @@ print(min(allowed) if allowed else '')
 PY
 )
 
-printf 'pid=%s\ntid=%s\ncurrent_affinity=%s\ncurrent_cpu=%s\ncurrent_node=%s\ncgroup_path=%s\ncgroup_version=%s\neffective_cpuset=%s\nonline_cpu_set=%s\nfinal_permitted_cpu_set=%s\nrequested_destination_node=%s\nselected_target_cpu=%s\n' \
-    "$pid" "$tid" "$current_affinity" "$current_cpu" "$current_node" "$cgroup_path" "$version" "$effective_cpuset" "$online_cpu_set" "$effective_cpuset" "$destination" "$selected_target_cpu"
+printf 'pid=%s\ntid=%s\ncurrent_affinity=%s\ncurrent_cpu=%s\ncurrent_node=%s\ncgroup_path=%s\ncgroup_version=%s\ncpuset_source_path=%s\neffective_cpuset=%s\nonline_cpu_set=%s\nfinal_permitted_cpu_set=%s\nrequested_destination_node=%s\nselected_target_cpu=%s\n' \
+    "$pid" "$tid" "$current_affinity" "$current_cpu" "$current_node" "$cgroup_path" "$version" "$cpuset_file" "$effective_cpuset" "$online_cpu_set" "$effective_cpuset" "$destination" "$selected_target_cpu"
 if [[ -n $selected_target_cpu ]]; then
     echo "preview_result=TARGET_POLICY_SELECTED"
 else

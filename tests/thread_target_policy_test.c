@@ -265,6 +265,8 @@ int main(void)
     suite_passed = suite_passed && test_passed;
 
     input = input_for();
+    input.source_node_available = false;
+    input.source_cpu_available = false;
     input.permitted_cpu_set_available = false;
     test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_UNKNOWN &&
                   terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_UNKNOWN);
@@ -282,6 +284,7 @@ int main(void)
     suite_passed = suite_passed && test_passed;
 
     input = input_for();
+    input.source_node_available = false;
     input.source_cpu_available = false;
     test_passed = thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_SOURCE_AMBIGUOUS &&
                   terminal_policy_once(&input, &two, MIGRATION_TARGET_SOURCE_AMBIGUOUS);

@@ -19,6 +19,7 @@ typedef struct {
     cpu_set_t permitted_cpu_set;
     unsigned cgroup_version;
     char cgroup_path[256];
+    char cpuset_source_path[512];
     bool thread_exists;
     bool thread_belongs_to_process;
     bool thread_metadata_available;

@@ -246,13 +246,6 @@ bool thread_target_policy_preview(const ThreadTargetPolicyInput *input,
                  "result=unsupported_action reason=thread_preview_only");
         return false;
     }
-    /* Pin to the lowest permitted online CPU on the requested node deterministically. */
-    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
-        if (CPU_ISSET(cpu, &candidate_mask)) {
-            CPU_ZERO(&candidate_mask);
-            CPU_SET(cpu, &candidate_mask);
-            break;
-        }
     preview->result = thread_target_policy_select(input, topology, &preview->target);
     return preview->result == MIGRATION_TARGET_AVAILABLE;
 }

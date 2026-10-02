@@ -154,17 +154,33 @@ static bool read_cgroup_cpuset(pid_t pid, RuntimeMigrationMetadata *metadata)
     metadata->cgroup_version = version;
     snprintf(metadata->cgroup_path, sizeof(metadata->cgroup_path), "%s", group_path);
     if (version == 2) {
-        if (snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cpuset.cpus.effective", group_path) >= (int)sizeof(path))
+        char directory[512];
+
+        if (snprintf(directory, sizeof(directory), "/sys/fs/cgroup%s", group_path) >= (int)sizeof(directory))
             return false;
-        if (read_cpu_set_file(path, &metadata->permitted_cpu_set))
-            return true;
-        if (snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cpuset.cpus", group_path) >= (int)sizeof(path))
-            return false;
-        return read_cpu_set_file(path, &metadata->permitted_cpu_set);
+        for (;;) {
+            if (snprintf(path, sizeof(path), "%s/cpuset.cpus.effective", directory) >= (int)sizeof(path))
+                return false;
+            if (access(path, F_OK) == 0) {
+                if (!read_cpu_set_file(path, &metadata->permitted_cpu_set))
+                    return false;
+                snprintf(metadata->cpuset_source_path, sizeof(metadata->cpuset_source_path), "%s", path);
+                return true;
+            }
+            if (strcmp(directory, "/sys/fs/cgroup") == 0)
+                return false;
+            char *slash = strrchr(directory, '/');
+            if (slash == NULL || slash == directory)
+                return false;
+            *slash = '\0';
+        }
     }
     if (snprintf(path, sizeof(path), "/sys/fs/cgroup/cpuset%s/cpuset.cpus", group_path) >= (int)sizeof(path))
         return false;
-    return read_cpu_set_file(path, &metadata->permitted_cpu_set);
+    if (!read_cpu_set_file(path, &metadata->permitted_cpu_set))
+        return false;
+    snprintf(metadata->cpuset_source_path, sizeof(metadata->cpuset_source_path), "%s", path);
+    return true;
 }
 
 bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
