@@ -71,8 +71,11 @@ preflight() {
 }
 run_required_tests() {
     make -C "$ROOT" test-runtime test-awavma-runtime test-runtime-migration-validation \
-        test-benefit-calibration test-phase5-benefit-evidence test-decision-benefit-evidence test-validation \
+        test-benefit-calibration test-runtime-evidence test-phase5-benefit-evidence test-decision-benefit-evidence test-validation \
         test-migration test-feedback test-phase4d-tooling test-phase4d-aggregation
+    python3 "$ROOT/tests/runtime_diagnostic_builder_test.py"
+    python3 "$ROOT/tests/runtime_diagnostic_graph_test.py"
+    python3 "$ROOT/tests/adaptive_outcome_test.py"
 }
 
 if [[ "$MODE" == tests ]]; then
@@ -106,6 +109,7 @@ locale >"$RUN_DIR/metadata/locale.txt"
 git -C "$ROOT" rev-parse HEAD >"$RUN_DIR/metadata/git_revision.txt" 2>/dev/null || true
 git -C "$ROOT" status --short >"$RUN_DIR/metadata/git_status.txt" 2>/dev/null || true
 printf '%s\n' 'schema_version,experiment_id,timestamp_utc,run_id,scenario,workload,repetition,thread_node,memory_node,runtime_enabled,threads,memory_mb,duration_seconds,elapsed_seconds,operations,benchmark_execution_time_sec,throughput_ops_sec,exit_code,status' >"$RUN_DIR/measurements.csv"
+printf '%s\n' 'timestamp_utc,repetition,adaptive_outcome,runtime_status,detail' >"$RUN_DIR/adaptive_outcomes.csv"
 
 validate_calibration_route() {
     local source=$1 target=$2
@@ -249,6 +253,15 @@ run_one() {
         [[ "$operations" =~ ^[0-9]+$ && "$execution_time" =~ ^[0-9]+([.][0-9]+)?$ && "$throughput" =~ ^[0-9]+([.][0-9]+)?$ ]] || { status=FAILED; code=1; }
     fi
     printf '%s\n' "4,$EXPERIMENT_ID,$(date -u +%Y-%m-%dT%H:%M:%SZ),$EXPERIMENT_ID-$scenario-$repetition,$scenario,$WORKLOAD,$repetition,$thread_node,$memory_node,$runtime,$THREADS,$MEMORY_MB,$DURATION_SECONDS,$elapsed,$operations,$execution_time,$throughput,$code,$status" >>"$RUN_DIR/measurements.csv"
+    if [[ "$scenario" == awavma ]]; then
+        local runtime_results="$RUN_DIR/awavma/runtime/$repetition/runtime_results.csv" adaptive=EXPERIMENT_COMPLETED_NO_ADAPTIVE_ACTION runtime_status=NA detail=NA
+        if [[ -f "$runtime_results" ]]; then
+            IFS=, read -r _ _ _ _ _ _ runtime_status detail < <(tail -n 1 "$runtime_results")
+        fi
+        adaptive=$(python3 "$ROOT/scripts/determine_adaptive_outcome.py" --runtime-dir "$RUN_DIR/awavma/runtime/$repetition")
+        printf '%s,%s,%s,%s,%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$repetition" "$adaptive" "$runtime_status" "$detail" >>"$RUN_DIR/adaptive_outcomes.csv"
+        python3 "$ROOT/scripts/build_runtime_diagnostics.py" --runtime-dir "$RUN_DIR/awavma/runtime/$repetition" --output "$RUN_DIR/awavma/runtime/$repetition/runtime_diagnostics.csv"
+    fi
     [[ "$status" == MEASURED ]]
 }
 
@@ -265,7 +278,9 @@ UNIFIED="$STAGING_DIR/unified"
 GRAPHS="$STAGING_DIR/graphs"
 python3 "$ROOT/scripts/aggregate_experiment_results.py" --input-dir "$OUTPUT_DIR/raw" --include-in-progress-run "$EXPERIMENT_ID" --output "$UNIFIED/cloudlab_experiment_results.csv" --comparison-output "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries"
 if [[ "$MODE" == all && "$SKIP_GRAPHS" == false ]]; then
-    python3 "$ROOT/scripts/generate_multinuma_graphs.py" --input "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries" --summary "$GRAPHS/graph_summary.csv" --output-dir "$GRAPHS"
+    diagnostic_args=()
+    while IFS= read -r diagnostic; do diagnostic_args+=(--diagnostic "$diagnostic"); done < <(find "$RUN_DIR/awavma/runtime" -name runtime_diagnostics.csv -type f)
+    python3 "$ROOT/scripts/generate_multinuma_graphs.py" --input "$UNIFIED/cloudlab_comparator.csv" --summary-dir "$UNIFIED/summaries" --summary "$GRAPHS/graph_summary.csv" --output-dir "$GRAPHS" "${diagnostic_args[@]}"
 fi
 mkdir -p "$OUTPUT_DIR/unified" "$OUTPUT_DIR/graphs"
 mv "$UNIFIED/cloudlab_experiment_results.csv" "$UNIFIED/cloudlab_comparator.csv" "$OUTPUT_DIR/unified/"

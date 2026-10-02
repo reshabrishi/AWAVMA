@@ -50,7 +50,7 @@ static bool equal(double left, double right)
     return fabs(left - right) < 0.0000001;
 }
 
-static bool read_rows(const char *path, output_row_t rows[4])
+static bool read_rows(const char *path, output_row_t rows[5])
 {
     FILE *file = fopen(path, "r");
     char line[2048];
@@ -81,7 +81,7 @@ static bool read_rows(const char *path, output_row_t rows[4])
         fclose(file);
         return false;
     }
-    while (row < 4 && fgets(line, sizeof(line), file) != NULL) {
+    while (row < 5 && fgets(line, sizeof(line), file) != NULL) {
         count = split_csv(line, fields, 64);
         if ((size_t)bias_version >= count || (size_t)margin >= count) {
             fclose(file);
@@ -99,7 +99,7 @@ static bool read_rows(const char *path, output_row_t rows[4])
         row++;
     }
     fclose(file);
-    return row == 4;
+    return row == 5;
 }
 
 static void report(const char *name, bool passed)
@@ -122,7 +122,7 @@ int main(void)
     char cleanup_path[512];
     FILE *input;
     decision_summary_t summary;
-    output_row_t rows[4] = {0};
+    output_row_t rows[5] = {0};
     bool passed;
 
     if (mkdtemp(directory) == NULL)
@@ -140,6 +140,7 @@ int main(void)
     fputs("2026-09-07T12:00:01Z,decision-app,42,epsilon-tie,HOT,50,0,0,0.2,0,0,0,0.18,0,0,0\n", input);
     fputs("2026-09-07T12:00:02Z,decision-app,42,zero-margin,HOT,50,0,0,0,0,0,0,0,0,0,0\n", input);
     fputs("2026-09-07T12:00:03Z,decision-app,42,unavailable,HOT,50,NA,0,0,0,0,0,0,0,0,0\n", input);
+    fputs("2026-09-07T12:00:04Z,decision-app,42,thread-only,HOT,50,0.4,0.4,NA,NA,NA,NA,0.8,0,0.4,0\n", input);
     if (fclose(input) != 0)
         return EXIT_FAILURE;
     decision_config_t config = {
@@ -171,12 +172,15 @@ int main(void)
     bool unavailable_remains_unavailable = passed && strcmp(rows[3].margin_text, "NA") == 0 &&
                                          strcmp(rows[3].decision, "INSUFFICIENT_DECISION_SIGNAL") == 0;
     report("DBE06_UNAVAILABLE_MARGIN_REMAINS_UNAVAILABLE", unavailable_remains_unavailable);
+    bool thread_only_supported = passed && strcmp(rows[4].decision, "MOVE_THREAD") == 0 &&
+                                 strcmp(rows[4].margin_text, "NA") == 0;
+    report("DBE07_THREAD_ONLY_EVIDENCE_SUPPORTED", thread_only_supported);
     bool versions_preserved = passed && rows[0].weight_version == 1 && rows[0].bias_version == 1 &&
-                              summary.move_thread == 1 && summary.no_migration == 2 &&
-                              summary.insufficient_rows == 1;
-    report("DBE07_VERSION_AND_SUMMARY_UNCHANGED", versions_preserved);
+                               summary.move_thread == 2 && summary.no_migration == 2 &&
+                               summary.insufficient_rows == 1;
+    report("DBE08_VERSION_AND_SUMMARY_UNCHANGED", versions_preserved);
     passed = passed && factors_unchanged && thread_utility_and_ranking && epsilon_unchanged &&
-             zero_not_unavailable && unavailable_remains_unavailable && versions_preserved;
+              zero_not_unavailable && unavailable_remains_unavailable && thread_only_supported && versions_preserved;
     unlink(input_path); unlink(output_path); unlink(log_path);
     snprintf(cleanup_path, sizeof(cleanup_path), "%s/weights.csv", state_path); unlink(cleanup_path);
     snprintf(cleanup_path, sizeof(cleanup_path), "%s/biases.csv", state_path); unlink(cleanup_path);

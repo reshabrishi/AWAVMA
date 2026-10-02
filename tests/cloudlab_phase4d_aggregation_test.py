@@ -9,7 +9,7 @@ SCRIPT = ROOT / "scripts/aggregate_experiment_results.py"
 FIELDS = ["schema_version", "experiment_id", "timestamp_utc", "run_id", "scenario", "workload", "repetition", "thread_node", "memory_node", "runtime_enabled", "threads", "memory_mb", "duration_seconds", "elapsed_seconds", "operations", "benchmark_execution_time_sec", "throughput_ops_sec", "exit_code", "status"]
 
 def rows(name: str, scenarios=("baseline-default", "baseline-local", "baseline-remote", "awavma"), repetition="1"):
-    placement = {"baseline-default": ("", ""), "baseline-local": ("0", "0"), "baseline-remote": ("0", "1"), "awavma": ("0", "0")}
+    placement = {"baseline-default": ("", ""), "baseline-local": ("0", "0"), "baseline-remote": ("1", "0"), "awavma": ("1", "0")}
     result = []
     for index, scenario in enumerate(scenarios, 1):
         thread, memory = placement[scenario]
@@ -84,6 +84,10 @@ def main() -> int:
         assert invoke(privacy)[0].returncode != 0
         phase = root / "phase"; phase.mkdir(); run = write_run(phase, "phase"); (run / "classifier.csv").write_text("timestamp,status\nnot-a-time,\n", encoding="utf-8")
         assert invoke(phase)[0].returncode != 0
+        # Unknown state/history-looking files are not evidence, even with misleading runtime columns.
+        ignored = root / "ignored"; ignored.mkdir(); run = write_run(ignored, "ignored")
+        (run / "weights.csv").write_text("app_id,status\nwrong,APPROVED\n", encoding="utf-8")
+        assert invoke(ignored)[0].returncode == 0
         # A20-A21 valid partial collections aggregate without comparisons.
         for name, scenarios in (("baseline-only", ("baseline-default", "baseline-local", "baseline-remote")), ("awavma-only", ("awavma",))):
             partial = root / name; partial.mkdir(); write_run(partial, name, scenario_rows=rows(name, scenarios))

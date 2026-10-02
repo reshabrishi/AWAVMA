@@ -11,6 +11,7 @@
 #include "page_checkpoint.h"
 #include "page_rollback.h"
 #include "runtime_migration_metadata.h"
+#include "runtime_evidence.h"
 #include "thread_target_policy.h"
 #include "worker_pool.h"
 
@@ -1591,7 +1592,10 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     char cycle_dir[4096];
     char classification_path[4096];
     char normalized_monitoring_path[4096];
-    char classification_delta_path[4096];
+    char runtime_evidence_path[4096];
+    char thread_path[4096];
+    char decision_evidence_path[4096];
+    char decision_delta_path[4096];
     char decision_path[4096];
     char validation_input_path[4096];
     char validation_path[4096];
@@ -1653,9 +1657,13 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         return -1;
     }
     if (path_join(normalized_monitoring_path, sizeof(normalized_monitoring_path), cycle_dir,
-                  "monitoring_normalized.csv") != 0 ||
+                   "monitoring_normalized.csv") != 0 ||
+        path_join(runtime_evidence_path, sizeof(runtime_evidence_path), cycle_dir,
+                  "runtime_evidence.csv") != 0 ||
+        path_join(decision_evidence_path, sizeof(decision_evidence_path), cycle_dir,
+                  "decision_evidence.csv") != 0 ||
         path_join(classification_path, sizeof(classification_path), cycle_dir, "classification_full.csv") != 0 ||
-        path_join(classification_delta_path, sizeof(classification_delta_path), cycle_dir, "classification_delta.csv") != 0 ||
+        path_join(decision_delta_path, sizeof(decision_delta_path), cycle_dir, "decision_delta.csv") != 0 ||
         path_join(decision_path, sizeof(decision_path), cycle_dir, "decision.csv") != 0 ||
         path_join(validation_input_path, sizeof(validation_input_path), cycle_dir, "validation_input.csv") != 0 ||
         path_join(validation_path, sizeof(validation_path), cycle_dir, "validation.csv") != 0 ||
@@ -1668,12 +1676,21 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         return -1;
     }
     monitor_profile_scope_end(&artifact_profile, "OK");
-    char *classifier_args[] = {classifier, "--input", normalized_monitoring_path, "--output", classification_path, NULL};
+    char *classifier_args[] = {classifier, "--input", runtime_evidence_path, "--output", classification_path, NULL};
     monitor_profile_scope_begin(&normalize_profile, "pipeline", "monitoring_normalize_io", record->app_id,
                                 record->pid, record->generation + 1);
     if (normalize_monitoring_elapsed(phase3_path, normalized_monitoring_path,
-                                    runtime->config.monitor_interval_ms) != 0) {
+                                     runtime->config.monitor_interval_ms) != 0) {
         set_status(record, AWAVMA_RUNTIME_ERROR, "Phase 4 failed");
+        monitor_profile_scope_end(&normalize_profile, "ERROR");
+        monitor_profile_scope_end(&coordinator_profile, "ERROR");
+        return -1;
+    }
+    if (snprintf(thread_path, sizeof(thread_path), "%s/phase3/%s_threads.csv", runtime->config.root_dir,
+                 record->app_id) >= (int)sizeof(thread_path) ||
+        runtime_evidence_write_classifier_input(normalized_monitoring_path, record->app_id,
+                                                runtime_evidence_path) != 0) {
+        set_status(record, AWAVMA_RUNTIME_ERROR, "cannot derive measured runtime evidence");
         monitor_profile_scope_end(&normalize_profile, "ERROR");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
@@ -1689,7 +1706,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         monitor_profile_scope_t direct_profile;
 
         classifier_config_default(&classifier_config);
-        classifier_config.input_path = normalized_monitoring_path;
+        classifier_config.input_path = runtime_evidence_path;
         classifier_config.output_path = classification_path;
         monitor_profile_scope_begin(&direct_profile, "pipeline", "phase4_direct_api_total",
                                     record->app_id, record->pid, record->generation + 1);
@@ -1705,17 +1722,23 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
     }
+    if (runtime_evidence_write_decision_input(runtime_evidence_path, thread_path, classification_path,
+                                              decision_evidence_path) != 0) {
+        set_status(record, AWAVMA_RUNTIME_ERROR, "cannot derive Phase 5 runtime evidence");
+        monitor_profile_scope_end(&coordinator_profile, "ERROR");
+        return -1;
+    }
     monitor_profile_scope_begin(&delta_profile, "pipeline", "classification_delta_io", record->app_id,
-                                record->pid, record->generation + 1);
-    int delta_result = copy_csv_delta(classification_path, classification_delta_path,
-                                      record->phase5_committed_rows);
+                                 record->pid, record->generation + 1);
+    int delta_result = copy_csv_delta(decision_evidence_path, decision_delta_path,
+                                       record->phase5_committed_rows);
     monitor_profile_scope_end(&delta_profile, delta_result == 0 ? "OK" : "ERROR");
     if (delta_result != 0) {
         set_status(record, AWAVMA_RUNTIME_ERROR, "Phase 4 failed");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
     }
-    char *decision_args[] = {decision, "--input", classification_delta_path, "--output", decision_path,
+    char *decision_args[] = {decision, "--input", decision_delta_path, "--output", decision_path,
                              "--app-id", record->app_id, "--state-dir", state_dir,
                              "--history-dir", history_dir, "--log", log_path, NULL};
     record->generation++;

@@ -26,6 +26,12 @@ ADAPTERS = {
     "evidence": ("evidence", {"run_id":("app_id","migration_id","feedback_id"),}),
     "performance": ("measurement", {"timestamp_utc":("timestamp_utc",),"run_id":("run_id",),"scenario":("scenario",),"workload":("workload",),"repetition":("repetition",),"thread_node":("thread_node",),"memory_node":("memory_node",),"runtime_enabled":("runtime_enabled",),"threads":("threads",),"memory_mb":("memory_mb",),"duration_seconds":("duration_seconds",),"elapsed_seconds":("benchmark_execution_time_sec",),"throughput":("throughput_ops_sec",),"exit_code":("exit_code",),"status":("status",)}),
 }
+RECOGNIZED = {
+    "measurements.csv": "performance", "runtime_evidence.csv": "phase3",
+    "runtime_diagnostics.csv": "evidence", "classification_full.csv": "phase4",
+    "classifier.csv": "phase4", "decision.csv": "phase5", "validation.csv": "phase6",
+    "migration_results.csv": "phase7", "adaptive_outcomes.csv": "evidence",
+}
 
 def fail(message: str) -> None: raise ValueError(message)
 def unsafe(value: str) -> bool:
@@ -40,38 +46,11 @@ def first(raw, names):
             return value
     return ""
 def adapter(path: Path, fields: list[str]):
-    name, joined = path.name.lower(), " ".join(fields).lower()
-
-    # Prefer explicit filenames.
-    for stage, token in (
-        ("performance", "measurements"),
-        ("phase2", "benchmark"),
-        ("phase3", "monitor"),
-        ("phase4", "classif"),
-        ("phase5", "decision"),
-        ("phase6", "validation"),
-        ("phase7", "migration"),
-        ("phase8", "feedback"),
-    ):
-        if token in name:
-            return stage, ADAPTERS[stage][1]
-
-    # Native benchmark CSVs may have baseline-/awavma-* names.
-    benchmark_fields = {
-        "timestamp", "pattern", "threads", "memory_mb", "duration_sec",
-        "thread_node", "memory_node", "execution_time_sec",
-        "throughput_ops_sec",
-    }
-    if benchmark_fields.issubset(set(fields)):
-        return "phase2", ADAPTERS["phase2"][1]
-
-    # Actual runtime result/status records.
-    if "status" in fields and "app_id" in fields:
-        return "runtime", ADAPTERS["runtime"][1]
-
-    # Other runtime state/evidence CSVs are still ingested, but do not
-    # require runtime status semantics.
-    return "evidence", ADAPTERS["evidence"][1]
+    name = path.name.lower()
+    if name not in RECOGNIZED: return None
+    if name == "measurements.csv": return "performance", ADAPTERS["performance"][1]
+    stage = RECOGNIZED[name]
+    return stage, ADAPTERS[stage][1]
 
 def parse_timestamp(value: str, context: str) -> None:
     for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
@@ -164,7 +143,9 @@ def read_run(run: Path, root: Path, include_in_progress_run: str | None = None):
         try:
             with path.open(newline="", encoding="utf-8") as handle:
                 reader = csv.DictReader(handle); fields = reader.fieldnames or []
-                stage, mapping = adapter(path, fields)
+                adapted = adapter(path, fields)
+                if adapted is None: continue
+                stage, mapping = adapted
                 if stage == "performance" and path.name != "measurements.csv": fail(f"{path}: unexpected measurement filename")
                 for line, raw in enumerate(reader, 2):
                     context = f"{path}:{line}"

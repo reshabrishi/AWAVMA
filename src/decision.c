@@ -843,38 +843,47 @@ static int parse_factors(char **fields, size_t count, const decision_columns_t *
     return 0;
 }
 
-static bool all_factors_available(const factor_values_t *factors)
+static bool action_factors_available(const factor_values_t *factors, decision_action_t action)
 {
-    for (int index = 0; index < 10; index++)
+    int first = action == DECISION_MEMORY ? 2 : 6;
+
+    if (!factors->available[0] || !factors->available[1])
+        return false;
+    for (int index = first; index < first + 4; index++)
         if (!factors->available[index])
             return false;
     return true;
 }
 
 static decision_result_t calculate_decision(const application_context_t *context,
-                                            const factor_values_t *factors,
-                                            double epsilon)
+                                             const factor_values_t *factors,
+                                             double epsilon, bool memory_available,
+                                             bool thread_available)
 {
     decision_result_t result;
-    double memory = context->memory_weights[FACTOR_ACCESS] * factors->values[0] +
+    double memory = memory_available ? context->memory_weights[FACTOR_ACCESS] * factors->values[0] +
                     context->memory_weights[FACTOR_THRESHOLD] * factors->values[1] +
                     context->memory_weights[FACTOR_GAIN] * factors->values[2] -
                     context->memory_weights[FACTOR_COST] * factors->values[3] -
                     context->memory_weights[FACTOR_CPU] * factors->values[4] -
-                    context->memory_weights[FACTOR_SHARING] * factors->values[5];
-    double thread = context->thread_weights[FACTOR_ACCESS] * factors->values[0] +
+                    context->memory_weights[FACTOR_SHARING] * factors->values[5] : -1.0;
+    double thread = thread_available ? context->thread_weights[FACTOR_ACCESS] * factors->values[0] +
                     context->thread_weights[FACTOR_THRESHOLD] * factors->values[1] +
                     context->thread_weights[FACTOR_GAIN] * factors->values[6] -
                     context->thread_weights[FACTOR_COST] * factors->values[7] -
                     context->thread_weights[FACTOR_CPU] * factors->values[8] -
-                    context->thread_weights[FACTOR_SHARING] * factors->values[9];
+                    context->thread_weights[FACTOR_SHARING] * factors->values[9] : -1.0;
 
     result.raw_memory = memory;
     result.raw_thread = thread;
-    result.final_memory = memory + context->memory_bias;
-    result.final_thread = thread + context->thread_bias;
-    result.decision_margin = result.final_memory - result.final_thread;
-    result.decision_margin_available = true;
+    result.final_memory = memory_available ? memory + context->memory_bias : -1.0;
+    result.final_thread = thread_available ? thread + context->thread_bias : -1.0;
+    result.decision_margin = memory_available && thread_available ? result.final_memory - result.final_thread : -1.0;
+    result.decision_margin_available = memory_available && thread_available;
+    if (!memory_available && thread_available) {
+        result.decision = result.final_thread > epsilon ? "MOVE_THREAD" : "NO_MIGRATION";
+        return result;
+    }
     if (result.final_memory <= 0.0 && result.final_thread <= 0.0)
         result.decision = "NO_MIGRATION";
     else if (result.final_memory > result.final_thread + epsilon)
@@ -1438,13 +1447,15 @@ int decision_run(const decision_config_t *config, decision_summary_t *summary)
             else if (strcasecmp(classification_text, "COLD") == 0)
                 context->cold_count++;
         }
-        if (class_available && classification_score >= 0.0 && all_factors_available(&factors)) {
+        bool memory_available = action_factors_available(&factors, DECISION_MEMORY);
+        bool thread_available = action_factors_available(&factors, DECISION_THREAD);
+        if (class_available && classification_score >= 0.0 && (memory_available || thread_available)) {
             monitor_profile_scope_t compute_profile;
 
             monitor_profile_scope_begin(&compute_profile, "phase56_child", "p5_decision_compute", app_id, pid, 0);
-            decision = calculate_decision(context, &factors, config->epsilon);
+            decision = calculate_decision(context, &factors, config->epsilon, memory_available, thread_available);
             monitor_profile_scope_end(&compute_profile, "OK");
-            status = "DECISION_VALID";
+            status = memory_available && thread_available ? "DECISION_VALID" : "DECISION_THREAD_ONLY";
             if (summary != NULL) {
                 summary->valid_decisions++;
                 if (strcmp(decision.decision, "MOVE_MEMORY") == 0)
