@@ -22,7 +22,8 @@ if [[ $hierarchy == 0 ]]; then
     while :; do
         candidate="$cgroup_directory/cpuset.cpus.effective"
         if [[ -e $candidate ]]; then
-            [[ -s $candidate ]] || { echo "preview_result=PERMITTED_CPUSET_UNAVAILABLE"; exit 1; }
+            value=$(tr -d '\n' < "$candidate")
+            [[ -n $value ]] || { echo "preview_result=PERMITTED_CPUSET_UNAVAILABLE"; exit 1; }
             cpuset_file=$candidate
             break
         fi
@@ -33,7 +34,7 @@ else
     version=1
     cpuset_file="/sys/fs/cgroup/cpuset${cgroup_path}/cpuset.cpus"
 fi
-if [[ -z $cpuset_file || ! -s $cpuset_file ]]; then
+if [[ -z $cpuset_file || ! -r $cpuset_file ]]; then
     echo "preview_result=PERMITTED_CPUSET_UNAVAILABLE"
     exit 1
 fi
