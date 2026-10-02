@@ -105,7 +105,7 @@ int main(void)
     passed = passed && records[0].phase3_samples > 0;
     report("AR04", passed);
     suite_passed = suite_passed && passed;
-    bool ar05 = runtime != NULL && count == 1 && records[0].status == AWAVMA_RUNTIME_REJECTED;
+    bool ar05 = runtime != NULL && count == 1 && records[0].status == AWAVMA_RUNTIME_INSUFFICIENT;
     report("AR05", ar05);
     suite_passed = suite_passed && ar05;
     bool ar06 = false;
@@ -118,12 +118,13 @@ int main(void)
                  records[0].app_id);
         snprintf(validation_input_path, sizeof(validation_input_path), "%s/apps/%s/cycles/1/validation_input.csv", root,
                  records[0].app_id);
-        ar06 = strcmp(records[0].detail, "Phase 6 did not approve migration") == 0 &&
+        ar06 = strcmp(records[0].detail, "unavailable decision evidence") == 0 &&
                access(classification_path, R_OK) == 0 && access(decision_path, R_OK) == 0 &&
                 access(validation_path, R_OK) == 0 && file_contains(classification_path, ",COLD,") &&
-                file_contains(decision_path, "INSUFFICIENT_DECISION_SIGNAL") &&
+                 file_contains(decision_path, "INSUFFICIENT_DECISION_SIGNAL") &&
                  file_contains(validation_input_path, ",NO_MIGRATION,") &&
-                file_contains(validation_path, ",NO_MIGRATION");
+                 file_contains(validation_path, ",NO_MIGRATION") &&
+                 file_contains(validation_path, "VALID_NO_MIGRATION");
     }
     report("AR06", ar06);
     suite_passed = suite_passed && ar06;
