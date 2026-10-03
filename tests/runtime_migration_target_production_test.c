@@ -100,8 +100,9 @@ static int run_case(awavma_runtime_t *runtime, pid_t pid, uint64_t ticks,
     return awavma_runtime_test_submit_approved_migration(runtime, pid, ticks, target_case, &stats) == 0 &&
             stats.target_provider_calls == 1 && stats.executor_calls == 0 && stats.rollback_calls == 0 &&
             stats.terminal_feedback_calls == 1 && stats.attempt_id[0] != '\0' &&
-            (expected_source < 0 || (stats.source_numa_node == expected_source &&
-                                     stats.destination_numa_node == expected_destination)) &&
+            (expected_destination < 0 || (stats.target_selected &&
+                                          stats.target_source_numa_node == expected_source &&
+                                          stats.target_destination_numa_node == expected_destination)) &&
            persistent_rows(feedback_path, &stats, pid, ticks, outcome) == 1;
 }
 

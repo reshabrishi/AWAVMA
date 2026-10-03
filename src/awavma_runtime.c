@@ -527,6 +527,15 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
         target->permitted_cpu_set = metadata.permitted_cpu_set;
         target->thread_start_time_ticks_available = metadata.thread_start_time_ticks_available;
         target->thread_start_time_ticks = metadata.thread_start_time_ticks;
+#ifdef AWAVMA_RUNTIME_TESTING
+        if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE) {
+            runtime->test_target_stats.target_selected = true;
+            runtime->test_target_stats.target_source_numa_node = target->source_numa_node;
+            runtime->test_target_stats.target_destination_numa_node = target->target_numa_node;
+            runtime->test_target_stats.target_destination_cpu_available = true;
+            runtime->test_target_stats.target_destination_cpu = allocated_cpu;
+        }
+#endif
     }
     return result;
 }

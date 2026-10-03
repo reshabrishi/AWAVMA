@@ -130,6 +130,11 @@ typedef struct {
     bool thread_start_time_ticks_available;
     bool permitted_cpu_set_available;
     bool requested_cpu_set_available;
+    bool target_selected;
+    int target_source_numa_node;
+    int target_destination_numa_node;
+    bool target_destination_cpu_available;
+    int target_destination_cpu;
     int destination_cpu;
     int source_numa_node;
     int destination_numa_node;
