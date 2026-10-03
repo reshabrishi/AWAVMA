@@ -86,6 +86,7 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
     MigrationTargetInput provider_input;
     MigrationTarget provider_target;
     cpu_set_t candidate_mask;
+    cpu_set_t eligible_mask;
     int source_node = -1;
     int candidate_node = -1;
     unsigned alternative_nodes = 0;
@@ -197,8 +198,7 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
                       source_node);
     }
     int selected_cpu = select_destination_cpu(&candidate_mask);
-    target->eligible_cpu_set_available = true;
-    target->eligible_cpu_set = candidate_mask;
+    eligible_mask = candidate_mask;
     CPU_ZERO(&candidate_mask);
     CPU_SET(selected_cpu, &candidate_mask);
     memset(&provider_input, 0, sizeof(provider_input));
@@ -227,6 +227,8 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
         return result;
     }
     *target = provider_target;
+    target->eligible_cpu_set_available = true;
+    target->eligible_cpu_set = eligible_mask;
     target->source_node_known = true;
     target->source_numa_node = source_node;
     target->candidate_count = candidate_nodes;

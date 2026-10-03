@@ -1,5 +1,6 @@
 #include "migration_safety_manager.h"
 #include "thread_target_policy.h"
+#include "thread_placement_allocator.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -357,6 +358,25 @@ int main(void)
         migration_safety_manager_destroy(manager);
     }
     report("TP05_READ_ONLY_PREVIEW_AND_SNAPSHOT", test_passed);
+    suite_passed = suite_passed && test_passed;
+
+    {
+        thread_placement_allocator_t *allocator = thread_placement_allocator_create();
+        int first = -1, second = -1;
+
+        input = input_for();
+        test_passed = allocator != NULL &&
+                      thread_target_policy_select(&input, &two, &target) == MIGRATION_TARGET_AVAILABLE &&
+                      target.eligible_cpu_set_available && CPU_COUNT(&target.eligible_cpu_set) == 2 &&
+                      CPU_ISSET(2, &target.eligible_cpu_set) && CPU_ISSET(3, &target.eligible_cpu_set) &&
+                      thread_placement_allocator_select(allocator, 42, 99, 101, 201, 1,
+                                                        &target.eligible_cpu_set, "handoff-a", true, &first) &&
+                      thread_placement_allocator_select(allocator, 42, 99, 102, 202, 1,
+                                                        &target.eligible_cpu_set, "handoff-b", true, &second) &&
+                      first != second;
+        thread_placement_allocator_destroy(allocator);
+    }
+    report("TPA11_POLICY_ALLOCATOR_ELIGIBLE_SET_HANDOFF", test_passed);
     suite_passed = suite_passed && test_passed;
     return suite_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
