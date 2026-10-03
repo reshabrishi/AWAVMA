@@ -2003,6 +2003,10 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             request.source_numa_node = approved_phase6.source_node;
             request.destination_numa_node = approved_phase6.destination_node;
             request.target_requires_cross_node = true;
+            /* Phase 6 approval is the migration intent consumed by live target policy. */
+            request.target_policy_migration_intent_approved = true;
+            request.target_policy_safety_state_available = true;
+            request.target_policy_history_available = true;
             request.system_safe = runtime->capabilities.state == ENVIRONMENT_READY &&
                 (approved_action == VALIDATION_ACTION_MOVE_THREAD ?
                  runtime->capabilities.thread_migration_ready : runtime->capabilities.page_migration_ready);
@@ -2394,6 +2398,9 @@ int awavma_runtime_test_submit_approved_migration(
     request.destination_numa_node = 0;
     request.placement_available = true;
     request.system_safe = true;
+    request.target_policy_migration_intent_approved = true;
+    request.target_policy_safety_state_available = true;
+    request.target_policy_history_available = true;
     request.migration_request.pid = pid;
     request.migration_request.start_time_ticks = start_time_ticks;
     request.migration_request.start_time_ticks_available = true;
