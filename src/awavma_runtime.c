@@ -2382,6 +2382,7 @@ int awavma_runtime_test_submit_approved_migration(
 {
     MigrationSafetyRequest request = {0};
     MigrationSafetyResult result;
+    RuntimeMigrationMetadata metadata;
 
     if (runtime == NULL || !runtime->initialized || runtime->migration_safety == NULL ||
         stats == NULL)
@@ -2405,6 +2406,14 @@ int awavma_runtime_test_submit_approved_migration(
     request.migration_request.start_time_ticks = start_time_ticks;
     request.migration_request.start_time_ticks_available = true;
     request.migration_request.tid = pid;
+    if (!runtime_get_thread_migration_metadata(pid, pid, start_time_ticks, &metadata) ||
+        !metadata.identity_match || !metadata.thread_belongs_to_process ||
+        !metadata.thread_start_time_ticks_available || !metadata.permitted_cpu_set_available)
+        return EINVAL;
+    request.migration_request.thread_start_time_ticks_available = true;
+    request.migration_request.thread_start_time_ticks = metadata.thread_start_time_ticks;
+    request.migration_request.permitted_cpu_set_available = true;
+    request.migration_request.permitted_cpu_set = metadata.permitted_cpu_set;
     request.migration_request.phase5_decision.action = request.action;
     request.migration_request.phase5_decision.pid = pid;
     request.migration_request.phase5_decision.evidence_model = DECISION_EVIDENCE_UTILITY_POLICY;
