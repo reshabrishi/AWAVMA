@@ -86,11 +86,15 @@ int main(void)
         CPU_SET(third >= 0 ? third : second, &changed);
         passed = passed && sched_setaffinity(child, sizeof(changed), &changed) == 0;
     }
-    passed = passed && runtime_get_migration_metadata(child, ticks, &metadata) &&
-             metadata.process_exists && metadata.identity_match && metadata.affinity_available &&
+    passed = passed && runtime_get_thread_migration_metadata(child, child, ticks, &metadata) &&
+             metadata.process_exists && metadata.identity_match && metadata.thread_belongs_to_process &&
+             metadata.thread_start_time_ticks_available && metadata.affinity_available &&
              CPU_EQUAL(&metadata.affinity, &changed) && !metadata.page_placement_available;
     report("MD02_IDENTITY_AND_AFFINITY", passed);
     passed = passed && runtime_migration_checkpoint_affinity(&metadata, &checkpoint) &&
+             checkpoint.pid == child && checkpoint.tid == child &&
+             checkpoint.start_time_ticks == ticks &&
+             checkpoint.thread_start_time_ticks == metadata.thread_start_time_ticks &&
              CPU_EQUAL(&checkpoint.original_affinity, &changed);
     report("C01_BINARY_CHECKPOINT", passed);
     if (first >= 0) {

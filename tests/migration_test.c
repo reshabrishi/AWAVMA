@@ -1,4 +1,5 @@
 #include "migration.h"
+#include "runtime_migration_metadata.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -111,6 +112,23 @@ static int pin_process(pid_t pid, int cpu)
 static int get_affinity(pid_t pid, cpu_set_t *set)
 {
     return sched_getaffinity(pid, sizeof(*set), set);
+}
+
+static int set_live_thread_identity(MigrationRequest *request, pid_t pid, pid_t tid)
+{
+    RuntimeMigrationMetadata metadata;
+    uint64_t process_start;
+
+    if (!runtime_get_process_start_time_ticks(pid, &process_start) ||
+        !runtime_get_thread_migration_metadata(pid, tid, process_start, &metadata) ||
+        !metadata.identity_match || !metadata.thread_belongs_to_process ||
+        !metadata.thread_start_time_ticks_available)
+        return -1;
+    request->start_time_ticks = process_start;
+    request->start_time_ticks_available = true;
+    request->thread_start_time_ticks = metadata.thread_start_time_ticks;
+    request->thread_start_time_ticks_available = true;
+    return 0;
 }
 
 static int line_count(const char *path)
@@ -452,6 +470,10 @@ int main(void)
         CPU_ZERO(&after); CPU_SET(source_cpu, &after);
         sched_setaffinity(child_a, sizeof(after), &after);
         set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "MC09", "APPROVED", child_a, child_a);
+        if (set_live_thread_identity(&request, child_a, child_a) != 0) {
+            print_test("MC09-MC11", "live worker identity", "identity unavailable", "NOT TESTED — ENVIRONMENT LIMITATION");
+            goto mc_done;
+        }
         request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
         request.permitted_cpu_set_available = true; request.permitted_cpu_set = permitted_before;
         Migration_Execute(&request, &report);
@@ -462,6 +484,8 @@ int main(void)
         request.permitted_cpu_set = permitted_before; CPU_ZERO(&request.requested_cpu_set); CPU_SET(CPU_SETSIZE - 1, &request.requested_cpu_set);
         Migration_Execute(&request, &report);
         print_test("MC11_REQUEST_OFFLINE_CPU", "MIGRATION_INVALID_DESTINATION", MigrationResultName(report.result), report.result == MIGRATION_INVALID_DESTINATION ? "PASS" : "FAIL");
+mc_done:
+        ;
     } else {
         print_test("MC09-MC11", "two permitted CPUs", "insufficient affinity", "NOT TESTED — ENVIRONMENT LIMITATION");
     }
