@@ -25,6 +25,17 @@ GateResult EvaluateSafetyGate(const MonitorData *monitor,
         config->cpu_weight < 0.0 || config->memory_weight < 0.0 ||
         config->concurrency_weight < 0.0)
         return invalid_result("REJECT_INVALID_INPUT");
+    if (decision->action == VALIDATION_ACTION_MOVE_THREAD && monitor->thread_safety_evidence_valid &&
+        monitor->hard_constraints_available) {
+        if (monitor->cooldown_active) return invalid_result("REJECT_COOLDOWN");
+        if (monitor->thread_locked) return invalid_result("REJECT_THREAD_LOCKED");
+        if (monitor->migration_in_progress) return invalid_result("REJECT_MIGRATION_IN_PROGRESS");
+        if (monitor->max_migrations_reached) return invalid_result("REJECT_MAX_MIGRATIONS");
+        result.status = GATE_PASS;
+        result.score = 100.0;
+        snprintf(result.reason, sizeof(result.reason), "PASS");
+        return result;
+    }
     if (!monitor->available || !monitor->hard_constraints_available ||
         !isfinite(monitor->cpu_utilization) || !isfinite(monitor->memory_utilization) ||
         !isfinite(monitor->concurrency_score) || monitor->cpu_utilization < 0.0 ||

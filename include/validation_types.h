@@ -39,6 +39,9 @@ typedef struct {
     bool migration_in_progress;
     bool max_migrations_reached;
     bool hard_constraints_available;
+    /* Runtime-owned, candidate-specific MOVE_THREAD evidence. */
+    bool thread_confidence_evidence_valid;
+    bool thread_safety_evidence_valid;
 } MonitorData;
 
 typedef struct {

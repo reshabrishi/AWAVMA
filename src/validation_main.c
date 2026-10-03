@@ -44,6 +44,8 @@ typedef struct {
     int in_progress;
     int max_migrations;
     int evidence_model;
+    int candidate_tid, candidate_pid, candidate_start, valid_samples, hot_count, remote_count;
+    int latest_classification, latest_relation, confidence_status, confidence_reason;
     size_t count;
 } input_columns_t;
 
@@ -312,6 +314,16 @@ static int prepare_columns(char **fields, size_t count, input_columns_t *columns
     columns->in_progress = column(fields, count, "migration_in_progress");
     columns->max_migrations = column(fields, count, "max_migrations_reached");
     columns->evidence_model = column(fields, count, "evidence_model");
+    columns->candidate_tid = column(fields, count, "candidate_tid");
+    columns->candidate_pid = column(fields, count, "candidate_pid");
+    columns->candidate_start = column(fields, count, "candidate_start_time_ticks");
+    columns->valid_samples = column(fields, count, "valid_sample_count");
+    columns->hot_count = column(fields, count, "consecutive_hot_count");
+    columns->remote_count = column(fields, count, "consecutive_remote_count");
+    columns->latest_classification = column(fields, count, "latest_classification");
+    columns->latest_relation = column(fields, count, "latest_placement_relation");
+    columns->confidence_status = column(fields, count, "confidence_status");
+    columns->confidence_reason = column(fields, count, "confidence_reason");
     return columns->timestamp >= 0 && columns->pid >= 0 && columns->action >= 0;
 }
 
@@ -413,6 +425,31 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
         /* Thread moves do not operate on pages; N/A is the required explicit representation. */
         monitor->page_locked = false;
         monitor->memory_pinned = false;
+        uint64_t candidate_pid, candidate_tid, candidate_start, samples, hot, remote, entity_tid;
+        bool evidence = columns->candidate_pid >= 0 && columns->candidate_tid >= 0 &&
+            columns->candidate_start >= 0 && columns->valid_samples >= 0 && columns->hot_count >= 0 &&
+            columns->remote_count >= 0 && columns->latest_classification >= 0 && columns->latest_relation >= 0 &&
+            columns->confidence_status >= 0 && columns->confidence_reason >= 0 &&
+            (size_t)columns->candidate_pid < count && (size_t)columns->candidate_tid < count &&
+            (size_t)columns->candidate_start < count && (size_t)columns->valid_samples < count &&
+            (size_t)columns->hot_count < count && (size_t)columns->remote_count < count &&
+            (size_t)columns->latest_classification < count && (size_t)columns->latest_relation < count &&
+            (size_t)columns->confidence_status < count && (size_t)columns->confidence_reason < count &&
+            parse_u64(fields[columns->candidate_pid], &candidate_pid) == 0 &&
+            parse_u64(fields[columns->candidate_tid], &candidate_tid) == 0 &&
+            parse_u64(fields[columns->candidate_start], &candidate_start) == 0 &&
+            parse_u64(fields[columns->valid_samples], &samples) == 0 &&
+            parse_u64(fields[columns->hot_count], &hot) == 0 && parse_u64(fields[columns->remote_count], &remote) == 0 &&
+            parse_u64(decision->entity_id, &entity_tid) == 0 && candidate_pid == (uint64_t)decision->pid &&
+            candidate_tid == entity_tid && candidate_tid > 0 && candidate_start > 0 &&
+            samples >= 3 && hot >= 3 && remote >= 3 &&
+            strcmp(fields[columns->latest_classification], "HOT") == 0 &&
+            strcmp(fields[columns->latest_relation], "REMOTE") == 0 &&
+            strcmp(fields[columns->confidence_status], "VALID") == 0 &&
+            strcmp(fields[columns->confidence_reason], "VALID") == 0;
+        monitor->thread_confidence_evidence_valid = evidence;
+        monitor->thread_safety_evidence_valid = evidence && decision->nodes_available &&
+            decision->source_node != decision->destination_node;
     } else {
         if (!parse_optional_bool(fields, count, columns->page_locked, &monitor->page_locked, &hard_available)) return false;
         monitor->hard_constraints_available = monitor->hard_constraints_available && hard_available;

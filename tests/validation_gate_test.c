@@ -100,6 +100,26 @@ int main(void)
     assert(roi.status == GATE_PASS);
     assert(fabs(roi.score - 40.0) < 0.000001);
 
+    decision.action = VALIDATION_ACTION_MOVE_THREAD;
+    monitor.available = false;
+    monitor.thread_confidence_evidence_valid = true;
+    monitor.thread_safety_evidence_valid = true;
+    monitor.hard_constraints_available = true;
+    monitor.page_locked = true;
+    monitor.memory_pinned = true;
+    confidence = EvaluateConfidenceGate(&monitor, &classifier, &config);
+    safety = EvaluateSafetyGate(&monitor, &decision, &config);
+    assert(confidence.status == GATE_PASS && safety.status == GATE_PASS);
+    monitor.thread_locked = true;
+    safety = EvaluateSafetyGate(&monitor, &decision, &config);
+    assert(safety.status == GATE_INVALID && strcmp(safety.reason, "REJECT_THREAD_LOCKED") == 0);
+    monitor.thread_locked = false;
+    monitor.thread_confidence_evidence_valid = false;
+    confidence = EvaluateConfidenceGate(&monitor, &classifier, &config);
+    assert(confidence.status == GATE_INVALID);
+    monitor = test_monitor();
+    decision = test_decision();
+
     safety = EvaluateSafetyGate(&monitor, &decision, &config);
     assert(safety.status == GATE_PASS);
     assert(fabs(safety.score - 80.0) < 0.000001);
