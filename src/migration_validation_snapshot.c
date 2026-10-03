@@ -3,22 +3,26 @@
 #include <stdio.h>
 #include <string.h>
 
-bool migration_validation_snapshot_collect(pid_t pid, uint64_t start_time_ticks,
-                                           const char *attempt_id,
+bool migration_validation_snapshot_collect(pid_t pid, pid_t tid, uint64_t start_time_ticks,
+                                            uint64_t thread_start_time_ticks,
+                                            const char *attempt_id,
                                            MigrationValidationSnapshot *snapshot)
 {
     RuntimeMigrationMetadata metadata;
 
     if (snapshot == NULL || attempt_id == NULL || attempt_id[0] == '\0' ||
-        !runtime_get_migration_metadata(pid, start_time_ticks, &metadata))
+        !(tid > 0 ? runtime_get_thread_migration_metadata(pid, tid, start_time_ticks, &metadata) :
+                    runtime_get_migration_metadata(pid, start_time_ticks, &metadata)))
         return false;
     memset(snapshot, 0, sizeof(*snapshot));
-    snapshot->pid = pid; snapshot->start_time_ticks = start_time_ticks;
+    snapshot->pid = pid; snapshot->tid = tid; snapshot->start_time_ticks = start_time_ticks;
+    snapshot->thread_start_time_ticks = thread_start_time_ticks;
     snprintf(snapshot->attempt_id, sizeof(snapshot->attempt_id), "%s", attempt_id);
     snapshot->monotonic_ms = metadata.captured_at_ms;
     snapshot->process_exists = metadata.process_exists;
     snapshot->identity_match = metadata.identity_match;
-    if (!snapshot->identity_match) return true;
+    if (!snapshot->identity_match || (tid > 0 && (!metadata.thread_belongs_to_process ||
+        !metadata.thread_start_time_ticks_available || metadata.thread_start_time_ticks != thread_start_time_ticks))) return true;
     snapshot->affinity_available = metadata.affinity_available;
     snapshot->affinity = metadata.affinity;
     snapshot->process_cpu_time_available = metadata.process_cpu_time_available;
@@ -30,8 +34,9 @@ MigrationValidationOutcome migration_validation_compare(
     const MigrationValidationSnapshot *before, const MigrationValidationSnapshot *after,
     const cpu_set_t *requested_affinity, bool requested_affinity_available)
 {
-    if (before == NULL || after == NULL || before->pid != after->pid ||
+    if (before == NULL || after == NULL || before->pid != after->pid || before->tid != after->tid ||
         before->start_time_ticks != after->start_time_ticks ||
+        before->thread_start_time_ticks != after->thread_start_time_ticks ||
         strcmp(before->attempt_id, after->attempt_id) != 0)
         return MIGRATION_VALIDATION_IDENTITY_CHANGED;
     if (!after->process_exists)

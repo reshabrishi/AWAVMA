@@ -208,7 +208,11 @@ static MigrationSafetyValidation runtime_validate_migration(void *context,
 #endif
     if (!runtime->validation_before_available ||
         strcmp(runtime->validation_before.attempt_id, attempt_id) != 0 ||
-        !migration_validation_snapshot_collect(request->pid, request->start_time_ticks, attempt_id,
+        !migration_validation_snapshot_collect(request->pid,
+                                                request->action == VALIDATION_ACTION_MOVE_THREAD ? request->migration_request.tid : 0,
+                                                request->start_time_ticks,
+                                                request->migration_request.thread_start_time_ticks,
+                                                attempt_id,
                                                &after)) {
         runtime->validation_before_available = false;
         return MIGRATION_SAFETY_INSUFFICIENT_VALIDATION_DATA;
@@ -261,7 +265,11 @@ static bool runtime_capture_before_migration(void *context,
     if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_CAPTURE_FAILURE)
         return false;
 #endif
-    if (!migration_validation_snapshot_collect(request->pid, request->start_time_ticks, attempt_id,
+    if (!migration_validation_snapshot_collect(request->pid,
+                                                request->action == VALIDATION_ACTION_MOVE_THREAD ? request->migration_request.tid : 0,
+                                                request->start_time_ticks,
+                                                request->migration_request.thread_start_time_ticks,
+                                                attempt_id,
                                                &runtime->validation_before))
         return false;
     /* Re-read the live checkpoint after the structural snapshot without inventing page state. */
@@ -1810,6 +1818,10 @@ static awavma_runtime_record_t *runtime_record(awavma_runtime_t *runtime,
 static void set_status(awavma_runtime_record_t *record, awavma_runtime_status_t status,
                        const char *detail)
 {
+    if (status == AWAVMA_RUNTIME_REJECTED &&
+        (record->status == AWAVMA_RUNTIME_MIGRATION_COMMITTED ||
+         record->status == AWAVMA_RUNTIME_TARGET_GONE || record->status == AWAVMA_RUNTIME_ERROR))
+        return;
     record->status = status;
     snprintf(record->detail, sizeof(record->detail), "%.*s", (int)(sizeof(record->detail) - 1), detail);
 }

@@ -15,7 +15,9 @@ typedef enum {
 
 typedef struct {
     pid_t pid;
+    pid_t tid;
     uint64_t start_time_ticks;
+    uint64_t thread_start_time_ticks;
     char attempt_id[128];
     uint64_t monotonic_ms;
     bool process_exists;
@@ -26,8 +28,9 @@ typedef struct {
     uint64_t process_cpu_time_ticks;
 } MigrationValidationSnapshot;
 
-bool migration_validation_snapshot_collect(pid_t pid, uint64_t start_time_ticks,
-                                           const char *attempt_id,
+bool migration_validation_snapshot_collect(pid_t pid, pid_t tid, uint64_t start_time_ticks,
+                                            uint64_t thread_start_time_ticks,
+                                            const char *attempt_id,
                                            MigrationValidationSnapshot *snapshot);
 MigrationValidationOutcome migration_validation_compare(
     const MigrationValidationSnapshot *before, const MigrationValidationSnapshot *after,
