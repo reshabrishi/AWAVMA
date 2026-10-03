@@ -151,9 +151,17 @@ static MigrationResultCode runtime_execute_migration(void *context, const Migrat
         return MIGRATION_SYSTEM_ERROR;
 #ifdef AWAVMA_RUNTIME_TESTING
     runtime->test_target_stats.executor_calls++;
+    runtime->test_target_stats.thread_start_time_ticks_available = request->thread_start_time_ticks_available;
+    runtime->test_target_stats.permitted_cpu_set_available = request->permitted_cpu_set_available;
+    runtime->test_target_stats.requested_cpu_set_available = request->requested_cpu_set_available;
+    runtime->test_target_stats.destination_cpu = request->destination_cpu;
+    runtime->test_target_stats.source_numa_node = request->source_numa_node;
+    runtime->test_target_stats.destination_numa_node = request->destination_numa_node;
 #endif
     result = Migration_Execute(request, report);
 #ifdef AWAVMA_RUNTIME_TESTING
+    snprintf(runtime->test_target_stats.execution_error_reason,
+             sizeof(runtime->test_target_stats.execution_error_reason), "%s", report->error_reason);
     if (result == MIGRATION_SUCCESS &&
         runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_EXECUTION_VERIFICATION_FAILURE) {
         report->mutation_state = MIGRATION_MUTATION_POSSIBLE;

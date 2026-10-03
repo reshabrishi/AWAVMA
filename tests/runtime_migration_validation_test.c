@@ -172,12 +172,17 @@ static bool executor_verification_failure_case(pid_t child, uint64_t ticks)
     }
     printf("RV03B_DIAGNOSTIC submit_return=%d executor_calls=%u validation_before_calls=%u "
            "validation_after_calls=%u rollback_calls=%u rollback_succeeded=%s "
-           "execution_result=%d(%s) recovery=%d terminal_state=%d terminal_feedback_calls=%u "
+            "execution_result=%d(%s) execution_error_reason=%s thread_start_time_ticks_available=%s "
+            "permitted_cpu_set_available=%s requested_cpu_set_available=%s destination_cpu=%d source_numa_node=%d destination_numa_node=%d recovery=%d terminal_state=%d terminal_feedback_calls=%u "
            "CPU_EQUAL=%s CPU_COUNT_before=%d CPU_COUNT_after=%d\n",
            submit_result, stats.executor_calls, stats.validation_before_calls,
            stats.validation_after_calls, stats.rollback_calls,
            stats.rollback_succeeded ? "true" : "false", stats.execution_result,
-           MigrationResultName(stats.execution_result), stats.recovery, stats.terminal_state,
+            MigrationResultName(stats.execution_result), stats.execution_error_reason,
+            stats.thread_start_time_ticks_available ? "true" : "false",
+            stats.permitted_cpu_set_available ? "true" : "false",
+            stats.requested_cpu_set_available ? "true" : "false", stats.destination_cpu,
+            stats.source_numa_node, stats.destination_numa_node, stats.recovery, stats.terminal_state,
            stats.terminal_feedback_calls, cpu_equal ? "true" : "false", before_count, after_count);
     passed = runtime != NULL && have_before && before_count > 1 && submit_result == 0 &&
              stats.executor_calls == 1 && stats.validation_before_calls == 1 &&

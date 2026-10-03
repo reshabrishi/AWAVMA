@@ -125,6 +125,13 @@ typedef struct {
     uint64_t after_cpu_time_ticks;
     bool rollback_succeeded;
     MigrationResultCode execution_result;
+    char execution_error_reason[128];
+    bool thread_start_time_ticks_available;
+    bool permitted_cpu_set_available;
+    bool requested_cpu_set_available;
+    int destination_cpu;
+    int source_numa_node;
+    int destination_numa_node;
     MigrationSafetyRecovery recovery;
     MigrationSafetyState terminal_state;
     char attempt_id[128];
