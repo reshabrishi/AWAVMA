@@ -12,7 +12,6 @@ DURATION_SECONDS=30
 THREADS=2
 MEMORY_MB=1024
 WORKLOAD=mixed
-REPETITIONS=1
 LOCAL_NODE=
 REMOTE_NODE=
 CALIBRATION_FILE=
@@ -183,7 +182,7 @@ write_manifest() {
     local status=$1 temporary="$RUN_DIR/manifest.json.tmp.$$"
 
     printf '{"schema_version":4,"run_id":"%s","data_source":"REAL","collection_status":"%s","local_node":%s,"remote_node":%s,"benefit_calibration":"%s","migration_cost_artifact":"%s","thread_evaluation_horizon_seconds":"%s","workload":"%s","threads":%s,"memory_mb":%s,"duration_seconds":%s,"repetitions":%s,"topology_source":"metadata/numa_topology.txt","stage_order":"metadata,build,tests,environment-check,preflight,calibration,manifests,baseline,awavma,aggregate,graphs"}\n' \
-        "$EXPERIMENT_ID" "$status" "$LOCAL_NODE" "$REMOTE_NODE" "$CALIBRATION_FILE" "$MIGRATION_COST_ARTIFACT" "$THREAD_EVALUATION_HORIZON_SECONDS" "$WORKLOAD" "$THREADS" "$MEMORY_MB" "$DURATION_SECONDS" "$REPETITIONS" >"$temporary"
+        "$EXPERIMENT_ID" "$status" "$LOCAL_NODE" "$REMOTE_NODE" "$CALIBRATION_FILE" "$MIGRATION_COST_ARTIFACT" "$THREAD_EVALUATION_HORIZON_SECONDS" "$WORKLOAD" "$THREADS" "$MEMORY_MB" "$DURATION_SECONDS" "$RUNS" >"$temporary"
     mv "$temporary" "$RUN_DIR/manifest.json"
 }
 

@@ -22,6 +22,7 @@ static char results_path[PATH_MAX];
 static char history_path[PATH_MAX];
 static char log_path[PATH_MAX];
 static char state_path[PATH_MAX];
+static int suite_passed = 1;
 
 static void print_test(const char *test, const char *expected, const char *actual, const char *result)
 {
@@ -161,13 +162,19 @@ static int contains_text(const char *path, const char *text)
 }
 
 static void execute_and_print(const char *name, const char *expected,
-                              MigrationRequest *request, int should_pass)
+                               MigrationRequest *request, int should_pass)
 {
     MigrationReport report;
     MigrationResultCode actual = Migration_Execute(request, &report);
     const char *actual_name = MigrationResultName(actual);
 
-    print_test(name, expected, actual_name, should_pass ? "PASS" : "NOT TESTED — ENVIRONMENT LIMITATION");
+    if (!should_pass) {
+        print_test(name, expected, actual_name, "NOT TESTED — ENVIRONMENT LIMITATION");
+        return;
+    }
+    int passed = strcmp(expected, actual_name) == 0;
+    print_test(name, expected, actual_name, passed ? "PASS" : "FAIL");
+    suite_passed = suite_passed && passed;
 }
 
 typedef struct {
@@ -497,5 +504,5 @@ mc_done:
     unlink(log_path);
     unlink(state_path);
     rmdir(directory);
-    return EXIT_SUCCESS;
+    return suite_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
