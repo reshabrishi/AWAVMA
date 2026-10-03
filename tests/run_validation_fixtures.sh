@@ -16,11 +16,12 @@ mkdir -p "$temporary/history" "$temporary/logs" "$temporary/results"
     >"$temporary/summary.txt"
 
 grep -q 'Rows        : 5' "$temporary/summary.txt"
-grep -q 'Accepted    : 3' "$temporary/summary.txt"
-grep -q 'Rejected    : 2' "$temporary/summary.txt"
+grep -q 'Accepted    : 2' "$temporary/summary.txt"
+grep -q 'Rejected    : 3' "$temporary/summary.txt"
 grep -q 'mig-pass.*PASS,APPROVED' "$temporary/results/validation.csv"
 grep -q 'mig-roi.*REJECT_LOW_ROI,REJECTED' "$temporary/results/validation.csv"
-grep -q 'mig-veto.*PASS,N/A,N/A,.*APPROVED' "$temporary/results/validation.csv"
+# Static legacy MOVE_THREAD input without candidate-specific runtime evidence fails closed.
+grep -q 'mig-veto.*REJECT_INSUFFICIENT_SIGNAL,REJECTED' "$temporary/results/validation.csv"
 grep -q 'mig-none.*VALID_NO_MIGRATION,NO_MIGRATION' "$temporary/results/validation.csv"
 grep -q 'mig-signal.*REJECT_INSUFFICIENT_SIGNAL,REJECTED' "$temporary/results/validation.csv"
 [ "$(wc -l < "$temporary/history/validation.csv")" -eq 3 ]
