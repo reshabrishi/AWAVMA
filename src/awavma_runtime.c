@@ -1039,6 +1039,16 @@ static bool parse_csv_u64(const char *text, uint64_t *value)
     return errno == 0 && end != text && *end == '\0';
 }
 
+static bool parse_csv_pid(const char *text, pid_t *value)
+{
+    uint64_t parsed;
+
+    if (!parse_csv_u64(text, &parsed) || parsed == 0 || parsed > INT_MAX)
+        return false;
+    *value = (pid_t)parsed;
+    return true;
+}
+
 static bool parse_csv_action(const char *text, ValidationAction *action)
 {
     if (text != NULL && strcmp(text, "MOVE_THREAD") == 0) {
@@ -1333,8 +1343,8 @@ static bool csv_has_value(const char *path, const char *column, const char *valu
 }
 
 static bool load_phase5_evidence(const char *path, const char *migration_id,
-                                 const awavma_runtime_record_t *record,
-                                 ValidationAction expected_action, DecisionData *decision)
+                                  const awavma_runtime_record_t *record,
+                                  const ValidationResult *validation, DecisionData *decision)
 {
     static const char *factor_names[] = {
         "phase5_f_access", "phase5_f_threshold", "phase5_f_gain_memory",
@@ -1365,9 +1375,12 @@ static bool load_phase5_evidence(const char *path, const char *migration_id,
     int gain_column;
     int cost_column;
     int evidence_model_column;
+    int entity_id_column;
+    int candidate_tid_column;
+    int candidate_pid_column;
     bool found = false;
 
-    if (file == NULL || migration_id == NULL || record == NULL || decision == NULL ||
+    if (file == NULL || migration_id == NULL || record == NULL || validation == NULL || decision == NULL ||
         getline(&line, &capacity, file) < 0)
         goto cleanup;
     size_t count = split_csv(line, fields, 64);
@@ -1380,6 +1393,7 @@ static bool load_phase5_evidence(const char *path, const char *migration_id,
     classification_text_column = column_index(fields, count, "classification");
     decision_status_column = column_index(fields, count, "decision_status");
     app_id_column = column_index(fields, count, "app_id");
+    entity_id_column = column_index(fields, count, "entity_id");
     classification_column = column_index(fields, count, "phase5_classification_score");
     epsilon_column = column_index(fields, count, "phase5_epsilon");
     margin_column = column_index(fields, count, "phase5_decision_margin");
@@ -1388,6 +1402,8 @@ static bool load_phase5_evidence(const char *path, const char *migration_id,
     gain_column = column_index(fields, count, "predicted_gain");
     cost_column = column_index(fields, count, "estimated_cost");
     evidence_model_column = column_index(fields, count, "evidence_model");
+    candidate_tid_column = column_index(fields, count, "candidate_tid");
+    candidate_pid_column = column_index(fields, count, "candidate_pid");
     utility_columns[0] = column_index(fields, count, "phase5_memory_score_raw");
     utility_columns[1] = column_index(fields, count, "phase5_thread_score_raw");
     utility_columns[2] = column_index(fields, count, "phase5_memory_bias");
@@ -1397,11 +1413,12 @@ static bool load_phase5_evidence(const char *path, const char *migration_id,
     for (size_t index = 0; index < 10; index++)
         factor_columns[index] = column_index(fields, count, factor_names[index]);
     if (migration_column < 0 || pid_column < 0 || action_column < 0 || timestamp_column < 0 ||
-        generation_column < 0 || provenance_column < 0)
+        generation_column < 0 || provenance_column < 0 || app_id_column < 0 || entity_id_column < 0)
         goto cleanup;
     while (getline(&line, &capacity, file) >= 0) {
         ValidationAction action;
         uint64_t generation;
+        pid_t pid;
 
         count = split_csv(line, fields, 64);
         if ((size_t)migration_column >= count || strcmp(fields[migration_column], migration_id) != 0)
@@ -1410,11 +1427,29 @@ static bool load_phase5_evidence(const char *path, const char *migration_id,
             found = false;
             goto cleanup;
         }
-        if ((size_t)pid_column >= count || strtol(fields[pid_column], NULL, 10) != (long)record->pid ||
+        if ((size_t)pid_column >= count || !parse_csv_pid(fields[pid_column], &pid) ||
+            pid != record->pid ||
             (size_t)action_column >= count || !parse_csv_action(fields[action_column], &action) ||
-            action != expected_action || (size_t)generation_column >= count ||
+            action != validation->action || (size_t)app_id_column >= count ||
+            strcmp(fields[app_id_column], validation->app_id) != 0 ||
+            (size_t)entity_id_column >= count ||
+            strcmp(fields[entity_id_column], validation->entity_id) != 0 ||
+            (size_t)generation_column >= count ||
             !parse_csv_u64(fields[generation_column], &generation) || generation != record->generation)
             goto cleanup;
+        if (action == VALIDATION_ACTION_MOVE_THREAD) {
+            pid_t candidate_tid;
+            pid_t candidate_pid;
+            pid_t entity_tid;
+
+            if (candidate_tid_column < 0 || candidate_pid_column < 0 ||
+                (size_t)candidate_tid_column >= count || (size_t)candidate_pid_column >= count ||
+                !parse_csv_pid(fields[candidate_tid_column], &candidate_tid) ||
+                !parse_csv_pid(fields[candidate_pid_column], &candidate_pid) ||
+                !parse_csv_pid(fields[entity_id_column], &entity_tid) || candidate_pid != record->pid ||
+                candidate_tid != entity_tid)
+                goto cleanup;
+        }
         memset(decision, 0, sizeof(*decision));
         decision->pid = (long)record->pid;
         decision->action = action;
@@ -1423,7 +1458,7 @@ static bool load_phase5_evidence(const char *path, const char *migration_id,
                  field_or_na(fields, count, app_id_column));
         snprintf(decision->action_text, sizeof(decision->action_text), "%s", fields[action_column]);
         snprintf(decision->entity_id, sizeof(decision->entity_id), "%s",
-                 field_or_na(fields, count, column_index(fields, count, "entity_id")));
+                  field_or_na(fields, count, entity_id_column));
         snprintf(decision->phase5_timestamp, sizeof(decision->phase5_timestamp), "%s",
                  field_or_na(fields, count, timestamp_column));
         snprintf(decision->phase5_evidence_provenance, sizeof(decision->phase5_evidence_provenance),
@@ -1547,11 +1582,14 @@ static int approved_migration_evidence(const char *validation_input_path, const 
         goto error;
     while (getline(&line, &capacity, file) >= 0) {
         ValidationAction parsed;
+        pid_t pid;
 
         count = split_csv(line, fields, 64);
-        if ((size_t)decision_column >= count || (size_t)pid_column >= count ||
-            strcmp(fields[decision_column], "APPROVED") != 0 ||
-            strtol(fields[pid_column], NULL, 10) != (long)record->pid)
+        if ((size_t)decision_column >= count || strcmp(fields[decision_column], "APPROVED") != 0)
+            continue;
+        if ((size_t)pid_column >= count || !parse_csv_pid(fields[pid_column], &pid))
+            goto error;
+        if (pid != record->pid)
             continue;
         if ((size_t)action_column >= count || (size_t)migration_column >= count ||
             (size_t)confidence_column >= count || (size_t)roi_column >= count ||
@@ -1562,6 +1600,12 @@ static int approved_migration_evidence(const char *validation_input_path, const 
             (size_t)entity_id_column >= count ||
             !parse_csv_action(fields[action_column], &parsed) || fields[migration_column][0] == '\0')
             goto error;
+        if (parsed == VALIDATION_ACTION_MOVE_THREAD) {
+            pid_t entity_tid;
+
+            if (!parse_csv_pid(fields[entity_id_column], &entity_tid))
+                goto error;
+        }
         uint64_t source, destination;
         if (!parse_csv_u64(fields[source_column], &source) || !parse_csv_u64(fields[destination_column], &destination) ||
             source > INT_MAX || destination > INT_MAX || source == destination)
@@ -1597,7 +1641,7 @@ static int approved_migration_evidence(const char *validation_input_path, const 
     fclose(file);
     if (matches == 0)
         return 0;
-    return load_phase5_evidence(validation_input_path, validation->migration_id, record, *action, decision) ?
+    return load_phase5_evidence(validation_input_path, validation->migration_id, record, validation, decision) ?
         1 : -1;
 
 error:
