@@ -4,6 +4,27 @@
 #include <stdio.h>
 #include <string.h>
 
+typedef struct { pid_t pid; int node; unsigned next; } destination_cursor_t;
+static destination_cursor_t destination_cursors[64];
+
+static int select_destination_cpu(pid_t pid, int node, const cpu_set_t *eligible)
+{
+    int cpus[CPU_SETSIZE];
+    unsigned count = 0;
+    destination_cursor_t *cursor = NULL;
+
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) if (CPU_ISSET(cpu, eligible)) cpus[count++] = cpu;
+    for (unsigned index = 0; index < sizeof(destination_cursors) / sizeof(destination_cursors[0]); index++)
+        if (destination_cursors[index].pid == pid && destination_cursors[index].node == node) { cursor = &destination_cursors[index]; break; }
+    if (cursor == NULL)
+        for (unsigned index = 0; index < sizeof(destination_cursors) / sizeof(destination_cursors[0]); index++)
+            if (destination_cursors[index].pid == 0) { cursor = &destination_cursors[index]; cursor->pid = pid; cursor->node = node; break; }
+    if (cursor == NULL) cursor = &destination_cursors[(unsigned)pid % (sizeof(destination_cursors) / sizeof(destination_cursors[0]))];
+    int cpu = cpus[cursor->next % count];
+    cursor->next++;
+    return cpu;
+}
+
 static MigrationTargetResult reject(MigrationTarget *target, MigrationTargetResult result,
                                     const char *format, ...)
 {
@@ -188,12 +209,9 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
                       "result=no_eligible_cpus source_node=%d candidates=0 reason=permitted_cpu_set_has_no_requested_node_cpu",
                       source_node);
     }
-    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
-        if (CPU_ISSET(cpu, &candidate_mask)) {
-            CPU_ZERO(&candidate_mask);
-            CPU_SET(cpu, &candidate_mask);
-            break;
-        }
+    int selected_cpu = select_destination_cpu(input->pid, candidate_node, &candidate_mask);
+    CPU_ZERO(&candidate_mask);
+    CPU_SET(selected_cpu, &candidate_mask);
     memset(&provider_input, 0, sizeof(provider_input));
     provider_input.pid = input->pid;
     provider_input.start_time_ticks = input->start_time_ticks;
