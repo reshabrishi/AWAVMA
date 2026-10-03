@@ -109,7 +109,7 @@ int main(void)
     monitor.memory_pinned = true;
     confidence = EvaluateConfidenceGate(&monitor, &classifier, &config);
     safety = EvaluateSafetyGate(&monitor, &decision, &config);
-    assert(confidence.status == GATE_PASS && safety.status == GATE_PASS);
+    assert(confidence.status == GATE_INVALID && safety.status == GATE_PASS);
     monitor.thread_locked = true;
     safety = EvaluateSafetyGate(&monitor, &decision, &config);
     assert(safety.status == GATE_INVALID && strcmp(safety.reason, "REJECT_THREAD_LOCKED") == 0);
@@ -119,6 +119,8 @@ int main(void)
     assert(confidence.status == GATE_INVALID);
     monitor = test_monitor();
     decision = test_decision();
+    classifier = test_classifier();
+    confidence = EvaluateConfidenceGate(&monitor, &classifier, &config);
 
     safety = EvaluateSafetyGate(&monitor, &decision, &config);
     assert(safety.status == GATE_PASS);

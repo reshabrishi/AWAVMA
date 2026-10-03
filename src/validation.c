@@ -105,6 +105,20 @@ static void set_action_aware_page_fields(ValidationResult *result, const Monitor
     }
 }
 
+static GateResult thread_confidence_result(const MonitorData *monitor)
+{
+    GateResult result = {.status = GATE_INVALID, .score = -1.0};
+
+    if (monitor != NULL && monitor->thread_confidence_evidence_valid) {
+        result.status = GATE_PASS;
+        result.score = 100.0;
+        snprintf(result.reason, sizeof(result.reason), "PASS");
+    } else {
+        snprintf(result.reason, sizeof(result.reason), "REJECT_INSUFFICIENT_SIGNAL");
+    }
+    return result;
+}
+
 ValidationResult CalculateValidationScore(const GateResult *confidence,
                                           const GateResult *roi,
                                           const GateResult *safety,
@@ -203,7 +217,8 @@ ValidationResult ValidateMigration(const MonitorData *monitor,
     }
     monitor_profile_scope_begin(&confidence_profile, "phase56_child", "p6_confidence_gate",
                                 decision->app_id, decision->pid, 0);
-    confidence = EvaluateConfidenceGate(monitor, classifier, &active_config);
+    confidence = decision->action == VALIDATION_ACTION_MOVE_THREAD ?
+        thread_confidence_result(monitor) : EvaluateConfidenceGate(monitor, classifier, &active_config);
     monitor_profile_scope_end(&confidence_profile, "OK");
     monitor_profile_scope_begin(&roi_profile, "phase56_child", "p6_roi_gate",
                                 decision->app_id, decision->pid, 0);

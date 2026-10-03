@@ -24,12 +24,6 @@ GateResult EvaluateConfidenceGate(const MonitorData *monitor,
         config->stability_weight < 0.0 || config->sample_weight < 0.0 ||
         config->classifier_weight < 0.0)
         return invalid_result("REJECT_INVALID_INPUT");
-    if (monitor->thread_confidence_evidence_valid) {
-        result.status = GATE_PASS;
-        result.score = 100.0;
-        snprintf(result.reason, sizeof(result.reason), "PASS");
-        return result;
-    }
     if (!monitor->available || !classifier->available || config->sample_reference_count == 0 ||
         !isfinite(monitor->stability) || !isfinite(classifier->confidence) ||
         monitor->stability < 0.0 || monitor->stability > 100.0 ||
