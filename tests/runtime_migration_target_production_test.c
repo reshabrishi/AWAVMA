@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "awavma_runtime.h"
 #include "migration_target_provider.h"
+#include "runtime_migration_metadata.h"
 
 #include <limits.h>
 #include <signal.h>
@@ -29,45 +30,21 @@ static uint64_t start_ticks(pid_t pid)
     return 0;
 }
 
-static int current_cpu(pid_t pid)
-{
-    char path[64], line[4096], *cursor, *save = NULL;
-    FILE *file;
-
-    if (snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid) >= (int)sizeof(path) ||
-        (file = fopen(path, "r")) == NULL || fgets(line, sizeof(line), file) == NULL) {
-        if (file != NULL) fclose(file);
-        return -1;
-    }
-    fclose(file); cursor = strrchr(line, ')');
-    if (cursor == NULL) return -1;
-    for (int field = 3; field <= 39; field++) {
-        char *token = strtok_r(field == 3 ? cursor + 2 : NULL, " ", &save);
-        char *end;
-        long value;
-
-        if (token == NULL) return -1;
-        if (field != 39) continue;
-        value = strtol(token, &end, 10);
-        return end != token && value >= 0 && value < CPU_SETSIZE ? (int)value : -1;
-    }
-    return -1;
-}
-
-static const char *live_policy_outcome(pid_t pid)
+static const char *live_policy_outcome(pid_t pid, uint64_t ticks, int *expected_source, int *expected_destination)
 {
     MigrationTargetTopology topology;
-    cpu_set_t affinity;
+    RuntimeMigrationMetadata metadata;
     bool physical_alternative = false;
     unsigned eligible_alternatives = 0;
-    int cpu = current_cpu(pid);
     int source_node;
 
-    if (cpu < 0 || !migration_target_topology_read(&topology) ||
-        sched_getaffinity(pid, sizeof(affinity), &affinity) != 0 ||
-        !CPU_ISSET(cpu, &topology.online_cpus) || !CPU_ISSET(cpu, &affinity))
+    if (expected_source == NULL || expected_destination == NULL ||
+        !runtime_get_thread_migration_metadata(pid, pid, ticks, &metadata) ||
+        !metadata.current_cpu_available || metadata.current_cpu < 0 ||
+        !metadata.permitted_cpu_set_available || !migration_target_topology_read(&topology) ||
+        !CPU_ISSET(metadata.current_cpu, &topology.online_cpus))
         return NULL;
-    source_node = topology.cpu_node[cpu];
+    source_node = topology.cpu_node[metadata.current_cpu];
     if (source_node < 0)
         return NULL;
     for (unsigned node = 0; node < MIGRATION_TARGET_MAX_NODES; node++) {
@@ -81,19 +58,22 @@ static const char *live_policy_outcome(pid_t pid)
                 !CPU_ISSET(candidate, &topology.online_cpus))
                 continue;
             online = true;
-            if (CPU_ISSET(candidate, &affinity))
+            if (CPU_ISSET(candidate, &metadata.permitted_cpu_set))
                 permitted = true;
         }
         if (!online)
             continue;
         physical_alternative = true;
-        if (permitted)
+        if (permitted) {
             eligible_alternatives++;
+            if (*expected_destination < 0)
+                *expected_destination = (int)node;
+        }
     }
     if (!physical_alternative)
         return "NO_ALTERNATE_TARGET";
-    /* One candidate reaches the production benefit gate; zero or many remain unavailable. */
-    return eligible_alternatives == 1 ? "REJECTED" : "TARGET_UNAVAILABLE";
+    *expected_source = source_node;
+    return eligible_alternatives > 0 ? "REJECTED" : "TARGET_UNAVAILABLE";
 }
 
 static int persistent_rows(const char *path, const awavma_runtime_test_target_stats_t *stats,
@@ -114,12 +94,14 @@ static int persistent_rows(const char *path, const awavma_runtime_test_target_st
 
 static int run_case(awavma_runtime_t *runtime, pid_t pid, uint64_t ticks,
                     awavma_runtime_test_target_case_t target_case, const char *outcome,
-                    const char *feedback_path)
+                    const char *feedback_path, int expected_source, int expected_destination)
 {
     awavma_runtime_test_target_stats_t stats;
     return awavma_runtime_test_submit_approved_migration(runtime, pid, ticks, target_case, &stats) == 0 &&
-           stats.target_provider_calls == 1 && stats.executor_calls == 0 && stats.rollback_calls == 0 &&
-           stats.terminal_feedback_calls == 1 && stats.attempt_id[0] != '\0' &&
+            stats.target_provider_calls == 1 && stats.executor_calls == 0 && stats.rollback_calls == 0 &&
+            stats.terminal_feedback_calls == 1 && stats.attempt_id[0] != '\0' &&
+            (expected_source < 0 || (stats.source_numa_node == expected_source &&
+                                     stats.destination_numa_node == expected_destination)) &&
            persistent_rows(feedback_path, &stats, pid, ticks, outcome) == 1;
 }
 
@@ -128,7 +110,7 @@ int main(void)
     char root[] = "/tmp/awavma-target-production-XXXXXX", cwd[PATH_MAX], bin_dir[PATH_MAX + 32];
     char config_path[PATH_MAX + 32], feedback_path[PATH_MAX + 256];
     awavma_runtime_config_t config; awavma_runtime_t *runtime; pid_t child; uint64_t ticks;
-    const char *live_outcome; bool initialized; bool test_passed; bool suite_passed = true;
+    const char *live_outcome; int live_source = -1, live_destination = -1; bool initialized; bool test_passed; bool suite_passed = true;
     if (mkdtemp(root) == NULL || getcwd(cwd, sizeof(cwd)) == NULL) return EXIT_FAILURE;
     child = fork(); if (child == 0) for (;;) pause(); if (child < 0) return EXIT_FAILURE;
     usleep(10000); ticks = start_ticks(child);
@@ -147,28 +129,28 @@ int main(void)
     printf("AR08_PLACEMENT_ALLOCATOR_SURVIVES_INIT: %s\n", initialized ? "PASS" : "FAIL");
     suite_passed = suite_passed && initialized;
 
-    live_outcome = initialized ? live_policy_outcome(child) : NULL;
+    live_outcome = initialized ? live_policy_outcome(child, ticks, &live_source, &live_destination) : NULL;
     test_passed = live_outcome != NULL &&
                   run_case(runtime, child, ticks, AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE,
-                           live_outcome, feedback_path);
+                            live_outcome, feedback_path, live_source, live_destination);
     printf("RTPI00_LIVE_POLICY_TOPOLOGY_CORRECT: %s\n", test_passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && test_passed;
 
     test_passed = initialized &&
                   run_case(runtime, child, ticks, AWAVMA_RUNTIME_TEST_TARGET_NO_ALTERNATE,
-                           "NO_ALTERNATE_TARGET", feedback_path);
+                            "NO_ALTERNATE_TARGET", feedback_path, -1, -1);
     printf("RTPI01_NO_ALTERNATE_PRODUCTION: %s\n", test_passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && test_passed;
 
     test_passed = initialized &&
                   run_case(runtime, child, ticks, AWAVMA_RUNTIME_TEST_TARGET_UNAVAILABLE,
-                           "TARGET_UNAVAILABLE", feedback_path);
+                            "TARGET_UNAVAILABLE", feedback_path, -1, -1);
     printf("RTPI02_TARGET_UNAVAILABLE_PRODUCTION: %s\n", test_passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && test_passed;
 
     test_passed = initialized &&
                   run_case(runtime, child, ticks, AWAVMA_RUNTIME_TEST_TARGET_INVALID,
-                           "TARGET_INVALID", feedback_path);
+                            "TARGET_INVALID", feedback_path, -1, -1);
     printf("RTPI03_TARGET_INVALID_PRODUCTION: %s\n", test_passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && test_passed;
     awavma_runtime_destroy(runtime); kill(child, SIGTERM); waitpid(child, NULL, 0);

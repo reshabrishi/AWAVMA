@@ -2494,6 +2494,31 @@ size_t awavma_runtime_snapshot(const awavma_runtime_t *runtime,
 }
 
 #ifdef AWAVMA_RUNTIME_TESTING
+static bool runtime_test_live_policy_nodes(const RuntimeMigrationMetadata *metadata, int *source,
+                                           int *destination)
+{
+    MigrationTargetTopology topology;
+
+    if (metadata == NULL || source == NULL || destination == NULL || !metadata->current_cpu_available ||
+        !metadata->permitted_cpu_set_available || !migration_target_topology_read(&topology) ||
+        metadata->current_cpu < 0 || metadata->current_cpu >= CPU_SETSIZE)
+        return false;
+    *source = topology.cpu_node[metadata->current_cpu];
+    if (*source < 0)
+        return false;
+    for (unsigned node = 0; node < MIGRATION_TARGET_MAX_NODES; node++) {
+        if (!topology.node_present[node] || (int)node == *source)
+            continue;
+        for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+            if (topology.cpu_node[cpu] == (int)node && CPU_ISSET(cpu, &topology.online_cpus) &&
+                CPU_ISSET(cpu, &metadata->permitted_cpu_set)) {
+                *destination = (int)node;
+                return true;
+            }
+    }
+    return false;
+}
+
 int awavma_runtime_test_submit_approved_migration(
     awavma_runtime_t *runtime, pid_t pid, uint64_t start_time_ticks,
     awavma_runtime_test_target_case_t target_case,
@@ -2533,6 +2558,11 @@ int awavma_runtime_test_submit_approved_migration(
     request.migration_request.thread_start_time_ticks = metadata.thread_start_time_ticks;
     request.migration_request.permitted_cpu_set_available = true;
     request.migration_request.permitted_cpu_set = metadata.permitted_cpu_set;
+    if (target_case == AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE) {
+        if (!runtime_test_live_policy_nodes(&metadata, &request.source_numa_node,
+                                            &request.destination_numa_node))
+            request.destination_numa_node = -1;
+    }
     request.migration_request.phase5_decision.action = request.action;
     request.migration_request.phase5_decision.pid = pid;
     request.migration_request.phase5_decision.evidence_model = DECISION_EVIDENCE_UTILITY_POLICY;
