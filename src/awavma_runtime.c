@@ -1177,6 +1177,7 @@ static int write_validation_input(const char *decision_path, const char *output_
         char cost_percent[32];
         bool thread_evidence = false;
         bool empirical = false;
+        bool empirical_required = false;
         ThreadConfidence confidence = {0};
         pid_t candidate_tid = -1;
         int source_node = -1;
@@ -1200,6 +1201,7 @@ static int write_validation_input(const char *decision_path, const char *output_
         snprintf(migration_id, sizeof(migration_id), "m_%ld_%llu_%zu", (long)record->pid,
                  (unsigned long long)record->generation, row++);
         if (strcmp(action_value, "MOVE_THREAD") == 0) {
+            empirical_required = true;
             candidate_tid = (pid_t)strtol(field_or_na(fields, field_count, entity_id), NULL, 10);
             thread_evidence = thread_confidence_evaluate(confidence_history_path, (long)record->pid,
                                                        record->start_time_ticks, candidate_tid, &confidence) &&
@@ -1233,7 +1235,8 @@ static int write_validation_input(const char *decision_path, const char *output_
                   confidence.valid_sample_count >= 3 ? "100" : "NA", confidence.valid_sample_count >= 3 ? "100" : "NA",
                    confidence.valid_sample_count, target.source_numa_node, target.target_numa_node,
                  gain, cost_percent,
-                 empirical ? "EMPIRICAL_GAIN_COST_EVIDENCE" : "UTILITY_POLICY_EVIDENCE",
+                  empirical ? "EMPIRICAL_GAIN_COST_EVIDENCE" :
+                  empirical_required ? "EMPIRICAL_GAIN_COST_UNAVAILABLE" : "UTILITY_POLICY_EVIDENCE",
                  safety.cooldown_active ? "true" : "false");
         fprintf(output, ",%s,%llu,PHASE5_DECISION_ENGINE", field_or_na(fields, field_count, timestamp),
                 (unsigned long long)record->generation);

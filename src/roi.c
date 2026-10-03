@@ -28,6 +28,11 @@ GateResult EvaluateROIGate(const DecisionData *decision,
         return result;
     }
     if (decision->action == VALIDATION_ACTION_MOVE_THREAD &&
+        decision->evidence_model == DECISION_EVIDENCE_UNAVAILABLE) {
+        snprintf(result.reason, sizeof(result.reason), "EMPIRICAL_ROI_EVIDENCE_UNAVAILABLE");
+        return result;
+    }
+    if (decision->action == VALIDATION_ACTION_MOVE_THREAD &&
         decision->evidence_model == DECISION_EVIDENCE_EMPIRICAL_GAIN_COST) {
         /* Adapter values are the helper's horizon-normalized benefit and cost percentages. */
         score = decision->predicted_gain - decision->estimated_cost;

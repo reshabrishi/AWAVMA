@@ -91,6 +91,10 @@ int main(void)
     decision.estimated_cost = 20.0;
     roi = EvaluateROIGate(&decision, &config);
     assert(roi.status == GATE_FAIL);
+    decision.evidence_model = DECISION_EVIDENCE_UNAVAILABLE;
+    roi = EvaluateROIGate(&decision, &config);
+    assert(roi.status == GATE_INVALID);
+    assert(strcmp(roi.reason, "EMPIRICAL_ROI_EVIDENCE_UNAVAILABLE") == 0);
     decision.action = VALIDATION_ACTION_MOVE_MEMORY;
     decision.evidence_model = DECISION_EVIDENCE_EMPIRICAL_GAIN_COST;
 

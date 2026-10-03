@@ -383,6 +383,8 @@ static bool parse_row(char **fields, size_t count, const input_columns_t *column
         decision->evidence_model = DECISION_EVIDENCE_UTILITY_POLICY;
     } else if (strcmp(fields[columns->evidence_model], "EMPIRICAL_GAIN_COST_EVIDENCE") == 0) {
         decision->evidence_model = DECISION_EVIDENCE_EMPIRICAL_GAIN_COST;
+    } else if (strcmp(fields[columns->evidence_model], "EMPIRICAL_GAIN_COST_UNAVAILABLE") == 0) {
+        decision->evidence_model = DECISION_EVIDENCE_UNAVAILABLE;
     } else {
         return false;
     }
