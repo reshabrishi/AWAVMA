@@ -2094,8 +2094,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             /* The process leader is a Linux thread and is revalidated by Migration_Execute. */
             uint64_t selected_tid = 0;
             bool selected_tid_valid = approved_action != VALIDATION_ACTION_MOVE_THREAD ||
-                parse_csv_u64(approved_phase5.entity_id, &selected_tid) && selected_tid > 0 &&
-                selected_tid <= INT_MAX;
+                (parse_csv_u64(approved_phase5.entity_id, &selected_tid) && selected_tid > 0 &&
+                 selected_tid <= INT_MAX);
             request.migration_request.tid = selected_tid_valid && approved_action == VALIDATION_ACTION_MOVE_THREAD ?
                 (pid_t)selected_tid : record->pid;
             if (!selected_tid_valid)

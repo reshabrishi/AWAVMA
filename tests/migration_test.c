@@ -123,12 +123,14 @@ static int set_live_thread_identity(MigrationRequest *request, pid_t pid, pid_t 
     if (!runtime_get_process_start_time_ticks(pid, &process_start) ||
         !runtime_get_thread_migration_metadata(pid, tid, process_start, &metadata) ||
         !metadata.identity_match || !metadata.thread_belongs_to_process ||
-        !metadata.thread_start_time_ticks_available)
+        !metadata.thread_start_time_ticks_available || !metadata.permitted_cpu_set_available)
         return -1;
     request->start_time_ticks = process_start;
     request->start_time_ticks_available = true;
     request->thread_start_time_ticks = metadata.thread_start_time_ticks;
     request->thread_start_time_ticks_available = true;
+    request->permitted_cpu_set_available = true;
+    request->permitted_cpu_set = metadata.permitted_cpu_set;
     return 0;
 }
 
@@ -287,19 +289,28 @@ int main(void)
     request.destination_numa_node = 1;
     print_test("T01", "approved memory migration attempted when remote node and verified pages exist",
                "remote NUMA node unavailable", "NOT TESTED — ENVIRONMENT LIMITATION");
-    affinity_available = child_a > 0 && pin_process(child_a, 0) == 0;
+    int source_cpu = -1, destination_cpu = -1;
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) if (CPU_ISSET(cpu, &permitted_before)) {
+        if (source_cpu < 0) source_cpu = cpu;
+        else if (destination_cpu < 0) { destination_cpu = cpu; break; }
+    }
+    affinity_available = child_a > 0 && source_cpu >= 0 && destination_cpu >= 0 &&
+        pin_process(child_a, source_cpu) == 0;
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T02", "APPROVED", child_a, child_a);
-    request.destination_cpu = 1;
+    set_live_thread_identity(&request, child_a, child_a);
+    request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
     if (!affinity_available) {
         execute_and_print("T02", "MIGRATION_SUCCESS", &request, 0);
     } else {
         execute_and_print("T02", "MIGRATION_SUCCESS", &request, 1);
-        pin_process(child_a, 0);
+        pin_process(child_a, source_cpu);
         set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T07", "APPROVED", child_a, child_a);
-        request.destination_cpu = 1;
+        set_live_thread_identity(&request, child_a, child_a);
+        request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
         execute_and_print("T07", "MIGRATION_SUCCESS", &request, 1);
         set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T08", "APPROVED", child_a, child_a);
-        request.destination_cpu = 2;
+        set_live_thread_identity(&request, child_a, child_a);
+        request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
         execute_and_print("T08", "MIGRATION_SUCCESS", &request, 1);
     }
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T35", "APPROVED", child_a, child_a);
@@ -308,7 +319,8 @@ int main(void)
     request.destination_cpu = 1;
     execute_and_print("T35", "MIGRATION_TARGET_GONE", &request, 1);
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T09", "APPROVED", child_a, child_a);
-    request.destination_cpu = 9999;
+    set_live_thread_identity(&request, child_a, child_a);
+    request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(CPU_SETSIZE - 1, &request.requested_cpu_set);
     execute_and_print("T09", "MIGRATION_INVALID_DESTINATION", &request, 1);
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T10", "APPROVED", child_a, 999999);
     request.destination_cpu = 1;
@@ -319,7 +331,9 @@ int main(void)
     request.destination_cpu = 1;
     execute_and_print("T11", "MIGRATION_INVALID_TARGET", &request, 1);
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T12", "APPROVED", child_a, child_a);
-    request.destination_cpu = affinity_available ? 2 : 0;
+    set_live_thread_identity(&request, child_a, child_a);
+    request.requested_cpu_set_available = true;
+    get_affinity(child_a, &request.requested_cpu_set);
     execute_and_print("T12", "MIGRATION_NO_MIGRATION_REQUIRED", &request, affinity_available);
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T13", "APPROVED", child_a, child_a);
     request.destination_cpu = 1;
@@ -427,9 +441,16 @@ int main(void)
     }
 
     child_a = spawn_pause();
-    affinity_available = child_a > 0 && pin_process(child_a, 0) == 0;
+    get_affinity(child_a, &permitted_before);
+    source_cpu = destination_cpu = -1;
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) if (CPU_ISSET(cpu, &permitted_before)) {
+        if (source_cpu < 0) source_cpu = cpu;
+        else if (destination_cpu < 0) { destination_cpu = cpu; break; }
+    }
+    affinity_available = child_a > 0 && source_cpu >= 0 && destination_cpu >= 0 && pin_process(child_a, source_cpu) == 0;
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T31", "APPROVED", child_a, child_a);
-    request.destination_cpu = 1;
+    set_live_thread_identity(&request, child_a, child_a);
+    request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
     if (!affinity_available)
         execute_and_print("T31", "MIGRATION_SUCCESS", &request, 0);
     else
