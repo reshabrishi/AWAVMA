@@ -1514,6 +1514,8 @@ static int approved_migration_evidence(const char *validation_input_path, const 
     int timestamp_column;
     int app_id_column;
     int entity_id_column;
+    int source_column;
+    int destination_column;
     int matches = 0;
 
     if (file == NULL || record == NULL || action == NULL || decision == NULL || validation == NULL ||
@@ -1535,10 +1537,13 @@ static int approved_migration_evidence(const char *validation_input_path, const 
     timestamp_column = column_index(fields, count, "timestamp");
     app_id_column = column_index(fields, count, "app_id");
     entity_id_column = column_index(fields, count, "entity_id");
+    source_column = column_index(fields, count, "source_node");
+    destination_column = column_index(fields, count, "destination_node");
     if (migration_column < 0 || action_column < 0 || decision_column < 0 || pid_column < 0 ||
         confidence_column < 0 || roi_column < 0 || safety_column < 0 || validation_score_column < 0 ||
         confidence_status_column < 0 || roi_status_column < 0 || safety_status_column < 0 ||
-        validation_status_column < 0 || timestamp_column < 0 || app_id_column < 0 || entity_id_column < 0)
+        validation_status_column < 0 || timestamp_column < 0 || app_id_column < 0 || entity_id_column < 0 ||
+        source_column < 0 || destination_column < 0)
         goto error;
     while (getline(&line, &capacity, file) >= 0) {
         ValidationAction parsed;
@@ -1557,11 +1562,21 @@ static int approved_migration_evidence(const char *validation_input_path, const 
             (size_t)entity_id_column >= count ||
             !parse_csv_action(fields[action_column], &parsed) || fields[migration_column][0] == '\0')
             goto error;
-        if (++matches != 1)
+        uint64_t source, destination;
+        if (!parse_csv_u64(fields[source_column], &source) || !parse_csv_u64(fields[destination_column], &destination) ||
+            source > INT_MAX || destination > INT_MAX || source == destination)
             goto error;
+        if (matches > 0 && (parsed != validation->action ||
+            strcmp(fields[entity_id_column], validation->entity_id) != 0 ||
+            strcmp(fields[app_id_column], validation->app_id) != 0 ||
+            (int)source != validation->source_node || (int)destination != validation->destination_node))
+            goto error;
+        matches++;
         memset(validation, 0, sizeof(*validation));
         validation->pid = (long)record->pid;
         validation->action = parsed;
+        validation->source_node = (int)source;
+        validation->destination_node = (int)destination;
         snprintf(validation->timestamp, sizeof(validation->timestamp), "%s", fields[timestamp_column]);
         snprintf(validation->migration_id, sizeof(validation->migration_id), "%s", fields[migration_column]);
         snprintf(validation->app_id, sizeof(validation->app_id), "%s", fields[app_id_column]);

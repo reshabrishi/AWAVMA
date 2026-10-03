@@ -13,11 +13,11 @@ The required order is **metadata -> build -> tests -> environment check -> prefl
 1. Validate the allocated environment: `scripts/run_full_experiment.sh --check-only`.
 2. Build and run the required project checks: `scripts/run_full_experiment.sh --tests-only`.
 3. Collect only default, local, and remote-memory baselines: `scripts/run_full_experiment.sh --baseline-only --output-dir DIR`.
-4. Collect only the AWAVMA scenario: `scripts/run_full_experiment.sh --awavma-only --output-dir DIR`.
-5. Run the complete collection: `scripts/run_full_experiment.sh --output-dir DIR`.
+4. Collect only the AWAVMA scenario: `scripts/run_full_experiment.sh --awavma-only --output-dir DIR --calibration FILE --migration-cost-artifact FILE`.
+5. Run the complete collection: `scripts/run_full_experiment.sh --output-dir DIR --calibration FILE --migration-cost-artifact FILE`.
 6. Aggregate without figures: add `--skip-graphs`.
 
-The public Phase 4D interface is exactly `--check-only`, `--tests-only`, `--baseline-only`, `--awavma-only`, `--skip-graphs`, and `--output-dir DIR`. AWAVMA collection also requires `--calibration FILE` for the selected directed local-to-remote node route with a positive throughput gain. Partial collection modes aggregate their measurements and intentionally skip four-scenario graphs. Exit status `3` means the allocation cannot support collection; `1` means a measured workload failed.
+The public Phase 4D interface is exactly `--check-only`, `--tests-only`, `--baseline-only`, `--awavma-only`, `--skip-graphs`, `--output-dir DIR`, `--calibration FILE`, `--migration-cost-artifact FILE`, and `--thread-evaluation-horizon-seconds SECONDS`. AWAVMA collection requires the benefit calibration and migration-cost artifact for the selected directed remote-to-local route, plus a positive active-work ROI horizon; the horizon defaults to 10 seconds. The runner rejects an artifact whose schema, validation status, or directed route does not match the AWAVMA placement. Partial collection modes aggregate their measurements and intentionally skip four-scenario graphs. Exit status `3` means the allocation cannot support collection; `1` means a measured workload failed.
 
 ## Layout And Outputs
 

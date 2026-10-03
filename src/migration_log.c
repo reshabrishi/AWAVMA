@@ -13,6 +13,10 @@
 #define STATE_HEADER "migration_id,app_id,pid,tid,entity_id,action,status,updated_at_epoch"
 
 static MigrationConfig active_config;
+static char owned_results_path[4096];
+static char owned_history_path[4096];
+static char owned_log_path[4096];
+static char owned_state_path[4096];
 static bool initialized;
 static size_t report_count;
 
@@ -200,7 +204,16 @@ bool migration_log_init(const MigrationConfig *config)
         config->history_max_days <= 0.0 || !isfinite(config->history_decay_lambda) ||
         config->history_decay_lambda <= 0.0 || config->cleanup_interval == 0)
         return false;
+    if (snprintf(owned_results_path, sizeof(owned_results_path), "%s", config->results_path) >= (int)sizeof(owned_results_path) ||
+        snprintf(owned_history_path, sizeof(owned_history_path), "%s", config->history_path) >= (int)sizeof(owned_history_path) ||
+        snprintf(owned_log_path, sizeof(owned_log_path), "%s", config->log_path) >= (int)sizeof(owned_log_path) ||
+        snprintf(owned_state_path, sizeof(owned_state_path), "%s", config->state_path) >= (int)sizeof(owned_state_path))
+        return false;
     active_config = *config;
+    active_config.results_path = owned_results_path;
+    active_config.history_path = owned_history_path;
+    active_config.log_path = owned_log_path;
+    active_config.state_path = owned_state_path;
     initialized = true;
     report_count = 0;
     return true;
@@ -257,5 +270,9 @@ void migration_log_shutdown(void)
 {
     initialized = false;
     memset(&active_config, 0, sizeof(active_config));
+    memset(owned_results_path, 0, sizeof(owned_results_path));
+    memset(owned_history_path, 0, sizeof(owned_history_path));
+    memset(owned_log_path, 0, sizeof(owned_log_path));
+    memset(owned_state_path, 0, sizeof(owned_state_path));
     report_count = 0;
 }

@@ -15,13 +15,15 @@ WORKLOAD=mixed
 LOCAL_NODE=
 REMOTE_NODE=
 CALIBRATION_FILE=
+MIGRATION_COST_ARTIFACT=
+THREAD_EVALUATION_HORIZON_SECONDS=10
 READY_TIMEOUT_SECONDS=30
 CHILD_PIDS=()
 RUN_STATUS=IN_PROGRESS
 
 usage() {
     cat <<'EOF'
-Usage: scripts/run_full_experiment.sh [--check-only|--tests-only|--baseline-only|--awavma-only] [--skip-graphs] [--output-dir DIR] [--calibration FILE]
+Usage: scripts/run_full_experiment.sh [--check-only|--tests-only|--baseline-only|--awavma-only] [--skip-graphs] [--output-dir DIR] [--calibration FILE] [--migration-cost-artifact FILE] [--thread-evaluation-horizon-seconds SECONDS]
 
 Public options:
   --check-only      validate the allocation without collecting
@@ -31,6 +33,8 @@ Public options:
   --skip-graphs     aggregate but do not generate graphs
   --output-dir DIR  collection root (default: results/cloudlab)
   --calibration FILE  validated benefit calibration required for adaptive AWAVMA execution
+  --migration-cost-artifact FILE  validated directed thread-migration cost artifact required for adaptive AWAVMA execution
+  --thread-evaluation-horizon-seconds SECONDS  positive active-work ROI horizon (default: 10)
 EOF
 }
 
@@ -44,11 +48,19 @@ while (($#)); do
         --skip-graphs) SKIP_GRAPHS=true ;;
         --output-dir) need_value "$@"; OUTPUT_DIR=$2; shift ;;
         --calibration) need_value "$@"; CALIBRATION_FILE=$2; shift ;;
+        --migration-cost-artifact) need_value "$@"; MIGRATION_COST_ARTIFACT=$2; shift ;;
+        --thread-evaluation-horizon-seconds) need_value "$@"; THREAD_EVALUATION_HORIZON_SECONDS=$2; shift ;;
         *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
     shift
 done
 [[ "$OUTPUT_DIR" = /* ]] || OUTPUT_DIR="$ROOT/$OUTPUT_DIR"
+
+[[ "$THREAD_EVALUATION_HORIZON_SECONDS" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]] &&
+    awk -v horizon="$THREAD_EVALUATION_HORIZON_SECONDS" 'BEGIN { exit !(horizon + 0 > 0) }' || {
+    printf '%s\n' '--thread-evaluation-horizon-seconds must be positive' >&2
+    exit 2
+}
 
 limited() { printf 'ENV_LIMITED: %s\n' "$1" >&2; exit "$ENV_LIMITED"; }
 discover_nodes() {
@@ -141,6 +153,31 @@ validate_calibration_route() {
     ' "$CALIBRATION_FILE"
 }
 
+validate_migration_cost_route() {
+    local source=$1 target=$2
+
+    [[ -n "$MIGRATION_COST_ARTIFACT" && -f "$MIGRATION_COST_ARTIFACT" ]] || {
+        printf 'awavma execution requires --migration-cost-artifact FILE\n' >&2
+        return 1
+    }
+    awk -F, -v source="$source" -v target="$target" '
+        NR == 1 {
+            if ($0 != "schema_version,source_node,target_node,migration_cost_seconds,validation_status,provenance") invalid = 1
+            next
+        }
+        NR == 2 {
+            if (NF != 6 || $1 != "1" || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/ ||
+                $2 != source || $3 != target ||
+                $4 !~ /^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$/ || $4 + 0 < 0 ||
+                $5 != "PASS" || $6 == "") invalid = 1
+            valid = 1
+            next
+        }
+        { invalid = 1 }
+        END { exit valid && !invalid ? 0 : 1 }
+    ' "$MIGRATION_COST_ARTIFACT"
+}
+
 write_manifest() {
     local status=$1 temporary="$RUN_DIR/manifest.json.tmp.$$"
 
@@ -193,6 +230,10 @@ if [[ "$MODE" != baseline ]]; then
         printf 'calibration must be validated for directed route node %s -> node %s with positive throughput gain\n' "$REMOTE_NODE" "$LOCAL_NODE" >&2
         exit 1
     }
+    validate_migration_cost_route "$REMOTE_NODE" "$LOCAL_NODE" || {
+        printf 'migration cost artifact must be validated for directed route node %s -> node %s\n' "$REMOTE_NODE" "$LOCAL_NODE" >&2
+        exit 1
+    }
 fi
 write_manifest "$RUN_STATUS"
 trap finish_run EXIT
@@ -221,7 +262,7 @@ run_one() {
         wait_for_signal "$benchmark_ready" "$benchmark_pid" benchmark || code=1
         local runtime_pid=
         if [[ "$code" == 0 ]]; then
-            "$ROOT/bin/awavma-runtime" --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" --root-dir "$RUN_DIR/awavma/runtime/$repetition" --config "$ROOT/config/awavma.conf" --migration-safety-enabled --migration-execution-enabled --benefit-calibration "$CALIBRATION_FILE" --ready-file "$runtime_ready" --target-ready-file "$target_ready" >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
+            "$ROOT/bin/awavma-runtime" --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" --root-dir "$RUN_DIR/awavma/runtime/$repetition" --config "$ROOT/config/awavma.conf" --migration-safety-enabled --migration-execution-enabled --benefit-calibration "$CALIBRATION_FILE" --migration-cost-artifact "$MIGRATION_COST_ARTIFACT" --thread-evaluation-horizon-seconds "$THREAD_EVALUATION_HORIZON_SECONDS" --ready-file "$runtime_ready" --target-ready-file "$target_ready" >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
             runtime_pid=$!
         fi
         if [[ "$code" == 0 ]]; then

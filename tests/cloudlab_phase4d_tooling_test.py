@@ -15,12 +15,14 @@ def main():
     graphs = (ROOT / "scripts/generate_multinuma_graphs.py").read_text(encoding="utf-8")
     docs = (ROOT / "docs/cloudlab_preparation.md").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    public = ("--check-only", "--tests-only", "--baseline-only", "--awavma-only", "--skip-graphs", "--output-dir")
+    public = ("--check-only", "--tests-only", "--baseline-only", "--awavma-only", "--skip-graphs", "--output-dir",
+              "--migration-cost-artifact", "--thread-evaluation-horizon-seconds")
     require(runner, *public, "metadata, build, tests, environment check, preflight", "run_required_tests", "environment-check", "IN_PROGRESS", "wait_for_signal", "--target-ready-file", "--include-in-progress-run")
     assert "--detect-numa" not in runner and "--results-dir" not in runner
     awavma_block = runner.split('if [[ "$scenario" == awavma ]]; then', 1)[1].split('    else', 1)[0]
     runtime_command = next(line for line in awavma_block.splitlines() if '"$ROOT/bin/awavma-runtime"' in line)
-    require(runtime_command, "--migration-safety-enabled", "--migration-execution-enabled", "--benefit-calibration", "--pid", "--ready-file", "--target-ready-file")
+    require(runtime_command, "--migration-safety-enabled", "--migration-execution-enabled", "--benefit-calibration",
+            "--migration-cost-artifact", "--thread-evaluation-horizon-seconds", "--pid", "--ready-file", "--target-ready-file")
     assert "MOVE_MEMORY" not in runtime_command
     assert awavma_block.count('"$ROOT/bin/benchmark"') == 1
     assert awavma_block.count('"$ROOT/bin/awavma-runtime"') == 1
@@ -34,6 +36,12 @@ def main():
             '$(column["state"]) != "VALIDATED_PRODUCTION"',
             '$(column["validation_status"]) != "PASS"',
             '$(column["environment_check_status"]) != "READY"')
+    require(runner, 'THREAD_EVALUATION_HORIZON_SECONDS=10',
+            '--thread-evaluation-horizon-seconds must be positive',
+            'validate_migration_cost_route "$REMOTE_NODE" "$LOCAL_NODE"',
+            'migration cost artifact must be validated for directed route node %s -> node %s',
+            'schema_version,source_node,target_node,migration_cost_seconds,validation_status,provenance')
+    assert 'validate_migration_cost_route "$LOCAL_NODE" "$REMOTE_NODE"' not in runner
     require(runner,
             'numactl --cpunodebind="$LOCAL_NODE" --membind="$LOCAL_NODE" true',
             'numactl --cpunodebind="$REMOTE_NODE" --membind="$LOCAL_NODE" true',
