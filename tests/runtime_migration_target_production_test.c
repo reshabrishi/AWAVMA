@@ -140,6 +140,13 @@ int main(void)
     runtime = awavma_runtime_create();
     initialized = ticks != 0 && runtime != NULL && awavma_runtime_init(runtime, &config) == 0;
 
+    if (initialized) {
+        awavma_runtime_shutdown(runtime);
+        initialized = awavma_runtime_init(runtime, &config) == 0;
+    }
+    printf("AR08_PLACEMENT_ALLOCATOR_SURVIVES_INIT: %s\n", initialized ? "PASS" : "FAIL");
+    suite_passed = suite_passed && initialized;
+
     live_outcome = initialized ? live_policy_outcome(child) : NULL;
     test_passed = live_outcome != NULL &&
                   run_case(runtime, child, ticks, AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE,

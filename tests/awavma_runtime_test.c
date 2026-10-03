@@ -132,6 +132,10 @@ int main(void)
     bool ar07 = access(results_path, R_OK) == 0;
     report("AR07", ar07);
     suite_passed = suite_passed && ar07;
+    awavma_runtime_shutdown(runtime);
+    passed = awavma_runtime_init(runtime, &config) == 0;
+    report("AR08_PLACEMENT_ALLOCATOR_SURVIVES_INIT", passed);
+    suite_passed = suite_passed && passed;
     awavma_runtime_destroy(runtime);
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);

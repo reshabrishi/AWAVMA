@@ -2274,11 +2274,7 @@ const char *awavma_runtime_status_name(awavma_runtime_status_t status)
 
 awavma_runtime_t *awavma_runtime_create(void)
 {
-    awavma_runtime_t *runtime = calloc(1, sizeof(*runtime));
-    if (runtime != NULL)
-        runtime->placement_allocator = thread_placement_allocator_create();
-    if (runtime != NULL && runtime->placement_allocator == NULL) { free(runtime); return NULL; }
-    return runtime;
+    return calloc(1, sizeof(awavma_runtime_t));
 }
 
 int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t *config)
@@ -2310,7 +2306,13 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
           config->benefit_calibration_state != BENEFIT_CALIBRATION_VALIDATED_PRODUCTION) ||
          (config->page_registration_enabled && config->page_registration_ttl_ms == 0))
         return EINVAL;
+    /* A previous failed init may own an allocator although it is not initialized. */
+    thread_placement_allocator_destroy(runtime->placement_allocator);
+    runtime->placement_allocator = NULL;
     memset(runtime, 0, sizeof(*runtime));
+    runtime->placement_allocator = thread_placement_allocator_create();
+    if (runtime->placement_allocator == NULL)
+        return ENOMEM;
     runtime->config = *config;
     if (!environment_capabilities_detect(&runtime->capabilities))
         return EIO;
@@ -2639,6 +2641,8 @@ void awavma_runtime_shutdown(awavma_runtime_t *runtime)
         runtime->config.page_candidate_provider = NULL;
     migration_safety_manager_destroy(runtime->migration_safety);
     runtime->migration_safety = NULL;
+    thread_placement_allocator_destroy(runtime->placement_allocator);
+    runtime->placement_allocator = NULL;
     if (runtime->migration_initialized) {
         Migration_Shutdown();
         runtime->migration_initialized = false;
@@ -2658,7 +2662,6 @@ void awavma_runtime_destroy(awavma_runtime_t *runtime)
     runtime_monitor_destroy(runtime->monitor);
     worker_pool_destroy(runtime->pool);
     application_manager_destroy(runtime->manager);
-    thread_placement_allocator_destroy(runtime->placement_allocator);
     free(runtime->records);
     free(runtime);
 }
