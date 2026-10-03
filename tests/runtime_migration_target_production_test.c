@@ -97,13 +97,23 @@ static int run_case(awavma_runtime_t *runtime, pid_t pid, uint64_t ticks,
                     const char *feedback_path, int expected_source, int expected_destination)
 {
     awavma_runtime_test_target_stats_t stats;
-    return awavma_runtime_test_submit_approved_migration(runtime, pid, ticks, target_case, &stats) == 0 &&
+    int submit = awavma_runtime_test_submit_approved_migration(runtime, pid, ticks, target_case, &stats);
+    int rows = persistent_rows(feedback_path, &stats, pid, ticks, outcome);
+
+    if (target_case == AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE)
+        printf("RTPI00_DIAGNOSTIC submit=%d provider_calls=%u target_selected=%d expected_source=%d actual_source=%d expected_destination=%d actual_destination=%d destination_cpu_available=%d destination_cpu=%d executor_calls=%u rollback_calls=%u terminal_feedback_calls=%u attempt_id=%s terminal_state=%d execution_result=%d expected_outcome=%s persistent_rows=%d\n",
+               submit, stats.target_provider_calls, stats.target_selected, expected_source,
+               stats.target_source_numa_node, expected_destination, stats.target_destination_numa_node,
+               stats.target_destination_cpu_available, stats.target_destination_cpu, stats.executor_calls,
+               stats.rollback_calls, stats.terminal_feedback_calls, stats.attempt_id, stats.terminal_state,
+               stats.execution_result, outcome, rows);
+    return submit == 0 &&
             stats.target_provider_calls == 1 && stats.executor_calls == 0 && stats.rollback_calls == 0 &&
             stats.terminal_feedback_calls == 1 && stats.attempt_id[0] != '\0' &&
             (expected_destination < 0 || (stats.target_selected &&
                                           stats.target_source_numa_node == expected_source &&
                                           stats.target_destination_numa_node == expected_destination)) &&
-           persistent_rows(feedback_path, &stats, pid, ticks, outcome) == 1;
+            rows == 1;
 }
 
 int main(void)
