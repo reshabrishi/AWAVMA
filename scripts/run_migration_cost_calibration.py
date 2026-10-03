@@ -11,8 +11,8 @@ def main():
     parser.add_argument("--target-node", required=True, type=int)
     parser.add_argument("--binary", type=Path, default=Path("bin/migration-cost-calibration"))
     args = parser.parse_args()
-    if args.source_node < 0 or args.target_node < 0 or args.source_node == args.target_node:
-        parser.error("source and target must be distinct non-negative NUMA nodes")
+    if (args.source_node, args.target_node) != (1, 0):
+        parser.error("migration-cost calibration only supports NUMA route 1 -> 0")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run([str(args.binary), str(args.source_node), str(args.target_node), str(args.output)], check=True)

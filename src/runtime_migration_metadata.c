@@ -194,6 +194,7 @@ bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
         return false;
     memset(metadata, 0, sizeof(*metadata));
     metadata->pid = pid;
+    metadata->tid = pid;
     metadata->start_time_ticks = start_time_ticks;
     metadata->captured_at_ms = monotonic_ms();
     metadata->current_cpu = -1;
@@ -229,7 +230,7 @@ bool runtime_get_thread_migration_metadata(pid_t pid, pid_t tid, uint64_t start_
                                             RuntimeMigrationMetadata *metadata)
 {
     RuntimeMigrationMetadata process;
-    uint64_t ignored_start = 0, cpu_ticks = 0;
+    uint64_t thread_start = 0, cpu_ticks = 0;
     int cpu = -1;
     char path[160];
 
@@ -237,13 +238,16 @@ bool runtime_get_thread_migration_metadata(pid_t pid, pid_t tid, uint64_t start_
         !runtime_get_migration_metadata(pid, start_time_ticks, &process))
         return false;
     *metadata = process;
+    metadata->tid = tid;
     if (!process.identity_match ||
         snprintf(path, sizeof(path), "/proc/%ld/task/%ld", (long)pid, (long)tid) >= (int)sizeof(path))
         return true;
     metadata->thread_exists = access(path, F_OK) == 0;
     metadata->thread_belongs_to_process = metadata->thread_exists;
-    if (!metadata->thread_belongs_to_process || !read_stat(tid, &ignored_start, &cpu_ticks, &cpu))
+    if (!metadata->thread_belongs_to_process || !read_stat(tid, &thread_start, &cpu_ticks, &cpu))
         return true;
+    metadata->thread_start_time_ticks = thread_start;
+    metadata->thread_start_time_ticks_available = true;
     metadata->current_cpu_available = cpu >= 0;
     metadata->current_cpu = cpu;
     metadata->process_cpu_time_available = true;
@@ -259,11 +263,14 @@ bool runtime_migration_checkpoint_affinity(const RuntimeMigrationMetadata *metad
     if (checkpoint == NULL)
         return false;
     memset(checkpoint, 0, sizeof(*checkpoint));
-    if (metadata == NULL || !metadata->identity_match || !metadata->affinity_available)
+    if (metadata == NULL || !metadata->identity_match || !metadata->thread_start_time_ticks_available ||
+        !metadata->affinity_available)
         return false;
     checkpoint->captured_at_ms = monotonic_ms();
     checkpoint->pid = metadata->pid;
+    checkpoint->tid = metadata->tid;
     checkpoint->start_time_ticks = metadata->start_time_ticks;
+    checkpoint->thread_start_time_ticks = metadata->thread_start_time_ticks;
     checkpoint->affinity_available = true;
     checkpoint->original_affinity = metadata->affinity;
     return true;
@@ -277,16 +284,19 @@ RuntimeMigrationRollbackResult runtime_migration_restore_affinity(
 
     if (checkpoint == NULL || !checkpoint->affinity_available)
         return RUNTIME_MIGRATION_ROLLBACK_CHECKPOINT_UNAVAILABLE;
-    if (!runtime_get_migration_metadata(checkpoint->pid, checkpoint->start_time_ticks, &current))
+    if (!runtime_get_thread_migration_metadata(checkpoint->pid, checkpoint->tid,
+                                               checkpoint->start_time_ticks, &current))
         return RUNTIME_MIGRATION_ROLLBACK_FAILED;
     if (!current.process_exists)
         return RUNTIME_MIGRATION_ROLLBACK_TARGET_GONE;
-    if (!current.identity_match)
+    if (!current.identity_match || !current.thread_belongs_to_process ||
+        !current.thread_start_time_ticks_available ||
+        current.thread_start_time_ticks != checkpoint->thread_start_time_ticks)
         return RUNTIME_MIGRATION_ROLLBACK_IDENTITY_CHANGED;
-    if (sched_setaffinity(checkpoint->pid, sizeof(checkpoint->original_affinity),
+    if (sched_setaffinity(checkpoint->tid, sizeof(checkpoint->original_affinity),
                           &checkpoint->original_affinity) != 0)
         return RUNTIME_MIGRATION_ROLLBACK_FAILED;
-    if (sched_getaffinity(checkpoint->pid, sizeof(restored), &restored) != 0)
+    if (sched_getaffinity(checkpoint->tid, sizeof(restored), &restored) != 0)
         return RUNTIME_MIGRATION_ROLLBACK_VERIFICATION_FAILED;
     return CPU_EQUAL(&restored, &checkpoint->original_affinity) ?
         RUNTIME_MIGRATION_ROLLBACK_COMPLETE : RUNTIME_MIGRATION_ROLLBACK_VERIFICATION_FAILED;

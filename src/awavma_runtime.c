@@ -245,7 +245,9 @@ static bool runtime_capture_before_migration(void *context,
     if (runtime == NULL || request == NULL || attempt_id == NULL)
         return false;
     runtime->validation_before_available = false;
-    release_migration_checkpoint(runtime, runtime->rollback_attempt_id);
+    /* Do not overwrite an in-flight worker checkpoint from another attempt. */
+    if (runtime->rollback_checkpoint_available)
+        return false;
 #ifdef AWAVMA_RUNTIME_TESTING
     runtime->test_target_stats.validation_before_calls++;
     if (runtime->test_target_case == AWAVMA_RUNTIME_TEST_TARGET_CAPTURE_FAILURE)
@@ -255,9 +257,15 @@ static bool runtime_capture_before_migration(void *context,
                                                &runtime->validation_before))
         return false;
     /* Re-read the live checkpoint after the structural snapshot without inventing page state. */
-    if (!runtime_get_migration_metadata(request->pid, request->start_time_ticks, &metadata) ||
+    if (!runtime_get_thread_migration_metadata(request->pid, request->migration_request.tid,
+                                               request->start_time_ticks, &metadata) ||
+        !metadata.thread_belongs_to_process || !metadata.thread_start_time_ticks_available ||
+        !request->migration_request.thread_start_time_ticks_available ||
+        metadata.thread_start_time_ticks != request->migration_request.thread_start_time_ticks ||
         !runtime_migration_checkpoint_affinity(&metadata, &runtime->rollback_checkpoint))
         return false;
+    snprintf(runtime->rollback_checkpoint.attempt_id, sizeof(runtime->rollback_checkpoint.attempt_id),
+             "%s", attempt_id);
     runtime->rollback_checkpoint_available = true;
     snprintf(runtime->rollback_attempt_id, sizeof(runtime->rollback_attempt_id), "%s", attempt_id);
     runtime->validation_before_available = true;
@@ -314,7 +322,9 @@ static MigrationSafetyRecovery runtime_rollback_migration(void *context,
             page_result == PAGE_ROLLBACK_UNAVAILABLE || page_result == PAGE_ROLLBACK_CHECKPOINT_INCOMPLETE ?
             MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE : MIGRATION_SAFETY_ROLLBACK_FAILED_RESULT;
     }
-    if (request->action != VALIDATION_ACTION_MOVE_THREAD || !runtime->rollback_checkpoint_available)
+    if (request->action != VALIDATION_ACTION_MOVE_THREAD || !runtime->rollback_checkpoint_available ||
+        strcmp(runtime->rollback_checkpoint.attempt_id,
+               request->migration_request.benefit_evidence_attempt_id) != 0)
         return MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE;
     rollback_result = runtime_migration_restore_affinity(&runtime->rollback_checkpoint);
 #ifdef AWAVMA_RUNTIME_TESTING
@@ -477,6 +487,8 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
     if (result == MIGRATION_TARGET_AVAILABLE && metadata.permitted_cpu_set_available) {
         target->permitted_cpu_set_available = true;
         target->permitted_cpu_set = metadata.permitted_cpu_set;
+        target->thread_start_time_ticks_available = metadata.thread_start_time_ticks_available;
+        target->thread_start_time_ticks = metadata.thread_start_time_ticks;
     }
     return result;
 }
@@ -495,7 +507,8 @@ static BenefitClassification runtime_classify_benefit(void *context,
     bool source_target_valid = false;
 
     if (request == NULL || target == NULL || attempt_id == NULL || decision == NULL ||
-        !runtime_get_migration_metadata(request->pid, request->start_time_ticks, &metadata))
+        !runtime_get_thread_migration_metadata(request->pid, request->migration_request.tid,
+                                               request->start_time_ticks, &metadata))
         return benefit_classifier_evaluate(NULL, decision);
     if (!migration_target_topology_read(&topology))
         target_online = false;
@@ -503,10 +516,10 @@ static BenefitClassification runtime_classify_benefit(void *context,
         if (CPU_ISSET(cpu, &target->target_cpu_mask) &&
             (!CPU_ISSET(cpu, &topology.online_cpus) || topology.cpu_node[cpu] != target->target_numa_node))
             target_online = false;
-    if (!metadata.affinity_available)
+    if (!metadata.permitted_cpu_set_available)
         target_permitted = false;
     for (int cpu = 0; target_permitted && cpu < CPU_SETSIZE; cpu++)
-        if (CPU_ISSET(cpu, &target->target_cpu_mask) && !CPU_ISSET(cpu, &metadata.affinity))
+        if (CPU_ISSET(cpu, &target->target_cpu_mask) && !CPU_ISSET(cpu, &metadata.permitted_cpu_set))
             target_permitted = false;
     source_target_valid = target->source_node_known && target->has_target_numa_node &&
                           target->source_numa_node != target->target_numa_node;

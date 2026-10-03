@@ -1,6 +1,7 @@
 #include "migration.h"
 #include "migration_log.h"
 #include "migration_target_provider.h"
+#include "runtime_migration_metadata.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -308,6 +309,19 @@ static MigrationResultCode verify_thread(const MigrationRequest *request, Migrat
         set_error(report, MIGRATION_INVALID_TARGET, "thread does not belong to process", ESRCH);
         return report->result;
     }
+    if (!request->start_time_ticks_available || !request->thread_start_time_ticks_available) {
+        set_error(report, MIGRATION_INSUFFICIENT_INFORMATION, "process or worker identity unavailable", 0);
+        return report->result;
+    }
+    RuntimeMigrationMetadata metadata;
+    if (!runtime_get_thread_migration_metadata(request->pid, request->tid,
+                                               request->start_time_ticks, &metadata) ||
+        !metadata.identity_match || !metadata.thread_belongs_to_process ||
+        !metadata.thread_start_time_ticks_available ||
+        metadata.thread_start_time_ticks != request->thread_start_time_ticks) {
+        set_error(report, MIGRATION_TARGET_GONE, "worker identity changed", ESRCH);
+        return report->result;
+    }
     return MIGRATION_SUCCESS;
 }
 
@@ -378,13 +392,18 @@ static MigrationResultCode build_requested_affinity(const MigrationRequest *requ
                                                     MigrationReport *report)
 {
     MigrationTargetTopology topology;
+    RuntimeMigrationMetadata metadata;
 
     CPU_ZERO(requested);
     if (!migration_target_topology_read(&topology)) {
         set_error(report, MIGRATION_INSUFFICIENT_INFORMATION, "cannot inspect online CPUs", 0);
         return report->result;
     }
-    if (!request->permitted_cpu_set_available) {
+    if (!request->permitted_cpu_set_available ||
+        !runtime_get_thread_migration_metadata(request->pid, request->tid,
+                                               request->start_time_ticks, &metadata) ||
+        !metadata.identity_match || !metadata.thread_belongs_to_process ||
+        !metadata.permitted_cpu_set_available) {
         set_error(report, MIGRATION_INSUFFICIENT_INFORMATION, "effective permitted CPU set unavailable", 0);
         return report->result;
     }
@@ -395,15 +414,17 @@ static MigrationResultCode build_requested_affinity(const MigrationRequest *requ
         }
         for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
             if (CPU_ISSET(cpu, &request->requested_cpu_set) &&
-                (!CPU_ISSET(cpu, &topology.online_cpus) || !CPU_ISSET(cpu, &request->permitted_cpu_set))) {
+                (!CPU_ISSET(cpu, &topology.online_cpus) || !CPU_ISSET(cpu, &request->permitted_cpu_set) ||
+                 !CPU_ISSET(cpu, &metadata.permitted_cpu_set))) {
                 set_error(report, MIGRATION_INVALID_DESTINATION, "requested CPU is offline or outside permitted CPU set", EINVAL);
                 return report->result;
             }
         *requested = request->requested_cpu_set;
     } else {
         if (request->destination_cpu < 0 || request->destination_cpu >= CPU_SETSIZE ||
-             !CPU_ISSET(request->destination_cpu, &topology.online_cpus) ||
-             !CPU_ISSET(request->destination_cpu, &request->permitted_cpu_set)) {
+              !CPU_ISSET(request->destination_cpu, &topology.online_cpus) ||
+              !CPU_ISSET(request->destination_cpu, &request->permitted_cpu_set) ||
+              !CPU_ISSET(request->destination_cpu, &metadata.permitted_cpu_set)) {
             set_error(report, MIGRATION_INVALID_DESTINATION, "destination CPU is unavailable", EINVAL);
             return report->result;
         }

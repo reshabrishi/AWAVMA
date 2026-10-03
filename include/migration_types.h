@@ -47,6 +47,8 @@ typedef struct {
     uint64_t benefit_evidence_runtime_generation;
     char benefit_evidence_attempt_id[128];
     pid_t tid;
+    uint64_t thread_start_time_ticks;
+    bool thread_start_time_ticks_available;
     int source_numa_node;
     int destination_numa_node;
     bool numa_nodes_available;

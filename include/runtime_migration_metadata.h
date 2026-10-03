@@ -9,7 +9,10 @@
 typedef struct {
     uint64_t captured_at_ms;
     pid_t pid;
+    pid_t tid;
     uint64_t start_time_ticks;
+    uint64_t thread_start_time_ticks;
+    bool thread_start_time_ticks_available;
     bool identity_match;
     bool process_exists;
     bool affinity_available;
@@ -35,7 +38,10 @@ typedef struct {
 typedef struct {
     uint64_t captured_at_ms;
     pid_t pid;
+    pid_t tid;
     uint64_t start_time_ticks;
+    uint64_t thread_start_time_ticks;
+    char attempt_id[128];
     bool affinity_available;
     cpu_set_t original_affinity;
     bool page_rollback_checkpoint_available;

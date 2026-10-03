@@ -69,6 +69,8 @@ typedef struct {
     cpu_set_t target_cpu_mask;
     bool permitted_cpu_set_available;
     cpu_set_t permitted_cpu_set;
+    bool thread_start_time_ticks_available;
+    uint64_t thread_start_time_ticks;
     bool has_target_numa_node;
     int target_numa_node;
     bool source_node_known;

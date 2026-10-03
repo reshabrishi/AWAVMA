@@ -34,9 +34,9 @@ GateResult EvaluateSafetyGate(const MonitorData *monitor,
         return invalid_result("REJECT_INSUFFICIENT_SIGNAL");
 
     /* Hard veto order is deterministic and cannot be compensated by Ssoft. */
-    if (monitor->page_locked)
+    if (decision->action != VALIDATION_ACTION_MOVE_THREAD && monitor->page_locked)
         return invalid_result("REJECT_PAGE_LOCKED");
-    if (monitor->memory_pinned)
+    if (decision->action != VALIDATION_ACTION_MOVE_THREAD && monitor->memory_pinned)
         return invalid_result("REJECT_MEMORY_PINNED");
     if (monitor->cooldown_active)
         return invalid_result("REJECT_COOLDOWN");
