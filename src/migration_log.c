@@ -55,7 +55,7 @@ static int append_line(const char *path, const char *header, const char *line)
 
 static int write_state(const MigrationRequest *request, const MigrationReport *report)
 {
-    char temporary[512] = {0};
+    char temporary[4101] = {0};
     FILE *file;
     long long now = epoch_seconds();
 
@@ -95,7 +95,7 @@ static int compact_history(void)
     size_t count = 0;
     long long now = epoch_seconds();
     long long max_age = (long long)(active_config.history_max_days * 86400.0);
-    char temporary[512] = {0};
+    char temporary[4101] = {0};
 
     input = fopen(active_config.history_path, "r");
     if (input == NULL && errno == ENOENT)

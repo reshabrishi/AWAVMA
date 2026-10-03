@@ -2048,9 +2048,13 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             request.migration_request.start_time_ticks = record->start_time_ticks;
             request.migration_request.start_time_ticks_available = true;
             /* The process leader is a Linux thread and is revalidated by Migration_Execute. */
-            request.migration_request.tid = approved_action == VALIDATION_ACTION_MOVE_THREAD ?
-                (pid_t)strtol(approved_phase5.entity_id, NULL, 10) : record->pid;
-            if (approved_action == VALIDATION_ACTION_MOVE_THREAD && request.migration_request.tid <= 0)
+            uint64_t selected_tid = 0;
+            bool selected_tid_valid = approved_action != VALIDATION_ACTION_MOVE_THREAD ||
+                parse_csv_u64(approved_phase5.entity_id, &selected_tid) && selected_tid > 0 &&
+                selected_tid <= INT_MAX;
+            request.migration_request.tid = selected_tid_valid && approved_action == VALIDATION_ACTION_MOVE_THREAD ?
+                (pid_t)selected_tid : record->pid;
+            if (!selected_tid_valid)
                 request.system_safe = false;
             request.migration_request.phase5_decision = approved_phase5;
             request.migration_request.phase6_validation = approved_phase6;
@@ -2066,8 +2070,13 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
                                                           &request.migration_request))
                     request.system_safe = false;
             }
-            if (migration_safety_manager_attempt(runtime->migration_safety, &request, &safety_result))
-                set_status(record, AWAVMA_RUNTIME_REJECTED, safety_result.detail);
+            if (migration_safety_manager_attempt(runtime->migration_safety, &request, &safety_result)) {
+                awavma_runtime_status_t terminal = safety_result.state == MIGRATION_SAFETY_COMMITTED ?
+                    AWAVMA_RUNTIME_MIGRATION_COMMITTED :
+                    safety_result.state == MIGRATION_SAFETY_TARGET_GONE ? AWAVMA_RUNTIME_TARGET_GONE :
+                    AWAVMA_RUNTIME_REJECTED;
+                set_status(record, terminal, safety_result.detail);
+            }
             else
                 set_status(record, AWAVMA_RUNTIME_MIGRATION_METADATA_UNAVAILABLE,
                             "Phase 7 safety manager is unavailable");
@@ -2189,6 +2198,7 @@ const char *awavma_runtime_status_name(awavma_runtime_status_t status)
     case AWAVMA_RUNTIME_TARGET_GONE: return "TARGET_GONE";
     case AWAVMA_RUNTIME_ERROR: return "ERROR";
     case AWAVMA_RUNTIME_AMBIGUOUS: return "AMBIGUOUS";
+    case AWAVMA_RUNTIME_MIGRATION_COMMITTED: return "MIGRATION_COMMITTED";
     default: return "UNKNOWN";
     }
 }

@@ -21,6 +21,7 @@ typedef enum {
     AWAVMA_RUNTIME_TARGET_GONE,
     AWAVMA_RUNTIME_ERROR,
     AWAVMA_RUNTIME_AMBIGUOUS
+    ,AWAVMA_RUNTIME_MIGRATION_COMMITTED
 } awavma_runtime_status_t;
 
 typedef enum {
