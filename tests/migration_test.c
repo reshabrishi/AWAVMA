@@ -308,10 +308,18 @@ int main(void)
         set_live_thread_identity(&request, child_a, child_a);
         request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
         execute_and_print("T07", "MIGRATION_SUCCESS", &request, 1);
+        CPU_ZERO(&after); CPU_SET(source_cpu, &after);
+        if (sched_setaffinity(child_a, sizeof(after), &after) != 0 ||
+            sched_getaffinity(child_a, sizeof(before), &before) != 0 || !CPU_EQUAL(&before, &after)) {
+            print_test("T08", "MIGRATION_SUCCESS", "source affinity unavailable", "NOT TESTED — ENVIRONMENT LIMITATION");
+            goto t08_done;
+        }
         set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T08", "APPROVED", child_a, child_a);
         set_live_thread_identity(&request, child_a, child_a);
         request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
         execute_and_print("T08", "MIGRATION_SUCCESS", &request, 1);
+t08_done:
+        ;
     }
     set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "T35", "APPROVED", child_a, child_a);
     request.start_time_ticks = 1;
