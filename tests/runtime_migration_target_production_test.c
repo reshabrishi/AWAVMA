@@ -30,7 +30,8 @@ static uint64_t start_ticks(pid_t pid)
     return 0;
 }
 
-static const char *live_policy_outcome(pid_t pid, uint64_t ticks, int *expected_source, int *expected_destination)
+static const char *live_policy_outcome(pid_t pid, uint64_t ticks, int *expected_source,
+                                       int *expected_destination, int *source_cpu)
 {
     MigrationTargetTopology topology;
     RuntimeMigrationMetadata metadata;
@@ -38,7 +39,7 @@ static const char *live_policy_outcome(pid_t pid, uint64_t ticks, int *expected_
     unsigned eligible_alternatives = 0;
     int source_node;
 
-    if (expected_source == NULL || expected_destination == NULL ||
+    if (expected_source == NULL || expected_destination == NULL || source_cpu == NULL ||
         !runtime_get_thread_migration_metadata(pid, pid, ticks, &metadata) ||
         !metadata.current_cpu_available || metadata.current_cpu < 0 ||
         !metadata.permitted_cpu_set_available || !migration_target_topology_read(&topology) ||
@@ -47,6 +48,8 @@ static const char *live_policy_outcome(pid_t pid, uint64_t ticks, int *expected_
     source_node = topology.cpu_node[metadata.current_cpu];
     if (source_node < 0)
         return NULL;
+    *expected_source = source_node;
+    *source_cpu = metadata.current_cpu;
     for (unsigned node = 0; node < MIGRATION_TARGET_MAX_NODES; node++) {
         bool online = false;
         bool permitted = false;
@@ -72,7 +75,6 @@ static const char *live_policy_outcome(pid_t pid, uint64_t ticks, int *expected_
     }
     if (!physical_alternative)
         return "NO_ALTERNATE_TARGET";
-    *expected_source = source_node;
     return eligible_alternatives > 0 ? "REJECTED" : "TARGET_UNAVAILABLE";
 }
 
@@ -121,7 +123,9 @@ int main(void)
     char root[] = "/tmp/awavma-target-production-XXXXXX", cwd[PATH_MAX], bin_dir[PATH_MAX + 32];
     char config_path[PATH_MAX + 32], feedback_path[PATH_MAX + 256];
     awavma_runtime_config_t config; awavma_runtime_t *runtime; pid_t child; uint64_t ticks;
-    const char *live_outcome; int live_source = -1, live_destination = -1; bool initialized; bool test_passed; bool suite_passed = true;
+    const char *live_outcome; int live_source = -1, live_destination = -1, live_source_cpu = -1;
+    cpu_set_t original_affinity, pinned_affinity;
+    bool initialized, pinned = false, have_original_affinity = false, test_passed, suite_passed = true;
     if (mkdtemp(root) == NULL || getcwd(cwd, sizeof(cwd)) == NULL) return EXIT_FAILURE;
     child = fork(); if (child == 0) for (;;) pause(); if (child < 0) return EXIT_FAILURE;
     usleep(10000); ticks = start_ticks(child);
@@ -140,10 +144,25 @@ int main(void)
     printf("AR08_PLACEMENT_ALLOCATOR_SURVIVES_INIT: %s\n", initialized ? "PASS" : "FAIL");
     suite_passed = suite_passed && initialized;
 
-    live_outcome = initialized ? live_policy_outcome(child, ticks, &live_source, &live_destination) : NULL;
-    test_passed = live_outcome != NULL &&
+    live_outcome = initialized ? live_policy_outcome(child, ticks, &live_source, &live_destination,
+                                                      &live_source_cpu) : NULL;
+    if (live_outcome != NULL && live_source_cpu >= 0 &&
+        sched_getaffinity(child, sizeof(original_affinity), &original_affinity) == 0) {
+        have_original_affinity = true;
+        CPU_ZERO(&pinned_affinity);
+        CPU_SET(live_source_cpu, &pinned_affinity);
+        pinned = sched_setaffinity(child, sizeof(pinned_affinity), &pinned_affinity) == 0;
+        if (pinned) {
+            RuntimeMigrationMetadata pinned_metadata;
+            pinned = runtime_get_thread_migration_metadata(child, child, ticks, &pinned_metadata) &&
+                     pinned_metadata.current_cpu_available && pinned_metadata.current_cpu == live_source_cpu;
+        }
+    }
+    test_passed = live_outcome != NULL && pinned &&
                   run_case(runtime, child, ticks, AWAVMA_RUNTIME_TEST_TARGET_POLICY_LIVE,
-                            live_outcome, feedback_path, live_source, live_destination);
+                             live_outcome, feedback_path, live_source, live_destination);
+    if (have_original_affinity)
+        (void)sched_setaffinity(child, sizeof(original_affinity), &original_affinity);
     printf("RTPI00_LIVE_POLICY_TOPOLOGY_CORRECT: %s\n", test_passed ? "PASS" : "FAIL");
     suite_passed = suite_passed && test_passed;
 
