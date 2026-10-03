@@ -452,12 +452,23 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
         MigrationTargetResult result = migration_target_provider_get(&input, NULL, target);
 
         if (result == MIGRATION_TARGET_AVAILABLE && request->placement_available) {
+            RuntimeMigrationMetadata live;
+
+            if (!runtime_get_thread_migration_metadata(request->pid, request->migration_request.tid,
+                                                       request->start_time_ticks, &live) ||
+                !live.identity_match || !live.thread_belongs_to_process ||
+                !live.thread_start_time_ticks_available || !live.permitted_cpu_set_available)
+                return MIGRATION_TARGET_INTERNAL_ERROR;
             target->source_node_known = request->source_numa_node >= 0;
             target->source_numa_node = request->source_numa_node;
             /* Test-only provider inputs use a synthetic cross-node relationship. */
             target->has_target_numa_node = true;
             target->target_numa_node = 1;
             target->candidate_count = 1;
+            target->permitted_cpu_set_available = true;
+            target->permitted_cpu_set = live.permitted_cpu_set;
+            target->thread_start_time_ticks_available = true;
+            target->thread_start_time_ticks = live.thread_start_time_ticks;
         }
         return result;
     }
