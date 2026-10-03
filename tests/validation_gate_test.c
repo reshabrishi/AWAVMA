@@ -95,8 +95,10 @@ int main(void)
     roi = EvaluateROIGate(&decision, &config);
     assert(roi.status == GATE_INVALID);
     assert(strcmp(roi.reason, "EMPIRICAL_ROI_EVIDENCE_UNAVAILABLE") == 0);
-    decision.action = VALIDATION_ACTION_MOVE_MEMORY;
-    decision.evidence_model = DECISION_EVIDENCE_EMPIRICAL_GAIN_COST;
+    decision = test_decision();
+    roi = EvaluateROIGate(&decision, &config);
+    assert(roi.status == GATE_PASS);
+    assert(fabs(roi.score - 40.0) < 0.000001);
 
     safety = EvaluateSafetyGate(&monitor, &decision, &config);
     assert(safety.status == GATE_PASS);

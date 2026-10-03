@@ -17,6 +17,7 @@ int main(void)
     assert(fclose(file) == 0);
     assert(migration_cost_artifact_load(path, 1, 0, &artifact));
     assert(!migration_cost_artifact_load(path, 0, 1, &artifact));
+    assert(migration_cost_artifact_load(path, 1, 0, &artifact));
     artifact.migration_cost_seconds = 0.5;
     assert(migration_cost_roi_time_equivalent(10.0, 20.0, &artifact, &roi));
     assert(fabs(roi.saved_time_seconds - 2.0) < 1e-9);
