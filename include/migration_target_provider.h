@@ -67,6 +67,9 @@ typedef struct {
     char attempt_id[128];
     bool has_target_cpu_mask;
     cpu_set_t target_cpu_mask;
+    /* Full authoritative set retained for runtime-owned thread placement. */
+    bool eligible_cpu_set_available;
+    cpu_set_t eligible_cpu_set;
     bool permitted_cpu_set_available;
     cpu_set_t permitted_cpu_set;
     bool thread_start_time_ticks_available;

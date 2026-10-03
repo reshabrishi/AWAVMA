@@ -14,6 +14,7 @@
 #include "runtime_migration_metadata.h"
 #include "runtime_evidence.h"
 #include "thread_target_policy.h"
+#include "thread_placement_allocator.h"
 #include "thread_confidence.h"
 #include "worker_pool.h"
 
@@ -82,6 +83,7 @@ struct awavma_runtime {
     char runtime_results_path[4096];
     char migration_safety_history_path[4096];
     MigrationSafetyManager *migration_safety;
+    thread_placement_allocator_t *placement_allocator;
     page_candidate_provider_t *owned_page_provider;
     char page_registration_socket[4096];
     pending_feedback_t pending_feedback[DEFAULT_MAX_APPLICATIONS];
@@ -392,11 +394,11 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
                                                           const char *attempt_id,
                                                           MigrationTarget *target)
 {
+    awavma_runtime_t *runtime = context;
     RuntimeMigrationMetadata metadata;
     ThreadTargetPolicyInput policy_input;
 
-    (void)context;
-    if (request == NULL || target == NULL ||
+    if (runtime == NULL || request == NULL || target == NULL ||
         (request->action != VALIDATION_ACTION_MOVE_THREAD &&
          request->action != VALIDATION_ACTION_MOVE_MEMORY))
         return MIGRATION_TARGET_UNAVAILABLE;
@@ -512,6 +514,15 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
     MigrationTargetResult result = thread_target_policy_select(&policy_input, NULL, target);
 
     if (result == MIGRATION_TARGET_AVAILABLE && metadata.permitted_cpu_set_available) {
+        int allocated_cpu;
+
+        if (!thread_placement_allocator_select(runtime->placement_allocator, request->pid,
+                                               request->start_time_ticks, request->migration_request.tid,
+                                               metadata.thread_start_time_ticks, target->target_numa_node,
+                                               &target->eligible_cpu_set, attempt_id, true, &allocated_cpu))
+            return MIGRATION_TARGET_INTERNAL_ERROR;
+        CPU_ZERO(&target->target_cpu_mask);
+        CPU_SET(allocated_cpu, &target->target_cpu_mask);
         target->permitted_cpu_set_available = true;
         target->permitted_cpu_set = metadata.permitted_cpu_set;
         target->thread_start_time_ticks_available = metadata.thread_start_time_ticks_available;
@@ -2127,6 +2138,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
                     request.system_safe = false;
             }
             if (migration_safety_manager_attempt(runtime->migration_safety, &request, &safety_result)) {
+                thread_placement_allocator_finish(runtime->placement_allocator, safety_result.attempt_id,
+                                                  safety_result.state == MIGRATION_SAFETY_COMMITTED);
                 awavma_runtime_status_t terminal = safety_result.state == MIGRATION_SAFETY_COMMITTED ?
                     AWAVMA_RUNTIME_MIGRATION_COMMITTED :
                     safety_result.state == MIGRATION_SAFETY_TARGET_GONE ? AWAVMA_RUNTIME_TARGET_GONE :
@@ -2261,7 +2274,11 @@ const char *awavma_runtime_status_name(awavma_runtime_status_t status)
 
 awavma_runtime_t *awavma_runtime_create(void)
 {
-    return calloc(1, sizeof(awavma_runtime_t));
+    awavma_runtime_t *runtime = calloc(1, sizeof(*runtime));
+    if (runtime != NULL)
+        runtime->placement_allocator = thread_placement_allocator_create();
+    if (runtime != NULL && runtime->placement_allocator == NULL) { free(runtime); return NULL; }
+    return runtime;
 }
 
 int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t *config)
@@ -2641,6 +2658,7 @@ void awavma_runtime_destroy(awavma_runtime_t *runtime)
     runtime_monitor_destroy(runtime->monitor);
     worker_pool_destroy(runtime->pool);
     application_manager_destroy(runtime->manager);
+    thread_placement_allocator_destroy(runtime->placement_allocator);
     free(runtime->records);
     free(runtime);
 }

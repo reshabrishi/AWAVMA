@@ -4,12 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 
-static int select_destination_cpu(pid_t tid, const cpu_set_t *eligible)
+static int select_destination_cpu(const cpu_set_t *eligible)
 {
     int cpus[CPU_SETSIZE];
     unsigned count = 0;
     for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) if (CPU_ISSET(cpu, eligible)) cpus[count++] = cpu;
-    return cpus[(unsigned)tid % count];
+    return cpus[0];
 }
 
 static MigrationTargetResult reject(MigrationTarget *target, MigrationTargetResult result,
@@ -196,7 +196,9 @@ MigrationTargetResult thread_target_policy_select(const ThreadTargetPolicyInput 
                       "result=no_eligible_cpus source_node=%d candidates=0 reason=permitted_cpu_set_has_no_requested_node_cpu",
                       source_node);
     }
-    int selected_cpu = select_destination_cpu(input->tid, &candidate_mask);
+    int selected_cpu = select_destination_cpu(&candidate_mask);
+    target->eligible_cpu_set_available = true;
+    target->eligible_cpu_set = candidate_mask;
     CPU_ZERO(&candidate_mask);
     CPU_SET(selected_cpu, &candidate_mask);
     memset(&provider_input, 0, sizeof(provider_input));
