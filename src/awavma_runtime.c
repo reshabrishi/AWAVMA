@@ -472,7 +472,13 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
     policy_input.previous_action = request->target_policy_previous_action;
     policy_input.previous_source_node = request->target_policy_previous_source_node;
     policy_input.previous_target_node = request->target_policy_previous_target_node;
-    return thread_target_policy_select(&policy_input, NULL, target);
+    MigrationTargetResult result = thread_target_policy_select(&policy_input, NULL, target);
+
+    if (result == MIGRATION_TARGET_AVAILABLE && metadata.permitted_cpu_set_available) {
+        target->permitted_cpu_set_available = true;
+        target->permitted_cpu_set = metadata.permitted_cpu_set;
+    }
+    return result;
 }
 
 static BenefitClassification runtime_classify_benefit(void *context,

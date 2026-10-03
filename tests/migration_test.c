@@ -223,6 +223,7 @@ int main(void)
     int remote_nodes;
     cpu_set_t before;
     cpu_set_t after;
+    cpu_set_t permitted_before;
     int affinity_available;
     MigrationConfig age_config;
 
@@ -254,6 +255,7 @@ int main(void)
     execute_and_print("T22", "MIGRATION_INSUFFICIENT_INFORMATION", &request, 1);
 
     child_a = spawn_pause();
+    get_affinity(child_a, &permitted_before);
     set_identity(&request, VALIDATION_ACTION_MOVE_MEMORY, "T01", "APPROVED", child_a, 0);
     request.numa_nodes_available = true;
     request.source_numa_node = 0;
@@ -438,6 +440,30 @@ int main(void)
                minimum, maximum, total / repetitions);
     } else {
         print_test("T34", "execution overhead measurements", "affinity unavailable", "NOT TESTED — ENVIRONMENT LIMITATION");
+    }
+    if (child_a > 0 && CPU_COUNT(&permitted_before) >= 2) {
+        int source_cpu = -1, destination_cpu = -1;
+
+        for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+            if (CPU_ISSET(cpu, &permitted_before)) {
+                if (source_cpu < 0) source_cpu = cpu;
+                else { destination_cpu = cpu; break; }
+            }
+        CPU_ZERO(&after); CPU_SET(source_cpu, &after);
+        sched_setaffinity(child_a, sizeof(after), &after);
+        set_identity(&request, VALIDATION_ACTION_MOVE_THREAD, "MC09", "APPROVED", child_a, child_a);
+        request.requested_cpu_set_available = true; CPU_ZERO(&request.requested_cpu_set); CPU_SET(destination_cpu, &request.requested_cpu_set);
+        request.permitted_cpu_set_available = true; request.permitted_cpu_set = permitted_before;
+        Migration_Execute(&request, &report);
+        print_test("MC09_CURRENT_AFFINITY_NOT_PERMISSION", "MIGRATION_SUCCESS", MigrationResultName(report.result), report.result == MIGRATION_SUCCESS ? "PASS" : "FAIL");
+        request.permitted_cpu_set = after;
+        Migration_Execute(&request, &report);
+        print_test("MC10_REQUEST_OUTSIDE_PERMITTED_CPUSET", "MIGRATION_INVALID_DESTINATION", MigrationResultName(report.result), report.result == MIGRATION_INVALID_DESTINATION ? "PASS" : "FAIL");
+        request.permitted_cpu_set = permitted_before; CPU_ZERO(&request.requested_cpu_set); CPU_SET(CPU_SETSIZE - 1, &request.requested_cpu_set);
+        Migration_Execute(&request, &report);
+        print_test("MC11_REQUEST_OFFLINE_CPU", "MIGRATION_INVALID_DESTINATION", MigrationResultName(report.result), report.result == MIGRATION_INVALID_DESTINATION ? "PASS" : "FAIL");
+    } else {
+        print_test("MC09-MC11", "two permitted CPUs", "insufficient affinity", "NOT TESTED — ENVIRONMENT LIMITATION");
     }
     stop_child(child_a);
 

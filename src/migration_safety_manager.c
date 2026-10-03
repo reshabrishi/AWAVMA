@@ -480,6 +480,10 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
             prepared.migration_request.requested_cpu_set = target.target_cpu_mask;
             prepared.migration_request.requested_cpu_set_available = true;
         }
+        if (target.permitted_cpu_set_available) {
+            prepared.migration_request.permitted_cpu_set_available = true;
+            prepared.migration_request.permitted_cpu_set = target.permitted_cpu_set;
+        }
         if (target.source_node_known)
             prepared.placement_available = target.has_target_numa_node;
         request = &prepared;

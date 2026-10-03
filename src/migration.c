@@ -1,5 +1,6 @@
 #include "migration.h"
 #include "migration_log.h"
+#include "migration_target_provider.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -376,11 +377,15 @@ static MigrationResultCode build_requested_affinity(const MigrationRequest *requ
                                                     cpu_set_t *requested,
                                                     MigrationReport *report)
 {
-    cpu_set_t online;
+    MigrationTargetTopology topology;
 
     CPU_ZERO(requested);
-    if (sched_getaffinity(0, sizeof(online), &online) != 0) {
-        set_error(report, map_errno(errno, true), "cannot inspect available CPUs", errno);
+    if (!migration_target_topology_read(&topology)) {
+        set_error(report, MIGRATION_INSUFFICIENT_INFORMATION, "cannot inspect online CPUs", 0);
+        return report->result;
+    }
+    if (!request->permitted_cpu_set_available) {
+        set_error(report, MIGRATION_INSUFFICIENT_INFORMATION, "effective permitted CPU set unavailable", 0);
         return report->result;
     }
     if (request->requested_cpu_set_available) {
@@ -389,14 +394,16 @@ static MigrationResultCode build_requested_affinity(const MigrationRequest *requ
             return report->result;
         }
         for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
-            if (CPU_ISSET(cpu, &request->requested_cpu_set) && !CPU_ISSET(cpu, &online)) {
-                set_error(report, MIGRATION_INVALID_DESTINATION, "requested CPU is unavailable", EINVAL);
+            if (CPU_ISSET(cpu, &request->requested_cpu_set) &&
+                (!CPU_ISSET(cpu, &topology.online_cpus) || !CPU_ISSET(cpu, &request->permitted_cpu_set))) {
+                set_error(report, MIGRATION_INVALID_DESTINATION, "requested CPU is offline or outside permitted CPU set", EINVAL);
                 return report->result;
             }
         *requested = request->requested_cpu_set;
     } else {
         if (request->destination_cpu < 0 || request->destination_cpu >= CPU_SETSIZE ||
-            !CPU_ISSET(request->destination_cpu, &online)) {
+             !CPU_ISSET(request->destination_cpu, &topology.online_cpus) ||
+             !CPU_ISSET(request->destination_cpu, &request->permitted_cpu_set)) {
             set_error(report, MIGRATION_INVALID_DESTINATION, "destination CPU is unavailable", EINVAL);
             return report->result;
         }
@@ -420,6 +427,10 @@ static MigrationResultCode execute_thread_migration(const MigrationRequest *requ
     if (result != MIGRATION_SUCCESS)
         return result;
     result = build_requested_affinity(request, &requested, report);
+    if (result != MIGRATION_SUCCESS)
+        return result;
+    /* Recheck ownership immediately before changing the selected worker's placement. */
+    result = verify_thread(request, report);
     if (result != MIGRATION_SUCCESS)
         return result;
     if (sched_getaffinity(request->tid, sizeof(old_affinity), &old_affinity) != 0) {

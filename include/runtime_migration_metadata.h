@@ -53,6 +53,7 @@ typedef enum {
 /* Reads only live Linux state. Unavailable observations remain unavailable. */
 bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
                                      RuntimeMigrationMetadata *metadata);
+bool runtime_get_process_start_time_ticks(pid_t pid, uint64_t *start_time_ticks);
 bool runtime_get_thread_migration_metadata(pid_t pid, pid_t tid, uint64_t start_time_ticks,
                                             RuntimeMigrationMetadata *metadata);
 bool runtime_migration_checkpoint_affinity(const RuntimeMigrationMetadata *metadata,

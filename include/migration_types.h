@@ -53,6 +53,9 @@ typedef struct {
     int destination_cpu;
     cpu_set_t requested_cpu_set;
     bool requested_cpu_set_available;
+    /* Effective cgroup/cpuset permission captured by target selection. */
+    bool permitted_cpu_set_available;
+    cpu_set_t permitted_cpu_set;
     void **pages;
     size_t page_count;
     bool page_metadata_available;

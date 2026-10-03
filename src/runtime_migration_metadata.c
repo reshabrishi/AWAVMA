@@ -217,6 +217,14 @@ bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
     return true;
 }
 
+bool runtime_get_process_start_time_ticks(pid_t pid, uint64_t *start_time_ticks)
+{
+    uint64_t ignored_cpu_ticks;
+    int ignored_cpu;
+
+    return start_time_ticks != NULL && read_stat(pid, start_time_ticks, &ignored_cpu_ticks, &ignored_cpu);
+}
+
 bool runtime_get_thread_migration_metadata(pid_t pid, pid_t tid, uint64_t start_time_ticks,
                                             RuntimeMigrationMetadata *metadata)
 {

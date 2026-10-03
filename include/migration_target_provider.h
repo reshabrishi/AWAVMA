@@ -67,6 +67,8 @@ typedef struct {
     char attempt_id[128];
     bool has_target_cpu_mask;
     cpu_set_t target_cpu_mask;
+    bool permitted_cpu_set_available;
+    cpu_set_t permitted_cpu_set;
     bool has_target_numa_node;
     int target_numa_node;
     bool source_node_known;
