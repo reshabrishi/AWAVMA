@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <getopt.h>
 #include <limits.h>
+#include <math.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,9 +38,12 @@ static int parse_u64(const char *text, uint64_t *value, bool allow_zero)
 static int parse_positive_double(const char *text, double *value)
 {
     char *end = NULL;
+
+    if (text == NULL || *text == '\0')
+        return -1;
     errno = 0;
     *value = strtod(text, &end);
-    return errno == 0 && end != text && *end == '\0' && *value > 0.0;
+    return errno == 0 && end != text && *end == '\0' && isfinite(*value) && *value > 0.0 ? 0 : -1;
 }
 
 static void usage(const char *program)
