@@ -10,6 +10,17 @@ The required order is **metadata -> build -> tests -> environment check -> prefl
 
 ## Commands
 
+### Fresh Node Setup
+
+On a fresh CloudLab node, install dependencies and build the existing runtime binaries once:
+
+```bash
+cd ~/AWAVMA-validation
+./scripts/setup_cloudlab_node.sh
+```
+
+Use `--skip-install` when packages are already present, or `--check-only` to validate an existing setup without installing or rebuilding. A new CloudLab node does not require repeating project phases: this script only installs dependencies and builds existing phase/runtime binaries. Calibration and experiment collection remain separate, explicit steps.
+
 1. Validate the allocated environment: `scripts/run_full_experiment.sh --check-only`.
 2. Build and run the required project checks: `scripts/run_full_experiment.sh --tests-only`.
 3. Collect only default, local, and remote-memory baselines: `scripts/run_full_experiment.sh --baseline-only --output-dir DIR`.
