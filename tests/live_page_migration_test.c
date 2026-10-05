@@ -26,9 +26,14 @@
 #define LIVE_PAGE_COUNT 4U
 
 typedef struct {
+    int stage;
     int status;
     uint64_t start_time_ticks;
+    uint64_t client_generation;
+    PageCandidateResponseReason response_reason;
 } ChildReady;
+
+enum { CHILD_REGISTER_READY = 1, CHILD_REGISTRATION_RESULT = 2 };
 
 static uint64_t start_ticks(pid_t pid)
 {
@@ -111,6 +116,7 @@ static void child_workload(const char *socket_path, int ready_fd, int release_fd
         goto done;
     {
         PageCandidateWireMessage message = {0};
+        PageCandidateResponseReason reason = PAGE_CANDIDATE_REASON_MALFORMED;
 
         message.version = PAGE_CANDIDATE_WIRE_VERSION;
         message.operation = PAGE_CANDIDATE_WIRE_REGISTER;
@@ -122,13 +128,20 @@ static void child_workload(const char *socket_path, int ready_fd, int release_fd
         message.client_generation = 1;
         snprintf(message.app_id, sizeof(message.app_id), "%s", LIVE_APP_ID);
         snprintf(message.provenance, sizeof(message.provenance), "%s", LIVE_PROVENANCE);
-        if (!page_candidate_provider_send(socket_path, &message))
+        ready.stage = CHILD_REGISTER_READY;
+        ready.client_generation = message.client_generation;
+        if (write(ready_fd, &ready, sizeof(ready)) != sizeof(ready))
             goto done;
+        ready.stage = CHILD_REGISTRATION_RESULT;
+        ready.response_reason = reason;
+        ready.status = page_candidate_provider_send_wait(socket_path, &message, 2000, &reason) ==
+                           PAGE_CANDIDATE_STATUS_ACCEPTED && reason == PAGE_CANDIDATE_REASON_ACCEPTED ? 0 : 3;
+        ready.response_reason = reason;
     }
-    ready.status = 0;
 
 done:
-    (void)write(ready_fd, &ready, sizeof(ready));
+    if (ready.stage != CHILD_REGISTER_READY)
+        (void)write(ready_fd, &ready, sizeof(ready));
     if (ready.status == 0) {
         char release;
 
@@ -196,7 +209,8 @@ int main(void)
     }
     close(ready_pipe[1]); ready_pipe[1] = -1;
     close(release_pipe[0]); release_pipe[0] = -1;
-    if (child < 0 || read(ready_pipe[0], &ready, sizeof(ready)) != sizeof(ready)) {
+    if (child < 0 || read(ready_pipe[0], &ready, sizeof(ready)) != sizeof(ready) ||
+        ready.stage != CHILD_REGISTER_READY) {
         stage("LPM02_CHILD_REGION_CREATED", "FAIL", "child setup did not report");
         goto cleanup;
     }
@@ -205,14 +219,29 @@ int main(void)
         limited = true;
         goto cleanup;
     }
-    if (ready.status != 0 || ready.start_time_ticks == 0) {
+    if (ready.status != 1 || ready.start_time_ticks == 0 || ready.client_generation == 0) {
         stage("LPM02_CHILD_REGION_CREATED", "FAIL", "child mapping or registration failed");
+        goto cleanup;
+    }
+    bool polled = false;
+    for (unsigned tries = 0; tries < 200; tries++) {
+        if (page_candidate_provider_poll(provider)) { polled = true; break; }
+        usleep(10000);
+    }
+    if (!polled || read(ready_pipe[0], &ready, sizeof(ready)) != sizeof(ready) ||
+        ready.stage != CHILD_REGISTRATION_RESULT || ready.status != 0 ||
+        ready.response_reason != PAGE_CANDIDATE_REASON_ACCEPTED) {
+        stage("LPM03_AUTHENTICATED_REGISTRATION", "FAIL", "registration ACK was not accepted");
         goto cleanup;
     }
     child_waiting = true;
     stage("LPM02_CHILD_REGION_CREATED", "PASS", NULL);
-    if (!page_candidate_provider_poll(provider)) {
-        stage("LPM03_AUTHENTICATED_REGISTRATION", "FAIL", "authenticated registration was rejected");
+    PageCandidateRegistrationStatus registration = {0};
+    if (!page_candidate_provider_registration_status(provider, LIVE_APP_ID, child,
+                                                     ready.start_time_ticks, &registration) ||
+        !registration.accepted || registration.generation != ready.client_generation ||
+        registration.candidate_pages_per_request != PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST) {
+        stage("LPM03_AUTHENTICATED_REGISTRATION", "FAIL", "provider registration generation mismatch");
         goto cleanup;
     }
     stage("LPM03_AUTHENTICATED_REGISTRATION", "PASS", NULL);
