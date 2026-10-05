@@ -238,10 +238,16 @@ int main(void)
     stage("LPM02_CHILD_REGION_CREATED", "PASS", NULL);
     PageCandidateRegistrationStatus registration = {0};
     if (!page_candidate_provider_registration_status(provider, LIVE_APP_ID, child,
-                                                     ready.start_time_ticks, &registration) ||
-        !registration.accepted || registration.generation != ready.client_generation ||
-        registration.candidate_pages_per_request != PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST) {
+                                                     ready.start_time_ticks, &registration) || !registration.accepted) {
+        stage("LPM03_AUTHENTICATED_REGISTRATION", "FAIL", "provider registration was not current");
+        goto cleanup;
+    }
+    if (registration.generation != ready.client_generation) {
         stage("LPM03_AUTHENTICATED_REGISTRATION", "FAIL", "provider registration generation mismatch");
+        goto cleanup;
+    }
+    if (registration.candidate_pages_per_request != LIVE_PAGE_COUNT) {
+        stage("LPM03_AUTHENTICATED_REGISTRATION", "FAIL", "provider registration candidate-window mismatch");
         goto cleanup;
     }
     stage("LPM03_AUTHENTICATED_REGISTRATION", "PASS", NULL);
