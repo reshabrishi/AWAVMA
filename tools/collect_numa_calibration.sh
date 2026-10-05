@@ -10,7 +10,17 @@ PAIRS=${P4C_PAIRS:-7}; WARMUPS=2; WORKLOADS=(mixed)
 make -C "$ROOT" bin/p4c-migration-cost-collector >/dev/null
 [[ "$(uname -s)" == Linux ]] || { printf 'ENV_LIMITED: Linux is required\n' >&2; exit 3; }
 command -v numactl >/dev/null || { printf 'ENV_LIMITED: numactl unavailable\n' >&2; exit 3; }
-numactl --hardware | rg -q 'available: [2-9]|available: [1-9][0-9]' || { printf 'ENV_LIMITED: fewer than two NUMA nodes\n' >&2; exit 3; }
+command -v awk >/dev/null || { printf 'PREFLIGHT_ERROR: awk unavailable\n' >&2; exit 2; }
+if ! NUMA_HARDWARE=$(numactl --hardware 2>&1); then
+  printf 'PREFLIGHT_ERROR: numactl --hardware failed: %s\n' "$NUMA_HARDWARE" >&2
+  exit 2
+fi
+if ! NUMA_NODE_COUNT=$(awk '/^available:[[:space:]]+[0-9]+[[:space:]]+nodes/ { print $2; exit }' <<<"$NUMA_HARDWARE"); then
+  printf 'PREFLIGHT_ERROR: unable to parse numactl topology\n' >&2
+  exit 2
+fi
+[[ "$NUMA_NODE_COUNT" =~ ^[0-9]+$ ]] || { printf 'PREFLIGHT_ERROR: malformed numactl topology\n' >&2; exit 2; }
+(( NUMA_NODE_COUNT >= 2 )) || { printf 'ENV_LIMITED: fewer than two NUMA nodes\n' >&2; exit 3; }
 EXPERIMENT="p4c-$(date -u +%Y%m%dT%H%M%SZ)-$$"; RUN="$OUT/${MODE#--}/$EXPERIMENT"; mkdir -p "$RUN/placement" "$RUN/logs"
 printf '%s\n' 'run_id,pair_index,pair_order,warmup,action_kind,benchmark_pattern,placement_mode,threads,memory_bytes,page_size,local_node,remote_node,numa_distance,duration_seconds,elapsed_ms,verification_status,memory_policy_restored,total_pages,queryable_pages,other_pages,unknown_pages,placement_artifact,benchmark_exit_status,measurement_valid,invalid_reason' >"$RUN/raw_timing.csv"
 printf '%s\n' 'run_id,warmup,requested_pages,attempted_pages,migrated_pages,failed_pages,elapsed_ms,source_node,destination_node,distance,page_size,measurement_valid,failure_reason' >"$RUN/raw_cost.csv"
