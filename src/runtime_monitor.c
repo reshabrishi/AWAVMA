@@ -18,11 +18,12 @@
 #define DEFAULT_RESULTS_DIR "results/continuous_monitoring"
 #define DEFAULT_RESULTS_PATH "results/continuous_monitoring_results.csv"
 #define DEFAULT_LOG_PATH "logs/continuous_monitoring.log"
-#define RUNTIME_RESULTS_HEADER "app_id,pid,start_time_ticks,worker_id,status,samples,submissions,deferred,last_result"
+#define RUNTIME_RESULTS_HEADER "app_id,pid,start_time_ticks,worker_id,status,samples,submissions,deferred,valid_interval_cpu_samples,persistent_monitor_ready,access_signal_available,stability_available,classifier_confidence_available,memory_utilization_available,concurrency_available,hard_safety_evidence_complete,last_result"
 
 typedef struct {
     runtime_monitor_record_t record;
     application_manager_record_t application;
+    monitor_session_t *session;
     uint64_t next_due_ms;
     uint64_t next_due_ns;
     bool seen;
@@ -104,12 +105,20 @@ static void write_result_locked(runtime_monitor_t *monitor, const monitor_entry_
 {
     if (monitor->results_file == NULL)
         return;
-    fprintf(monitor->results_file, "%s,%ld,%llu,%d,%s,%zu,%zu,%zu,%d\n",
+    fprintf(monitor->results_file, "%s,%ld,%llu,%d,%s,%zu,%zu,%zu,%zu,%s,%s,%s,%s,%s,%s,%s,%d\n",
             entry->record.app_id, (long)entry->record.pid,
             (unsigned long long)entry->record.start_time_ticks,
             entry->record.last_worker_id, status_name(entry->record.status),
             entry->record.samples, entry->record.submissions,
-            entry->record.deferred_jobs, entry->record.last_result);
+            entry->record.deferred_jobs, entry->record.valid_interval_cpu_samples,
+            entry->record.persistent_monitor_ready ? "true" : "false",
+            entry->record.access_signal_available ? "true" : "false",
+            entry->record.stability_available ? "true" : "false",
+            entry->record.classifier_confidence_available ? "true" : "false",
+            entry->record.memory_utilization_available ? "true" : "false",
+            entry->record.concurrency_available ? "true" : "false",
+            entry->record.hard_safety_evidence_complete ? "true" : "false",
+            entry->record.last_result);
     fflush(monitor->results_file);
 }
 
@@ -131,8 +140,7 @@ static ssize_t find_entry_locked(const runtime_monitor_t *monitor,
         const runtime_monitor_record_t *record = &monitor->entries[index].record;
 
         if (record->pid == application->pid &&
-            record->start_time_ticks == application->start_time_ticks &&
-            strcmp(record->app_id, application->app_id) == 0)
+            record->start_time_ticks == application->start_time_ticks)
             return (ssize_t)index;
     }
     return -1;
@@ -186,6 +194,7 @@ static void monitor_job(void *argument)
     bool valid;
     int result;
     int worker_id;
+    monitor_evidence_status_t evidence;
     monitor_profile_scope_t event_profile;
     monitor_profile_scope_t execution_profile;
     monitor_profile_scope_t worker_profile;
@@ -234,7 +243,25 @@ static void monitor_job(void *argument)
         config.log_path = NULL;
         config.target_is_child = false;
         config.stop_requested = NULL;
-        result = monitor_run_pid_once(&config);
+        pthread_mutex_lock(&monitor->mutex);
+        entry = &monitor->entries[context->entry_index];
+        if (entry->session == NULL)
+            result = monitor_session_open(&config, &entry->session);
+        else
+            result = 0;
+        if (result == 0)
+            result = monitor_session_sample(entry->session);
+        if (result == 0 && monitor_session_evidence_status(entry->session, &evidence)) {
+            entry->record.valid_interval_cpu_samples = (size_t)evidence.valid_interval_cpu_samples;
+            entry->record.persistent_monitor_ready = evidence.persistent_state_ready;
+            entry->record.access_signal_available = evidence.access_signal_available;
+            entry->record.stability_available = evidence.stability_available;
+            entry->record.classifier_confidence_available = evidence.classifier_confidence_available;
+            entry->record.memory_utilization_available = evidence.memory_utilization_available;
+            entry->record.concurrency_available = evidence.concurrency_available;
+            entry->record.hard_safety_evidence_complete = evidence.hard_safety_evidence_complete;
+        }
+        pthread_mutex_unlock(&monitor->mutex);
     }
     monitor_profile_scope_end(&execution_profile, result == 0 ? "OK" : "ERROR");
     monitor_profile_scope_end(&worker_profile, result == 0 ? "OK" : "ERROR");
@@ -244,10 +271,14 @@ static void monitor_job(void *argument)
     entry->record.in_flight = false;
     entry->record.last_result = result;
     monitor->active_jobs--;
-    if (!valid || result != 0) {
-        bool target_gone = !valid || result == MONITOR_RESULT_TARGET_GONE;
+        if (!valid || result != 0) {
+            bool target_gone = !valid || result == MONITOR_RESULT_TARGET_GONE;
 
-        entry->record.status = target_gone ? RUNTIME_MONITOR_TARGET_GONE : RUNTIME_MONITOR_ERROR;
+            entry->record.status = target_gone ? RUNTIME_MONITOR_TARGET_GONE : RUNTIME_MONITOR_ERROR;
+            if (target_gone) {
+                monitor_session_close(entry->session);
+                entry->session = NULL;
+            }
         log_locked(monitor, target_gone ? "TARGET_GONE" : "SAMPLE_ERROR", entry,
                     target_gone ? "application identity no longer matches" : "Phase 3 one-sample call failed");
     } else {
@@ -613,6 +644,10 @@ void runtime_monitor_shutdown(runtime_monitor_t *monitor)
         return;
     atomic_store(&monitor->stop_requested, true);
     worker_pool_wait_idle(monitor->pool);
+    for (size_t index = 0; index < monitor->count; index++) {
+        monitor_session_close(monitor->entries[index].session);
+        monitor->entries[index].session = NULL;
+    }
     if (monitor->results_file != NULL)
         fclose(monitor->results_file);
     if (monitor->log_file != NULL)

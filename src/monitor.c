@@ -115,17 +115,31 @@ typedef struct {
     size_t history_count;
     double start_monotonic;
     uint64_t sample_count;
+    uint64_t valid_interval_cpu_samples;
     const monitor_config_t *config;
 } monitor_state_t;
 
+struct monitor_session {
+    monitor_state_t state;
+    monitor_config_t config;
+    char *output_path;
+    char *thread_output_path;
+    char *log_path;
+    char *pattern;
+    char *threads;
+    char *memory_mb;
+    char *iterations;
+    char *duration;
+};
+
 static const char *monitor_csv_header(void)
 {
-    return "timestamp,elapsed_ms,pid,system_cpu_utilization_percent,process_cpu_utilization_percent,rss_kb,vms_kb,rss_delta_kb,minor_page_faults,major_page_faults,interval_minor_faults,interval_major_faults,cache_references,cache_misses,thread_count,numa_nodes,process_numa_pages,benchmark_pattern,benchmark_threads,benchmark_memory_mb,benchmark_iterations,benchmark_duration_sec";
+    return "timestamp,elapsed_ms,pid,start_time_ticks,system_cpu_utilization_percent,process_cpu_utilization_percent,rss_kb,vms_kb,rss_delta_kb,minor_page_faults,major_page_faults,interval_minor_faults,interval_major_faults,cache_references,cache_misses,thread_count,numa_nodes,process_numa_pages,benchmark_pattern,benchmark_threads,benchmark_memory_mb,benchmark_iterations,benchmark_duration_sec";
 }
 
 static const char *thread_csv_header(void)
 {
-    return "timestamp,elapsed_ms,pid,tid,cpu,cpu_node,cpu_utilization_percent,state";
+    return "timestamp,elapsed_ms,pid,start_time_ticks,tid,cpu,cpu_node,cpu_utilization_percent,state";
 }
 
 static double monotonic_seconds(void)
@@ -665,8 +679,8 @@ static void write_sample(monitor_state_t *state, const monitor_sample_t *sample,
 
     monitor_profile_scope_begin(&profile, "sample", "csv_formatting_process", NULL, state->pid, 0);
     fprintf(state->output,
-            "%s,%" PRIu64 ",%ld,%.3f,%.3f,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRIu64 ",%" PRIu64 ",%" PRId64 ",%" PRId64 ",%lld,%lld,%zu,%d,%s,%s,%s,%s,%s,%s\n",
-            timestamp, sample->elapsed_ms, (long)state->pid,
+             "%s,%" PRIu64 ",%ld,%" PRIu64 ",%.3f,%.3f,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRIu64 ",%" PRIu64 ",%" PRId64 ",%" PRId64 ",%lld,%lld,%zu,%d,%s,%s,%s,%s,%s,%s\n",
+             timestamp, sample->elapsed_ms, (long)state->pid, sample->process.start_time_ticks,
             sample->system_cpu_utilization, sample->process_cpu_utilization,
             sample->rss_kb, sample->vms_kb, sample->rss_delta_kb,
             sample->process.minor_faults, sample->process.major_faults,
@@ -686,8 +700,8 @@ static void write_sample(monitor_state_t *state, const monitor_sample_t *sample,
     for (size_t index = 0; index < sample->thread_count; index++) {
         const thread_sample_t *thread = &sample->threads[index];
 
-        fprintf(state->thread_output, "%s,%" PRIu64 ",%ld,%ld,%d,%d,%.3f,%c\n",
-                timestamp, sample->elapsed_ms, (long)state->pid, (long)thread->tid,
+        fprintf(state->thread_output, "%s,%" PRIu64 ",%ld,%" PRIu64 ",%ld,%d,%d,%.3f,%c\n",
+                timestamp, sample->elapsed_ms, (long)state->pid, sample->process.start_time_ticks, (long)thread->tid,
                 thread->cpu, thread->cpu_node, thread->cpu_utilization, thread->state);
     }
     monitor_profile_scope_end(&profile, "OK");
@@ -761,6 +775,42 @@ static void sleep_interval(unsigned interval_ms, volatile sig_atomic_t *stop_req
 }
 
 static void cleanup_monitor_state(monitor_state_t *state);
+static int initialize_monitor_state(const monitor_config_t *config, monitor_state_t *state);
+
+static char *copy_text(const char *text)
+{
+    return text == NULL ? NULL : strdup(text);
+}
+
+static bool copy_session_config(monitor_session_t *session, const monitor_config_t *config)
+{
+    session->config = *config;
+    session->output_path = copy_text(config->output_path);
+    session->thread_output_path = copy_text(config->thread_output_path);
+    session->log_path = copy_text(config->log_path);
+    session->pattern = copy_text(config->metadata.pattern);
+    session->threads = copy_text(config->metadata.threads);
+    session->memory_mb = copy_text(config->metadata.memory_mb);
+    session->iterations = copy_text(config->metadata.iterations);
+    session->duration = copy_text(config->metadata.duration);
+    if (session->output_path == NULL || session->thread_output_path == NULL ||
+        (config->log_path != NULL && session->log_path == NULL) ||
+        (config->metadata.pattern != NULL && session->pattern == NULL) ||
+        (config->metadata.threads != NULL && session->threads == NULL) ||
+        (config->metadata.memory_mb != NULL && session->memory_mb == NULL) ||
+        (config->metadata.iterations != NULL && session->iterations == NULL) ||
+        (config->metadata.duration != NULL && session->duration == NULL))
+        return false;
+    session->config.output_path = session->output_path;
+    session->config.thread_output_path = session->thread_output_path;
+    session->config.log_path = session->log_path;
+    session->config.metadata.pattern = session->pattern;
+    session->config.metadata.threads = session->threads;
+    session->config.metadata.memory_mb = session->memory_mb;
+    session->config.metadata.iterations = session->iterations;
+    session->config.metadata.duration = session->duration;
+    return true;
+}
 
 static int initialize_monitor_state(const monitor_config_t *config,
                                     monitor_state_t *state)
@@ -810,59 +860,112 @@ static void cleanup_monitor_state(monitor_state_t *state)
         fclose(state->log);
 }
 
-int monitor_run_pid_once(const monitor_config_t *config)
+void monitor_session_close(monitor_session_t *session)
 {
-    monitor_profile_scope_t total_profile;
-    monitor_profile_scope_t lifecycle_profile;
-    monitor_profile_scope_t sample_profile;
-    monitor_state_t state;
-    monitor_sample_t sample;
-    char timestamp[32];
-    int init_result;
+    if (session == NULL)
+        return;
+    cleanup_monitor_state(&session->state);
+    free(session->output_path);
+    free(session->thread_output_path);
+    free(session->log_path);
+    free(session->pattern);
+    free(session->threads);
+    free(session->memory_mb);
+    free(session->iterations);
+    free(session->duration);
+    free(session);
+}
 
-    monitor_profile_scope_begin(&total_profile, "lifecycle", "monitor_run_pid_once", NULL,
-                                config == NULL ? -1 : config->pid, 0);
-    monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "initialization", NULL,
-                                config == NULL ? -1 : config->pid, 0);
-    init_result = initialize_monitor_state(config, &state);
-    monitor_profile_scope_end(&lifecycle_profile, init_result == 0 ? "OK" : "ERROR");
-    if (init_result != 0) {
-        if (config != NULL && config->pid > 0)
-            fprintf(stderr, "Error: target PID %ld is unavailable for one sample.\n", (long)config->pid);
-        monitor_profile_scope_end(&total_profile, "ERROR");
-        return init_result == MONITOR_RESULT_TARGET_GONE ?
-                   MONITOR_RESULT_TARGET_GONE : MONITOR_RESULT_ERROR;
+int monitor_session_open(const monitor_config_t *config, monitor_session_t **session)
+{
+    monitor_session_t *created;
+    int result;
+
+    if (session == NULL)
+        return MONITOR_RESULT_ERROR;
+    *session = NULL;
+    if (config == NULL)
+        return MONITOR_RESULT_ERROR;
+    created = calloc(1, sizeof(*created));
+    if (created == NULL)
+        return MONITOR_RESULT_ERROR;
+    created->state.counters.references_fd = -1;
+    created->state.counters.misses_fd = -1;
+    if (!copy_session_config(created, config)) {
+        monitor_session_close(created);
+        return MONITOR_RESULT_ERROR;
     }
-    monitor_profile_scope_begin(&sample_profile, "sample", "monitor_sample_total", NULL, state.pid, 0);
-    if (collect_sample(&state, &sample) != 0) {
-        int result = target_alive(&state) ? MONITOR_RESULT_ERROR : MONITOR_RESULT_TARGET_GONE;
-
-        free(sample.threads);
-        monitor_profile_scope_end(&sample_profile, "ERROR");
-        monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL, state.pid, 0);
-        cleanup_monitor_state(&state);
-        monitor_profile_scope_end(&lifecycle_profile, "OK");
-        monitor_profile_scope_end(&total_profile, "ERROR");
+    result = initialize_monitor_state(&created->config, &created->state);
+    if (result != 0) {
+        monitor_session_close(created);
         return result;
     }
-    if (!target_alive(&state)) {
+    *session = created;
+    return 0;
+}
+
+int monitor_session_sample(monitor_session_t *session)
+{
+    monitor_sample_t sample = {0};
+    char timestamp[32];
+
+    if (session == NULL || !target_alive(&session->state))
+        return MONITOR_RESULT_TARGET_GONE;
+    if (collect_sample(&session->state, &sample) != 0) {
         free(sample.threads);
-        monitor_profile_scope_end(&sample_profile, "TARGET_GONE");
-        monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL, state.pid, 0);
-        cleanup_monitor_state(&state);
-        monitor_profile_scope_end(&lifecycle_profile, "OK");
-        monitor_profile_scope_end(&total_profile, "TARGET_GONE");
+        return target_alive(&session->state) ? MONITOR_RESULT_ERROR : MONITOR_RESULT_TARGET_GONE;
+    }
+    if (!target_alive(&session->state)) {
+        free(sample.threads);
         return MONITOR_RESULT_TARGET_GONE;
     }
     human_timestamp(timestamp, sizeof(timestamp));
-    write_sample(&state, &sample, timestamp);
-    monitor_profile_scope_end(&sample_profile, "OK");
+    write_sample(&session->state, &sample, timestamp);
+    if (sample.process_cpu_utilization >= 0.0 && sample.process_cpu_utilization <= 100.0 &&
+        session->state.valid_interval_cpu_samples < MONITOR_EVIDENCE_WINDOW)
+        session->state.valid_interval_cpu_samples++;
     free(sample.threads);
-    monitor_profile_scope_begin(&lifecycle_profile, "lifecycle", "finalization", NULL, state.pid, 0);
-    cleanup_monitor_state(&state);
-    monitor_profile_scope_end(&lifecycle_profile, "OK");
-    monitor_profile_scope_end(&total_profile, "OK");
+    session->state.sample_count++;
     return 0;
+}
+
+bool monitor_session_access_evidence(const monitor_session_t *session,
+                                     monitor_access_evidence_t *evidence)
+{
+    if (session == NULL || evidence == NULL)
+        return false;
+    memset(evidence, 0, sizeof(*evidence));
+    evidence->pid = session->state.pid;
+    evidence->start_time_ticks = session->config.expected_start_time_available ?
+        session->config.expected_start_time_ticks : 0;
+    evidence->sample_elapsed_ms = (uint64_t)((monotonic_seconds() -
+                                               session->state.start_monotonic) * 1000.0);
+    evidence->source = MONITOR_ACCESS_SIGNAL_UNAVAILABLE;
+    return true;
+}
+
+bool monitor_session_evidence_status(const monitor_session_t *session,
+                                     monitor_evidence_status_t *status)
+{
+    if (session == NULL || status == NULL)
+        return false;
+    memset(status, 0, sizeof(*status));
+    status->completed_samples = session->state.sample_count;
+    status->valid_interval_cpu_samples = session->state.valid_interval_cpu_samples;
+    status->persistent_state_ready = true;
+    status->access_signal_source = MONITOR_ACCESS_SIGNAL_UNAVAILABLE;
+    return true;
+}
+
+int monitor_run_pid_once(const monitor_config_t *config)
+{
+    monitor_session_t *session = NULL;
+    int result = monitor_session_open(config, &session);
+
+    if (result == 0)
+        result = monitor_session_sample(session);
+    monitor_session_close(session);
+    return result;
 }
 
 int monitor_run_pid(const monitor_config_t *config)

@@ -132,6 +132,10 @@ MigrationTargetResult migration_target_provider_get(const MigrationTargetInput *
     target->start_time_ticks = input->start_time_ticks;
     target->source = input->source;
     snprintf(target->attempt_id, sizeof(target->attempt_id), "%s", input->attempt_id);
+    if (input->source_node_available) {
+        target->source_node_known = true;
+        target->source_numa_node = input->source_numa_node;
+    }
     if (input->action != VALIDATION_ACTION_MOVE_THREAD && input->action != VALIDATION_ACTION_MOVE_MEMORY)
         return MIGRATION_TARGET_UNSUPPORTED_ACTION;
     if (active == NULL) {
@@ -179,4 +183,25 @@ MigrationTargetResult migration_target_provider_get(const MigrationTargetInput *
     snprintf(target->reason, sizeof(target->reason), "authoritative target accepted");
     target->policy_result = MIGRATION_TARGET_AVAILABLE;
     return MIGRATION_TARGET_AVAILABLE;
+}
+
+MigrationTargetStructure migration_target_structure_validate(const MigrationTarget *target,
+                                                              bool requires_cross_node)
+{
+    if (target == NULL || target->pid <= 0 || target->start_time_ticks == 0 ||
+        target->attempt_id[0] == '\0')
+        return MIGRATION_TARGET_STRUCTURE_BINDING_INVALID;
+    if (target->action == VALIDATION_ACTION_MOVE_THREAD) {
+        if (!target->has_target_cpu_mask || CPU_COUNT(&target->target_cpu_mask) == 0 ||
+            !target->has_target_numa_node)
+            return MIGRATION_TARGET_STRUCTURE_THREAD_CPU_INVALID;
+    } else if (target->action == VALIDATION_ACTION_MOVE_MEMORY) {
+        if (!target->source_node_known || !target->has_target_numa_node ||
+            target->source_numa_node < 0 || target->target_numa_node < 0 ||
+            (requires_cross_node && target->source_numa_node == target->target_numa_node))
+            return MIGRATION_TARGET_STRUCTURE_MEMORY_NUMA_INVALID;
+    } else {
+        return MIGRATION_TARGET_STRUCTURE_BINDING_INVALID;
+    }
+    return MIGRATION_TARGET_STRUCTURE_VALID;
 }

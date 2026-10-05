@@ -145,12 +145,21 @@ int main(void)
     request.start_time_ticks = start; request.attempt_id = "pc-immutable"; pages[0] = memory;
     request.query_context = (int[]){0};
     passed = passed && page_checkpoint_capture(&request, &checkpoint) == PAGE_CHECKPOINT_COMPLETE &&
-             page_checkpoint_matches_attempt(&checkpoint, getpid(), start, "pc-immutable");
+              page_checkpoint_matches_attempt(&checkpoint, getpid(), start, "pc-immutable");
+    MemoryRecoveryEvidence recovery = {0};
+    passed = passed && page_checkpoint_recovery_evidence(&checkpoint, true, 0, 1, &recovery) &&
+              recovery.checkpoint_complete && recovery.original_placement_known &&
+              recovery.rollback_provider_retained && recovery.candidate_count == 1 &&
+              strcmp(recovery.attempt_id, "pc-immutable") == 0;
     pages[0] = (char *)memory + page_size;
     passed = passed && checkpoint.entries[0].address == memory &&
-             !page_checkpoint_matches_attempt(&checkpoint, getpid(), start, "other-attempt");
+              !page_checkpoint_matches_attempt(&checkpoint, getpid(), start, "other-attempt");
     report("PC12_NODE_ZERO_VALIDITY", passed); report("PC13_ATTEMPT_MISMATCH", passed);
-    report("PC14_IMMUTABLE_AFTER_CAPTURE", passed); page_checkpoint_release(&checkpoint);
+    report("PC14_IMMUTABLE_AFTER_CAPTURE", passed); report("PC15_RECOVERY_EVIDENCE_COMPLETE", passed);
+    page_checkpoint_release(&checkpoint);
+    memset(&recovery, 0, sizeof(recovery));
+    passed = passed && !page_checkpoint_recovery_evidence(&checkpoint, true, 0, 1, &recovery);
+    report("PC16_RECOVERY_EVIDENCE_INCOMPLETE_REJECTED", passed);
 
     {
         MigrationSafetyManager *manager = migration_safety_manager_create();

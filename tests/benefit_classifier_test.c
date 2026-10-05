@@ -118,5 +118,10 @@ int main(void)
     passed = expect("BC18_STALE_PHASE5_PHASE6", &input, STALE_OR_IDENTITY_MISMATCH) && passed;
     input = input_for(); input.action = VALIDATION_ACTION_NO_MIGRATION;
     passed = expect("BC19_NO_MIGRATION_ACTION", &input, ACTION_NOT_ELIGIBLE) && passed;
+    DecisionData margins = {.phase5_memory_score_final = 1.2, .phase5_thread_score_final = 1.0,
+                            .phase5_epsilon = 0.1};
+    passed = benefit_utility_action_margin_matches(&margins, VALIDATION_ACTION_MOVE_MEMORY) &&
+             !benefit_utility_action_margin_matches(&margins, VALIDATION_ACTION_MOVE_THREAD) && passed;
+    printf("BC20_SYMMETRIC_MARGIN_PREPARATION: %s\n", passed ? "PASS" : "FAIL");
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

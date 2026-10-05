@@ -24,10 +24,13 @@ typedef struct {
     bool thread_migration_ready;
     bool page_migration_ready;
     bool phase7_ready;
+    /* Strict capability conjunction required by the production real-migration profile. */
+    bool production_real_migration_ready;
     char reason[160];
 } EnvironmentCapabilities;
 
 const char *environment_capability_state_name(EnvironmentCapabilityState state);
+bool environment_capabilities_production_real_migration_ready(const EnvironmentCapabilities *capabilities);
 bool environment_capabilities_detect(EnvironmentCapabilities *capabilities);
 
 #endif

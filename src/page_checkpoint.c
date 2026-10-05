@@ -69,6 +69,30 @@ void page_checkpoint_release(MigrationPageCheckpoint *checkpoint)
     memset(checkpoint, 0, sizeof(*checkpoint));
 }
 
+bool page_checkpoint_recovery_evidence(const MigrationPageCheckpoint *checkpoint,
+                                       bool rollback_provider_retained,
+                                       int source_numa_node, int target_numa_node,
+                                       MemoryRecoveryEvidence *evidence)
+{
+    if (checkpoint == NULL || evidence == NULL || checkpoint->pid <= 0 ||
+        checkpoint->start_time_ticks == 0 || checkpoint->attempt_id[0] == '\0' ||
+        !checkpoint->complete || checkpoint->requested_count == 0 ||
+        checkpoint->known_count != checkpoint->requested_count || checkpoint->unknown_count != 0 ||
+        source_numa_node < 0 || target_numa_node < 0 || source_numa_node == target_numa_node)
+        return false;
+    memset(evidence, 0, sizeof(*evidence));
+    evidence->pid = checkpoint->pid;
+    evidence->start_time_ticks = checkpoint->start_time_ticks;
+    snprintf(evidence->attempt_id, sizeof(evidence->attempt_id), "%s", checkpoint->attempt_id);
+    evidence->candidate_count = checkpoint->requested_count;
+    evidence->checkpoint_complete = true;
+    evidence->original_placement_known = true;
+    evidence->rollback_provider_retained = rollback_provider_retained;
+    evidence->source_numa_node = source_numa_node;
+    evidence->target_numa_node = target_numa_node;
+    return true;
+}
+
 bool page_checkpoint_matches_attempt(const MigrationPageCheckpoint *checkpoint, pid_t pid,
                                      uint64_t start_time_ticks, const char *attempt_id)
 {

@@ -490,7 +490,7 @@ static MigrationResultCode query_page_nodes(pid_t pid, void **pages, size_t page
 #endif
 }
 
-static MigrationResultCode execute_memory_migration(const MigrationRequest *request, MigrationReport *report)
+MigrationResultCode Migration_ExecuteMemoryOperation(const MigrationRequest *request, MigrationReport *report)
 {
     int *nodes = NULL;
     int *status = NULL;
@@ -498,6 +498,7 @@ static MigrationResultCode execute_memory_migration(const MigrationRequest *requ
     long page_size;
     MigrationResultCode verification;
 
+    double operation_start = 0.0;
     verification = verify_process(request->pid, report);
     if (verification != MIGRATION_SUCCESS)
         return verification;
@@ -553,6 +554,8 @@ static MigrationResultCode execute_memory_migration(const MigrationRequest *requ
 #ifdef SYS_move_pages
     for (size_t index = 0; index < request->page_count; index++)
         nodes[index] = request->destination_numa_node;
+    /* Canonical cost boundary: state-changing move_pages plus destination verification. */
+    operation_start = monotonic_seconds();
     errno = 0;
     result = syscall(SYS_move_pages, request->pid, request->page_count, request->pages,
                      nodes, status, MPOL_MF_MOVE);
@@ -611,6 +614,8 @@ static MigrationResultCode execute_memory_migration(const MigrationRequest *requ
 cleanup:
     free(status);
     free(nodes);
+    if (operation_start > 0.0)
+        report->memory_operation_time_ms = (monotonic_seconds() - operation_start) * 1000.0;
     return report->result;
 }
 
@@ -726,7 +731,7 @@ MigrationResultCode Migration_Execute(const MigrationRequest *request, Migration
     if (request->phase5_decision.action == VALIDATION_ACTION_MOVE_THREAD)
         result = execute_thread_migration(request, report);
     else
-        result = execute_memory_migration(request, report);
+        result = Migration_ExecuteMemoryOperation(request, report);
     report->result = result;
     if (result == MIGRATION_SUCCESS || result == MIGRATION_PARTIAL_SUCCESS)
         mark_cooldown(request);

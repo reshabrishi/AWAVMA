@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "migration.h"
+#include "memory_migration_transaction.h"
 #include "migration_target_provider.h"
 #include "page_candidate_provider.h"
 #include "page_checkpoint.h"
@@ -229,117 +230,31 @@ int main(void)
     request.numa_nodes_available = true;
     request.source_numa_node = 0;
     request.destination_numa_node = 1;
-    request.phase5_decision.action = VALIDATION_ACTION_MOVE_MEMORY;
-    request.phase5_decision.pid = child;
-    request.phase6_validation.action = VALIDATION_ACTION_MOVE_MEMORY;
-    snprintf(request.phase6_validation.final_decision, sizeof(request.phase6_validation.final_decision), "APPROVED");
     {
-        PageCheckpointRequest checkpoint_request = {
-            .pid = child, .start_time_ticks = ready.start_time_ticks, .attempt_id = LIVE_ATTEMPT_ID,
-            .pages = (const void *const *)request.pages, .page_count = request.page_count,
-            .authoritative_address_set = true
+        MemoryMigrationTransactionRequest transaction_request = {
+            .request = &request, .mode = MEMORY_MIGRATION_TRANSACTION_CONTROLLED_CALIBRATION, .attempt_id = LIVE_ATTEMPT_ID, .expected_source_node = 0,
+            .destination_node = 1, .expected_page_count = LIVE_PAGE_COUNT, .require_rollback = true
         };
-        PageCheckpointResult checkpoint_result = page_checkpoint_capture(&checkpoint_request, &checkpoint);
-
-        if (checkpoint_result == PAGE_QUERY_PERMISSION_DENIED || checkpoint_result == PAGE_QUERY_FAILED) {
-            stage("LPM05_CHECKPOINT_NODE0", "NOT TESTED - ENVIRONMENT LIMITATION", page_checkpoint_result_name(checkpoint_result));
-            limited = true;
-            goto cleanup;
+        MemoryMigrationTransactionResult transaction_result;
+        MigrationConfig config = {.results_path = results, .history_path = history, .log_path = log,
+            .state_path = state, .history_max_records = 16, .history_max_days = 1.0,
+            .history_decay_lambda = 0.1, .cleanup_interval = 1, .cooldown_ms = 0,
+            .lock_timeout_ms = 0, .verification_enabled = true};
+        if (!Migration_Init(&config) || !memory_migration_transaction_execute(&transaction_request, &transaction_result)) {
+            stage("LPM05_SHARED_TRANSACTION", "FAIL", "shared transaction setup failed"); goto cleanup;
         }
-        if (checkpoint_result != PAGE_CHECKPOINT_COMPLETE || !checkpoint.complete ||
-            checkpoint.requested_count != LIVE_PAGE_COUNT || checkpoint.known_count != LIVE_PAGE_COUNT) {
-            stage("LPM05_CHECKPOINT_NODE0", "FAIL", page_checkpoint_result_name(checkpoint_result));
-            goto cleanup;
+        report = transaction_result.migration_report;
+        if (transaction_result.outcome == MEMORY_TRANSACTION_CHECKPOINT_FAILED &&
+            (transaction_result.checkpoint_result == PAGE_QUERY_PERMISSION_DENIED || transaction_result.checkpoint_result == PAGE_QUERY_FAILED)) {
+            stage("LPM05_SHARED_TRANSACTION", "NOT TESTED - ENVIRONMENT LIMITATION", page_checkpoint_result_name(transaction_result.checkpoint_result)); limited = true; goto cleanup;
         }
-        for (size_t index = 0; index < checkpoint.requested_count; index++)
-            if (!checkpoint.entries[index].original_node_known || checkpoint.entries[index].original_node != 0) {
-                stage("LPM05_CHECKPOINT_NODE0", "FAIL", "pages are not all resident on node 0");
-                goto cleanup;
-            }
-    }
-    stage("LPM05_CHECKPOINT_NODE0", "PASS", NULL);
-    {
-        MigrationConfig config = {
-            .results_path = results, .history_path = history, .log_path = log, .state_path = state,
-            .history_max_records = 16, .history_max_days = 1.0, .history_decay_lambda = 0.1,
-            .cleanup_interval = 1, .cooldown_ms = 0, .lock_timeout_ms = 0, .verification_enabled = true
-        };
-        if (!Migration_Init(&config)) {
-            stage("LPM06_REAL_MIGRATION_NODE0_TO_NODE1", "FAIL", "Migration_Init failed");
-            goto cleanup;
+        if (!transaction_result.destination_verified || !transaction_result.rollback_verified || !transaction_result.terminal_safe) {
+            stage("LPM05_SHARED_TRANSACTION", "FAIL", "shared transaction did not migrate and recover completely"); goto cleanup;
         }
+        stage("LPM05_SHARED_TRANSACTION", "PASS", NULL); result = EXIT_SUCCESS; goto cleanup;
     }
-    if (Migration_Execute(&request, &report) != MIGRATION_SUCCESS) {
-        const char *reason = report.error_reason[0] == '\0' ? MigrationResultName(report.result) : report.error_reason;
-
-        if (report.result == MIGRATION_PERMISSION_DENIED || report.result == MIGRATION_UNSUPPORTED ||
-            report.result == MIGRATION_VERIFICATION_UNAVAILABLE) {
-            stage("LPM06_REAL_MIGRATION_NODE0_TO_NODE1", "NOT TESTED - ENVIRONMENT LIMITATION", reason);
-            limited = true;
-        } else
-            stage("LPM06_REAL_MIGRATION_NODE0_TO_NODE1", "FAIL", reason);
-        goto cleanup;
-    }
-    if (strcmp(report.verification_status, "VERIFIED") != 0 || report.pages_requested != LIVE_PAGE_COUNT ||
-        report.pages_attempted != LIVE_PAGE_COUNT || report.pages_migrated != LIVE_PAGE_COUNT ||
-        report.pages_failed != 0) {
-        stage("LPM06_REAL_MIGRATION_NODE0_TO_NODE1", "FAIL", "migration report verification/count mismatch");
-        goto cleanup;
-    }
-    stage("LPM06_REAL_MIGRATION_NODE0_TO_NODE1", "PASS", NULL);
-    {
-        int query_result = query_nodes(child, request.pages, request.page_count, 1);
-
-        if (query_result != 0) {
-            char detail[128];
-
-            snprintf(detail, sizeof(detail), "independent move_pages query: %s", strerror(-query_result));
-            if (query_result == -EPERM || query_result == -EACCES || query_result == -ENOSYS) {
-                stage("LPM07_DESTINATION_VERIFIED_NODE1", "NOT TESTED - ENVIRONMENT LIMITATION", detail);
-                limited = true;
-            } else
-                stage("LPM07_DESTINATION_VERIFIED_NODE1", "FAIL", detail);
-            goto cleanup;
-        }
-    }
-    stage("LPM07_DESTINATION_VERIFIED_NODE1", "PASS", NULL);
-    rollback_request.checkpoint = &checkpoint;
-    rollback_request.pid = child;
-    rollback_request.start_time_ticks = ready.start_time_ticks;
-    rollback_request.attempt_id = LIVE_ATTEMPT_ID;
-    if (page_rollback_restore(&rollback_request, &rollback_summary) != PAGE_ROLLBACK_COMPLETE) {
-        if (rollback_summary.result == PAGE_ROLLBACK_PERMISSION_DENIED ||
-            rollback_summary.result == PAGE_ROLLBACK_UNAVAILABLE ||
-            rollback_summary.result == PAGE_ROLLBACK_QUERY_FAILED) {
-            stage("LPM08_REAL_ROLLBACK", "NOT TESTED - ENVIRONMENT LIMITATION",
-                  page_rollback_result_name(rollback_summary.result));
-            limited = true;
-        } else
-            stage("LPM08_REAL_ROLLBACK", "FAIL", page_rollback_result_name(rollback_summary.result));
-        goto cleanup;
-    }
-    stage("LPM08_REAL_ROLLBACK", "PASS", NULL);
-    {
-        int query_result = query_nodes(child, request.pages, request.page_count, 0);
-
-        if (query_result != 0) {
-            char detail[128];
-
-            snprintf(detail, sizeof(detail), "independent move_pages query: %s", strerror(-query_result));
-            if (query_result == -EPERM || query_result == -EACCES || query_result == -ENOSYS) {
-                stage("LPM09_ROLLBACK_VERIFIED_NODE0", "NOT TESTED - ENVIRONMENT LIMITATION", detail);
-                limited = true;
-            } else
-                stage("LPM09_ROLLBACK_VERIFIED_NODE0", "FAIL", detail);
-            goto cleanup;
-        }
-    }
-    stage("LPM09_ROLLBACK_VERIFIED_NODE0", "PASS", NULL);
-    result = EXIT_SUCCESS;
-
 cleanup:
     Migration_Shutdown();
-    page_checkpoint_release(&checkpoint);
     page_candidate_provider_release_request(&request);
     if (release_pipe[1] >= 0 && child_waiting)
         (void)write(release_pipe[1], "x", 1);

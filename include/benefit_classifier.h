@@ -71,6 +71,9 @@ typedef struct {
 
 const char *benefit_classification_name(BenefitClassification classification);
 const char *benefit_calibration_state_name(BenefitCalibrationState state);
+/* Pure Phase-5 direction check; it does not authorize either action. */
+bool benefit_utility_action_margin_matches(const DecisionData *decision,
+                                           ValidationAction action);
 BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *input,
                                                   BenefitDecision *decision);
 

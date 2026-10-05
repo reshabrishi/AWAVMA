@@ -77,7 +77,13 @@ struct awavma_runtime {
     char monitor_results_path[4096];
     char monitor_log_path[4096];
     char runtime_results_path[4096];
+    char calibration_load_path[4096];
+    char execution_profile_path[4096];
     char migration_safety_history_path[4096];
+    char migration_results_path[4096];
+    char migration_history_path[4096];
+    char migration_log_path[4096];
+    char migration_state_path[4096];
     MigrationSafetyManager *migration_safety;
     page_candidate_provider_t *owned_page_provider;
     char page_registration_socket[4096];
@@ -92,6 +98,10 @@ struct awavma_runtime {
     bool page_rollback_checkpoint_available;
     bool migration_initialized;
     EnvironmentCapabilities capabilities;
+    awavma_runtime_execution_profile_t execution_profile;
+    CalibrationSnapshot calibration_snapshot;
+    calibration_match_status_t calibration_load_status;
+    char calibration_load_reason[CALIBRATION_REASON_MAX];
 #ifdef AWAVMA_RUNTIME_TESTING
     awavma_runtime_test_target_case_t test_target_case;
     awavma_runtime_test_target_stats_t test_target_stats;
@@ -871,9 +881,9 @@ cleanup:
     return result;
 }
 
-/* One-shot Phase 3 sessions restart their local elapsed clock for every sample. */
+/* Persistent monitor sessions retain elapsed time; reject regressing evidence. */
 static int normalize_monitoring_elapsed(const char *source, const char *destination,
-                                        uint64_t interval_ms)
+                                         uint64_t interval_ms)
 {
     FILE *input = fopen(source, "r");
     FILE *output = NULL;
@@ -881,11 +891,13 @@ static int normalize_monitoring_elapsed(const char *source, const char *destinat
     size_t capacity = 0;
     char *fields[64];
     int elapsed_column;
-    size_t row = 0;
+    uint64_t previous_elapsed = 0;
+    bool have_previous = false;
     int result = -1;
 
     if (input == NULL)
         return -1;
+    (void)interval_ms;
     output = fopen(destination, "w");
     if (output == NULL || getline(&line, &capacity, input) < 0)
         goto cleanup;
@@ -894,14 +906,19 @@ static int normalize_monitoring_elapsed(const char *source, const char *destinat
     if (elapsed_column < 0)
         goto cleanup;
     while (getline(&line, &capacity, input) >= 0) {
-        char elapsed[32];
+        char *end = NULL;
+        unsigned long long elapsed;
         size_t field_count = split_csv(line, fields, 64);
 
         if ((size_t)elapsed_column >= field_count)
             goto cleanup;
-        snprintf(elapsed, sizeof(elapsed), "%llu",
-                 (unsigned long long)(row++ * interval_ms));
-        fields[elapsed_column] = elapsed;
+        errno = 0;
+        elapsed = strtoull(fields[elapsed_column], &end, 10);
+        if (errno != 0 || end == fields[elapsed_column] || *end != '\0' ||
+            (have_previous && elapsed < previous_elapsed))
+            goto cleanup;
+        previous_elapsed = elapsed;
+        have_previous = true;
         for (size_t index = 0; index < field_count; index++)
             fprintf(output, "%s%s", index == 0 ? "" : ",", fields[index]);
         fputc('\n', output);
@@ -995,8 +1012,59 @@ static GateStatus parse_gate_status(const char *text)
 }
 
 /* Phase 6 requires operational evidence that Phase 3/4/5 do not currently emit. */
+static bool latest_monitor_cpu(const char *monitor_dir, const awavma_runtime_record_t *record,
+                               char value[32])
+{
+    char path[4096], *line = NULL, *fields[64];
+    size_t capacity = 0;
+    FILE *file;
+    int pid_column, start_column, cpu_column;
+    bool available = false;
+
+    if (monitor_dir == NULL || record == NULL ||
+        snprintf(path, sizeof(path), "%s/%s_monitoring.csv", monitor_dir, record->app_id) >= (int)sizeof(path))
+        return false;
+    file = fopen(path, "r");
+    if (file == NULL || getline(&line, &capacity, file) < 0)
+        goto cleanup;
+    size_t count = split_csv(line, fields, sizeof(fields) / sizeof(fields[0]));
+    pid_column = column_index(fields, count, "pid");
+    start_column = column_index(fields, count, "start_time_ticks");
+    cpu_column = column_index(fields, count, "process_cpu_utilization_percent");
+    if (pid_column < 0 || start_column < 0 || cpu_column < 0)
+        goto cleanup;
+    while (getline(&line, &capacity, file) >= 0) {
+        char *end = NULL;
+        long pid;
+        unsigned long long start_time_ticks;
+        double cpu;
+
+        count = split_csv(line, fields, sizeof(fields) / sizeof(fields[0]));
+        if ((size_t)pid_column >= count || (size_t)start_column >= count || (size_t)cpu_column >= count)
+            continue;
+        errno = 0;
+        pid = strtol(fields[pid_column], &end, 10);
+        if (errno != 0 || end == fields[pid_column] || *end != '\0' || pid != record->pid)
+            continue;
+        errno = 0;
+        start_time_ticks = strtoull(fields[start_column], &end, 10);
+        if (errno != 0 || end == fields[start_column] || *end != '\0' ||
+            start_time_ticks != record->start_time_ticks)
+            continue;
+        if (!parse_csv_double(fields[cpu_column], &cpu) || cpu < 0.0 || cpu > 100.0)
+            continue;
+        snprintf(value, 32, "%.9g", cpu);
+        available = true;
+    }
+cleanup:
+    free(line);
+    if (file != NULL)
+        fclose(file);
+    return available;
+}
+
 static int write_validation_input(const char *decision_path, const char *output_path,
-                                  const awavma_runtime_record_t *record)
+                                  const awavma_runtime_record_t *record, const char *monitor_dir)
 {
     static const char *header =
         "timestamp,migration_id,app_id,pid,entity_id,action,decision_status,classification,"
@@ -1033,9 +1101,11 @@ static int write_validation_input(const char *decision_path, const char *output_
     int phase5_columns[sizeof(phase5_names) / sizeof(phase5_names[0])];
     size_t row = 0;
     int result = -1;
+    char cpu_utilization[32] = "NA";
 
     if (input == NULL)
         return -1;
+    (void)latest_monitor_cpu(monitor_dir, record, cpu_utilization);
     output = fopen(output_path, "w");
     if (output == NULL || getline(&line, &line_capacity, input) < 0)
         goto cleanup;
@@ -1061,12 +1131,12 @@ static int write_validation_input(const char *decision_path, const char *output_
         field_count = split_csv(line, fields, 64);
         snprintf(migration_id, sizeof(migration_id), "m_%ld_%llu_%zu", (long)record->pid,
                  (unsigned long long)record->generation, row++);
-        fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,NA,NA,NA,NA,NA,%s,%s,UTILITY_POLICY_EVIDENCE,NA,NA,NA,NA,NA,NA",
+        fprintf(output, "%s,%s,%s,%s,%s,%s,%s,%s,NA,NA,NA,%s,NA,NA,NA,NA,%s,%s,UTILITY_POLICY_EVIDENCE,NA,NA,NA,NA,NA,NA",
                  field_or_na(fields, field_count, timestamp), migration_id,
                  field_or_na(fields, field_count, app_id), field_or_na(fields, field_count, pid),
                  field_or_na(fields, field_count, entity_id), field_or_na(fields, field_count, action),
                  field_or_na(fields, field_count, status),
-                 field_or_na(fields, field_count, classification),
+                  field_or_na(fields, field_count, classification), cpu_utilization,
                  field_or_na(fields, field_count, predicted_gain),
                  field_or_na(fields, field_count, estimated_cost));
         fprintf(output, ",%s,%llu,PHASE5_DECISION_ENGINE", field_or_na(fields, field_count, timestamp),
@@ -1378,7 +1448,15 @@ error:
 int awavma_runtime_test_write_validation_input(const char *decision_path, const char *output_path,
                                                const awavma_runtime_record_t *record)
 {
-    return write_validation_input(decision_path, output_path, record);
+    return write_validation_input(decision_path, output_path, record, NULL);
+}
+
+int awavma_runtime_test_write_validation_input_with_monitor(const char *decision_path,
+                                                            const char *output_path,
+                                                            const awavma_runtime_record_t *record,
+                                                            const char *monitor_dir)
+{
+    return write_validation_input(decision_path, output_path, record, monitor_dir);
 }
 
 int awavma_runtime_test_load_benefit_evidence(const char *validation_input_path,
@@ -1548,14 +1626,20 @@ static int write_runtime_results(const awavma_runtime_t *runtime)
     file = fopen(temporary, "w");
     if (file == NULL)
         return -1;
-    fprintf(file, "app_id,pid,start_time_ticks,generation,phase3_samples,phase5_committed_rows,status,detail\n");
+    fprintf(file, "app_id,pid,start_time_ticks,generation,phase3_samples,phase5_committed_rows,registration_status,registration_generation,registered_bytes,registered_pages,candidate_pages_per_request,status,detail\n");
     for (size_t index = 0; index < runtime->record_count; index++) {
         const awavma_runtime_record_t *record = &runtime->records[index];
 
-        fprintf(file, "%s,%ld,%llu,%llu,%zu,%zu,%s,%s\n", record->app_id, (long)record->pid,
+        PageCandidateRegistrationStatus registration = {0};
+        bool registered = page_candidate_provider_registration_status(runtime->config.page_candidate_provider,
+            record->app_id, record->pid, record->start_time_ticks, &registration);
+        fprintf(file, "%s,%ld,%llu,%llu,%zu,%zu,%s,%llu,%zu,%zu,%zu,%s,%s\n", record->app_id, (long)record->pid,
                 (unsigned long long)record->start_time_ticks,
                 (unsigned long long)record->generation, record->phase3_samples,
-                record->phase5_committed_rows, awavma_runtime_status_name(record->status),
+                record->phase5_committed_rows, registered ? "ACCEPTED" : "NONE",
+                (unsigned long long)registration.generation, registration.registered_bytes,
+                registration.registered_pages, registered ? registration.candidate_pages_per_request : 0,
+                awavma_runtime_status_name(record->status),
                 record->detail);
     }
     if (fclose(file) != 0 || rename(temporary, runtime->runtime_results_path) != 0) {
@@ -1563,6 +1647,88 @@ static int write_runtime_results(const awavma_runtime_t *runtime)
         return -1;
     }
     return 0;
+}
+
+static const char *execution_mode_name(awavma_runtime_execution_mode_t mode)
+{
+    return mode == AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION ?
+        "PRODUCTION_REAL_MIGRATION" : "MONITORING";
+}
+
+static const char *profile_bool(bool value)
+{
+    return value ? "true" : "false";
+}
+
+static int write_execution_profile(const awavma_runtime_t *runtime)
+{
+    char temporary[4096];
+    const awavma_runtime_execution_profile_t *profile = &runtime->execution_profile;
+    FILE *file;
+
+    if (runtime->execution_profile_path[0] == '\0' ||
+        snprintf(temporary, sizeof(temporary), "%s.tmp", runtime->execution_profile_path) >=
+            (int)sizeof(temporary))
+        return -1;
+    file = fopen(temporary, "w");
+    if (file == NULL)
+        return -1;
+    fprintf(file, "schema_version,requested_execution_mode,effective_execution_mode,"
+            "migration_safety_requested,migration_safety_effective,"
+            "migration_execution_requested,migration_execution_effective,"
+            "page_registration_requested,page_registration_effective,"
+            "page_registration_ttl_ms,numa_nodes,thread_migration_ready,"
+            "page_migration_ready,phase7_ready,production_real_migration_ready,"
+            "activation_state,activation_reason,page_registration_provider_ready\n");
+    fprintf(file, "2,%s,%s,%s,%s,%s,%s,%s,%s,%llu,%zu,%s,%s,%s,%s,%s,%s,%s\n",
+            execution_mode_name(profile->requested_mode), execution_mode_name(profile->effective_mode),
+            profile_bool(profile->migration_safety_requested),
+            profile_bool(profile->migration_safety_effective),
+            profile_bool(profile->migration_execution_requested),
+            profile_bool(profile->migration_execution_effective),
+            profile_bool(profile->page_registration_requested),
+            profile_bool(profile->page_registration_effective),
+            (unsigned long long)profile->page_registration_ttl_ms,
+            profile->capabilities.online_numa_nodes,
+            profile_bool(profile->capabilities.thread_migration_ready),
+            profile_bool(profile->capabilities.page_migration_ready),
+            profile_bool(profile->capabilities.phase7_ready),
+            profile_bool(profile->capabilities.production_real_migration_ready),
+             profile->activation_state, profile->activation_reason,
+             profile_bool(profile->page_registration_provider_ready));
+    if (fclose(file) != 0 || rename(temporary, runtime->execution_profile_path) != 0) {
+        unlink(temporary);
+        return -1;
+    }
+    return 0;
+}
+
+static int write_calibration_load_report(const awavma_runtime_t *runtime)
+{
+    char temporary[4096];
+    FILE *file;
+
+    if (runtime->config.calibration_artifact_path == NULL || runtime->calibration_load_path[0] == '\0')
+        return 0;
+    if (snprintf(temporary, sizeof(temporary), "%s.tmp", runtime->calibration_load_path) >= (int)sizeof(temporary))
+        return -1;
+    file = fopen(temporary, "w");
+    if (file == NULL)
+        return -1;
+    fprintf(file, "schema_version,calibration_configured,calibration_loaded,calibration_record_count,calibration_validation_status,reason\n");
+    fprintf(file, "1,true,%s,%zu,%s,%s\n", runtime->calibration_load_status == CALIBRATION_MATCHED ? "true" : "false",
+            runtime->calibration_snapshot.count, calibration_match_status_name(runtime->calibration_load_status),
+            runtime->calibration_load_reason);
+    return fclose(file) == 0 && rename(temporary, runtime->calibration_load_path) == 0 ? 0 : -1;
+}
+
+static void set_execution_profile_state(awavma_runtime_t *runtime, const char *state,
+                                        const char *reason)
+{
+    snprintf(runtime->execution_profile.activation_state,
+             sizeof(runtime->execution_profile.activation_state), "%s", state);
+    snprintf(runtime->execution_profile.activation_reason,
+             sizeof(runtime->execution_profile.activation_reason), "%s", reason);
 }
 
 static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_t *record,
@@ -1716,7 +1882,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     record->phase5_committed_rows = samples;
     monitor_profile_scope_begin(&adapter_profile, "pipeline", "validation_input_adapt_io", record->app_id,
                                 record->pid, record->generation);
-    if (write_validation_input(decision_path, validation_input_path, record) != 0) {
+    if (write_validation_input(decision_path, validation_input_path, record, runtime->monitor_dir) != 0) {
         set_status(record, AWAVMA_RUNTIME_ERROR, "cannot adapt Phase 5 output for Phase 6");
         monitor_profile_scope_end(&adapter_profile, "ERROR");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
@@ -1824,7 +1990,8 @@ static int process_pipeline(awavma_runtime_t *runtime)
     pipeline_ready_ns = monotonic_ns();
 #endif
     monitor_profile_scope_begin(&pipeline_profile, "pipeline", "pipeline_serial_total", NULL, -1, 0);
-    if (runtime->config.page_registration_enabled && runtime->config.page_candidate_provider != NULL)
+    if (runtime->config.execution_profile.page_registration_requested &&
+        runtime->config.page_candidate_provider != NULL)
         (void)page_candidate_provider_poll(runtime->config.page_candidate_provider);
 
     monitor_profile_scope_begin(&snapshot_profile, "pipeline", "pipeline_snapshot_prepare", NULL, -1, 0);
@@ -1883,13 +2050,18 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     config->root_dir = DEFAULT_ROOT_DIR;
     config->bin_dir = DEFAULT_BIN_DIR;
     config->phase_config_path = DEFAULT_PHASE_CONFIG;
-    config->migration_safety_enabled = false;
-    config->migration_execution_enabled = false;
-    config->page_registration_enabled = false;
-    config->page_registration_ttl_ms = 30000;
+    memset(&config->execution_profile, 0, sizeof(config->execution_profile));
+    config->execution_profile.requested_mode = AWAVMA_RUNTIME_EXECUTION_MONITORING;
+    config->execution_profile.effective_mode = AWAVMA_RUNTIME_EXECUTION_MONITORING;
+    config->execution_profile.page_registration_ttl_ms = 30000;
+    snprintf(config->execution_profile.activation_state,
+             sizeof(config->execution_profile.activation_state), "REQUESTED");
+    snprintf(config->execution_profile.activation_reason,
+             sizeof(config->execution_profile.activation_reason), "runtime initialization pending");
     config->page_candidate_provider = NULL;
     config->benefit_calibration_state = BENEFIT_CALIBRATION_UNAVAILABLE;
     config->benefit_calibration_provenance = "no_cross_numa_production_calibration";
+    config->calibration_artifact_path = NULL;
     application_discovery_config_default(&config->discovery_config);
     config->application_filter = NULL;
     config->application_filter_context = NULL;
@@ -1934,12 +2106,21 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
         (config->phase4_mode != AWAVMA_PHASE4_SUBPROCESS &&
          config->phase4_mode != AWAVMA_PHASE4_IN_PROCESS) ||
         config->root_dir == NULL || config->bin_dir == NULL || config->phase_config_path == NULL ||
-        (config->page_registration_enabled && config->page_registration_ttl_ms == 0))
+        (config->execution_profile.requested_mode != AWAVMA_RUNTIME_EXECUTION_MONITORING &&
+         config->execution_profile.requested_mode != AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION))
         return EINVAL;
     memset(runtime, 0, sizeof(*runtime));
     runtime->config = *config;
     if (!environment_capabilities_detect(&runtime->capabilities))
         return EIO;
+    runtime->execution_profile = config->execution_profile;
+    runtime->execution_profile.capabilities = runtime->capabilities;
+    runtime->execution_profile.effective_mode = AWAVMA_RUNTIME_EXECUTION_MONITORING;
+    runtime->execution_profile.migration_safety_effective = false;
+    runtime->execution_profile.migration_execution_effective = false;
+    runtime->execution_profile.page_registration_effective = false;
+    runtime->execution_profile.page_registration_provider_ready = false;
+    runtime->execution_profile.activation_active = false;
     if (make_directory(config->root_dir) != 0 ||
         snprintf(path, sizeof(path), "%s/logs", config->root_dir) >= (int)sizeof(path) ||
         make_directory(path) != 0 ||
@@ -1948,16 +2129,67 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
         snprintf(path, sizeof(path), "%s/apps", config->root_dir) >= (int)sizeof(path) ||
         make_directory(path) != 0)
         return EIO;
-    if (config->page_registration_enabled) {
+    if (snprintf(runtime->execution_profile_path, sizeof(runtime->execution_profile_path),
+                 "%s/runtime_execution_profile.csv", config->root_dir) >=
+        (int)sizeof(runtime->execution_profile_path))
+        return EIO;
+    if (snprintf(runtime->calibration_load_path, sizeof(runtime->calibration_load_path),
+                 "%s/benefit_calibration_artifact_load.csv", config->root_dir) >=
+        (int)sizeof(runtime->calibration_load_path))
+        return EIO;
+    runtime->calibration_load_status = CALIBRATION_UNAVAILABLE;
+    snprintf(runtime->calibration_load_reason, sizeof(runtime->calibration_load_reason), "CALIBRATION_UNAVAILABLE");
+    if (config->calibration_artifact_path != NULL) {
+        CalibrationPolicy policy;
+        calibration_policy_default(&policy);
+        (void)calibration_load_csv(config->calibration_artifact_path, &policy,
+                                   &runtime->calibration_snapshot, &runtime->calibration_load_status,
+                                   runtime->calibration_load_reason);
+        if (write_calibration_load_report(runtime) != 0)
+            goto fail;
+    }
+    if (config->execution_profile.migration_execution_requested &&
+        !config->execution_profile.migration_safety_requested) {
+        set_execution_profile_state(runtime, "INCOMPATIBLE", "migration execution requires migration safety");
+        (void)write_execution_profile(runtime);
+        return EINVAL;
+    }
+    if (config->execution_profile.page_registration_requested &&
+        config->execution_profile.page_registration_ttl_ms == 0) {
+        set_execution_profile_state(runtime, "INCOMPATIBLE", "page registration requires a positive TTL");
+        (void)write_execution_profile(runtime);
+        return EINVAL;
+    }
+    if (config->execution_profile.requested_mode == AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION &&
+        (!config->execution_profile.migration_safety_requested ||
+         !config->execution_profile.migration_execution_requested ||
+         !config->execution_profile.page_registration_requested)) {
+        set_execution_profile_state(runtime, "INCOMPATIBLE",
+                                    "production mode requires safety execution and page registration");
+        (void)write_execution_profile(runtime);
+        return EOPNOTSUPP;
+    }
+    if (config->execution_profile.requested_mode == AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION &&
+        !runtime->capabilities.production_real_migration_ready) {
+        set_execution_profile_state(runtime, "ENV_LIMITED",
+                                    "production real-migration capability profile is unavailable");
+        (void)write_execution_profile(runtime);
+        return EOPNOTSUPP;
+    }
+    if (config->execution_profile.page_registration_requested) {
         runtime->owned_page_provider = page_candidate_provider_create();
         if (runtime->owned_page_provider == NULL ||
             snprintf(runtime->page_registration_socket, sizeof(runtime->page_registration_socket),
                      "%s/page-registration.sock", config->root_dir) >=
                 (int)sizeof(runtime->page_registration_socket) ||
             !page_candidate_provider_start(runtime->owned_page_provider, runtime->page_registration_socket,
-                                           config->page_registration_ttl_ms))
+                                            config->execution_profile.page_registration_ttl_ms)) {
+            set_execution_profile_state(runtime, "INITIALIZATION_FAILED", "page registration provider initialization failed");
             goto fail;
+        }
         runtime->config.page_candidate_provider = runtime->owned_page_provider;
+        runtime->execution_profile.page_registration_effective = true;
+        runtime->execution_profile.page_registration_provider_ready = true;
     }
     runtime->records = calloc(config->max_applications, sizeof(*runtime->records));
     runtime->manager = application_manager_create();
@@ -2005,22 +2237,17 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     if (runtime_monitor_init(runtime->monitor, runtime->manager, runtime->pool, &monitor_config) != 0) {
         goto fail;
     }
-    if (config->migration_safety_enabled) {
+    if (config->execution_profile.migration_safety_requested) {
         MigrationSafetyConfig safety_config;
         MigrationConfig migration_config = {
             .history_max_records = 1000, .history_max_days = 30.0,
             .history_decay_lambda = 0.1, .cleanup_interval = 100,
             .cooldown_ms = 1000, .lock_timeout_ms = 0, .verification_enabled = true
         };
-        char migration_results[4096];
-        char migration_history[4096];
-        char migration_log[4096];
-        char migration_state[4096];
-
         runtime->migration_safety = migration_safety_manager_create();
         migration_safety_config_default(&safety_config);
         safety_config.enabled = true;
-        safety_config.execution_enabled = config->migration_execution_enabled;
+        safety_config.execution_enabled = config->execution_profile.migration_execution_requested;
         safety_config.max_applications = config->max_applications;
         safety_config.history_path = runtime->migration_safety_history_path;
         safety_config.identity_fn = runtime_identity_matches;
@@ -2036,22 +2263,47 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
         if (snprintf(runtime->migration_safety_history_path,
                      sizeof(runtime->migration_safety_history_path), "%s/migration_safety_history.csv",
                      config->root_dir) >= (int)sizeof(runtime->migration_safety_history_path) ||
-            snprintf(migration_results, sizeof(migration_results), "%s/migration_results.csv", config->root_dir) >= (int)sizeof(migration_results) ||
-            snprintf(migration_history, sizeof(migration_history), "%s/migration_history.csv", config->root_dir) >= (int)sizeof(migration_history) ||
-            snprintf(migration_log, sizeof(migration_log), "%s/logs/migration.log", config->root_dir) >= (int)sizeof(migration_log) ||
-            snprintf(migration_state, sizeof(migration_state), "%s/migration_state.csv", config->root_dir) >= (int)sizeof(migration_state) ||
+            snprintf(runtime->migration_results_path, sizeof(runtime->migration_results_path),
+                     "%s/migration_results.csv", config->root_dir) >= (int)sizeof(runtime->migration_results_path) ||
+            snprintf(runtime->migration_history_path, sizeof(runtime->migration_history_path),
+                     "%s/migration_history.csv", config->root_dir) >= (int)sizeof(runtime->migration_history_path) ||
+            snprintf(runtime->migration_log_path, sizeof(runtime->migration_log_path),
+                     "%s/logs/migration.log", config->root_dir) >= (int)sizeof(runtime->migration_log_path) ||
+            snprintf(runtime->migration_state_path, sizeof(runtime->migration_state_path),
+                     "%s/migration_state.csv", config->root_dir) >= (int)sizeof(runtime->migration_state_path) ||
             runtime->migration_safety == NULL ||
             !migration_safety_manager_init(runtime->migration_safety, &safety_config)) {
             migration_safety_manager_destroy(runtime->migration_safety);
             runtime->migration_safety = NULL;
         } else {
-            migration_config.results_path = migration_results;
-            migration_config.history_path = migration_history;
-            migration_config.log_path = migration_log;
-            migration_config.state_path = migration_state;
+            migration_config.results_path = runtime->migration_results_path;
+            migration_config.history_path = runtime->migration_history_path;
+            migration_config.log_path = runtime->migration_log_path;
+            migration_config.state_path = runtime->migration_state_path;
             runtime->migration_initialized = Migration_Init(&migration_config);
         }
+        if (runtime->migration_safety == NULL || !runtime->migration_initialized) {
+            if (config->execution_profile.requested_mode == AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION) {
+                set_execution_profile_state(runtime, "INITIALIZATION_FAILED",
+                                            "migration safety manager initialization failed");
+                goto fail;
+            }
+        } else {
+            runtime->execution_profile.migration_safety_effective = true;
+            runtime->execution_profile.migration_execution_effective =
+                config->execution_profile.migration_execution_requested;
+        }
     }
+    if (config->execution_profile.requested_mode == AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION) {
+        runtime->execution_profile.effective_mode = AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION;
+        runtime->execution_profile.activation_active = true;
+        set_execution_profile_state(runtime, "ACTIVE", "validated production real-migration profile is active");
+    } else {
+        runtime->execution_profile.activation_active = true;
+        set_execution_profile_state(runtime, "ACTIVE", "monitoring/control profile is active");
+    }
+    if (write_execution_profile(runtime) != 0)
+        goto fail;
     runtime->initialized = true;
     if (write_runtime_results(runtime) == 0)
         return 0;
@@ -2059,6 +2311,10 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     return EIO;
 
 fail:
+    if (runtime->execution_profile.activation_state[0] == '\0')
+        set_execution_profile_state(runtime, "INITIALIZATION_FAILED", "runtime component initialization failed");
+    runtime->execution_profile.activation_active = false;
+    (void)write_execution_profile(runtime);
     awavma_runtime_shutdown(runtime);
     return EIO;
 }
@@ -2243,8 +2499,9 @@ void awavma_runtime_shutdown(awavma_runtime_t *runtime)
     release_migration_checkpoint(runtime, runtime->rollback_attempt_id);
     release_page_rollback_checkpoint(runtime, runtime->page_rollback_checkpoint.attempt_id);
     page_candidate_provider_destroy(runtime->owned_page_provider);
+    calibration_snapshot_release(&runtime->calibration_snapshot);
     runtime->owned_page_provider = NULL;
-    if (runtime->config.page_registration_enabled)
+    if (runtime->config.execution_profile.page_registration_requested)
         runtime->config.page_candidate_provider = NULL;
     migration_safety_manager_destroy(runtime->migration_safety);
     runtime->migration_safety = NULL;

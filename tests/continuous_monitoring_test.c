@@ -2,6 +2,7 @@
 
 #include "application_discovery.h"
 #include "application_manager.h"
+#include "monitor.h"
 #include "runtime_monitor.h"
 #include "worker_pool.h"
 
@@ -241,6 +242,42 @@ static int file_has_sample_for(const runtime_monitor_record_t *record,
     return rows > 0;
 }
 
+static int file_has_interval_cpu(const runtime_monitor_record_t *record, const char *directory)
+{
+    char path[512], line[4096], *fields[64], *cursor;
+    FILE *file;
+    int cpu_column = -1, rows = 0;
+
+    snprintf(path, sizeof(path), "%s/%s_monitoring.csv", directory, record->app_id);
+    file = fopen(path, "r");
+    if (file == NULL || fgets(line, sizeof(line), file) == NULL) {
+        if (file != NULL) fclose(file);
+        return 0;
+    }
+    size_t count = 0;
+    for (cursor = strtok(line, ",\n"); cursor != NULL && count < 64;
+         cursor = strtok(NULL, ",\n"), count++) {
+        fields[count] = cursor;
+        if (strcmp(cursor, "process_cpu_utilization_percent") == 0) cpu_column = (int)count;
+    }
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *end = NULL;
+        count = 0;
+        for (cursor = strtok(line, ",\n"); cursor != NULL && count < 64;
+             cursor = strtok(NULL, ",\n"), count++) fields[count] = cursor;
+        rows++;
+        if (cpu_column >= 0 && (size_t)cpu_column < count) {
+            double value = strtod(fields[cpu_column], &end);
+            if (end != fields[cpu_column] && *end == '\0' && value >= 0.0 && value <= 100.0) {
+                fclose(file);
+                return rows >= 2;
+            }
+        }
+    }
+    fclose(file);
+    return 0;
+}
+
 int main(void)
 {
     paths_t paths;
@@ -314,6 +351,12 @@ int main(void)
     find_record(monitor, a, &a_record);
     passed = a_record.submissions > 1;
     report_result("CM13", "multiple cycles", passed ? "rescheduled" : "not rescheduled", passed, "scheduler cycles");
+    passed = a_record.persistent_monitor_ready && a_record.valid_interval_cpu_samples > 0 &&
+             a_record.valid_interval_cpu_samples <= MONITOR_EVIDENCE_WINDOW &&
+             !a_record.access_signal_available && !a_record.stability_available &&
+             !a_record.classifier_confidence_available && file_has_interval_cpu(&a_record, paths.monitor_results);
+    report_result("CM26", "persistent interval CPU evidence", passed ? "available after first sample" : "unavailable", passed,
+                  "PID/start-time bound monitor session");
     passed = strcmp(a_record.app_id, b_record.app_id) != 0 && strcmp(a_record.app_id, c_record.app_id) != 0;
     report_result("CM14", "application isolation", passed ? "isolated IDs" : "cross-contaminated", passed, "per-identity paths");
     passed = file_has_sample_for(&a_record, paths.monitor_results, NULL) &&

@@ -77,10 +77,19 @@ typedef struct {
     char reason[256];
 } MigrationTarget;
 
+typedef enum {
+    MIGRATION_TARGET_STRUCTURE_VALID,
+    MIGRATION_TARGET_STRUCTURE_BINDING_INVALID,
+    MIGRATION_TARGET_STRUCTURE_THREAD_CPU_INVALID,
+    MIGRATION_TARGET_STRUCTURE_MEMORY_NUMA_INVALID
+} MigrationTargetStructure;
+
 const char *migration_target_result_name(MigrationTargetResult result);
 bool migration_target_topology_read(MigrationTargetTopology *topology);
 MigrationTargetResult migration_target_provider_get(const MigrationTargetInput *input,
                                                     const MigrationTargetTopology *topology,
                                                     MigrationTarget *target);
+MigrationTargetStructure migration_target_structure_validate(const MigrationTarget *target,
+                                                              bool requires_cross_node);
 
 #endif

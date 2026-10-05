@@ -44,11 +44,13 @@ static void usage(const char *program)
     printf("  --root-dir DIR        Runtime artifact root (default: results/runtime)\n");
     printf("  --bin-dir DIR         Existing phase binary directory (default: bin)\n");
     printf("  --config FILE         Phase 6 configuration file (default: config/awavma.conf)\n");
+    printf("  --calibration-artifact FILE  Load a read-only P4 calibration artifact\n");
     printf("  --phase4-mode MODE    subprocess or in-process (default: subprocess)\n");
     printf("  --migration-safety-enabled  Record safe Phase 7 terminal outcomes (default: disabled)\n");
     printf("  --migration-execution-enabled  Request Phase 7 execution; verified metadata remains required\n");
     printf("  --page-registration-enabled  Enable the runtime-owned local page-registration socket\n");
     printf("  --page-registration-ttl-ms N  Registration lifetime; requires page registration\n");
+    printf("  --production-real-migration  Require the validated multi-NUMA Phase 7 profile\n");
     printf("  --pid PID             Monitor an existing application PID (repeatable)\n");
     printf("  --help                Show this help\n");
 }
@@ -65,11 +67,13 @@ int main(int argc, char **argv)
         {"root-dir", required_argument, NULL, 'r'},
         {"bin-dir", required_argument, NULL, 'b'},
         {"config", required_argument, NULL, 'c'},
+        {"calibration-artifact", required_argument, NULL, 'C'},
         {"phase4-mode", required_argument, NULL, 'P'},
         {"migration-safety-enabled", no_argument, NULL, 'S'},
         {"migration-execution-enabled", no_argument, NULL, 'M'},
         {"page-registration-enabled", no_argument, NULL, 'R'},
         {"page-registration-ttl-ms", required_argument, NULL, 'T'},
+        {"production-real-migration", no_argument, NULL, 'X'},
         {"pid", required_argument, NULL, 'p'},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
@@ -84,7 +88,7 @@ int main(int argc, char **argv)
 
     awavma_runtime_config_default(&config);
     runtime_target_filter_init(&target_filter);
-    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:P:SMRT:p:h", options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "d:e:m:D:w:q:r:b:c:C:P:SMRT:Xp:h", options, NULL)) != -1) {
         switch (option) {
         case 'd':
             if (parse_u64(optarg, &duration_ms, true) != 0) goto invalid;
@@ -112,6 +116,7 @@ int main(int argc, char **argv)
         case 'r': config.root_dir = optarg; break;
         case 'b': config.bin_dir = optarg; break;
         case 'c': config.phase_config_path = optarg; break;
+        case 'C': config.calibration_artifact_path = optarg; break;
         case 'P':
             if (strcmp(optarg, "subprocess") == 0)
                 config.phase4_mode = AWAVMA_PHASE4_SUBPROCESS;
@@ -120,13 +125,14 @@ int main(int argc, char **argv)
             else
                 goto invalid;
             break;
-        case 'S': config.migration_safety_enabled = true; break;
-        case 'M': config.migration_execution_enabled = true; break;
-        case 'R': config.page_registration_enabled = true; break;
+        case 'S': config.execution_profile.migration_safety_requested = true; break;
+        case 'M': config.execution_profile.migration_execution_requested = true; break;
+        case 'R': config.execution_profile.page_registration_requested = true; break;
         case 'T':
             if (parse_u64(optarg, &value, false) != 0) goto invalid;
-            config.page_registration_ttl_ms = value;
+            config.execution_profile.page_registration_ttl_ms = value;
             break;
+        case 'X': config.execution_profile.requested_mode = AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION; break;
         case 'p':
             if (parse_u64(optarg, &value, false) != 0 || value > (uint64_t)INT_MAX)
                 goto invalid;

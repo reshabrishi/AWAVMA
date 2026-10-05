@@ -10,6 +10,7 @@ CM08,-,-,-,three applications monitored,A/B/C sampled,PASS,concurrent applicatio
 CM09,-,-,-,termination handled,A/C continue,PASS,B terminated
 CM10,-,-,-,no new jobs for terminated B,stopped,PASS,terminated identity
 CM13,-,-,-,multiple cycles,rescheduled,PASS,scheduler cycles
+CM26,-,-,-,persistent interval CPU evidence,available after first sample,PASS,PID/start-time bound monitor session
 CM14,-,-,-,application isolation,isolated IDs,PASS,per-identity paths
 CM16,-,-,-,correct app identity in monitoring paths,matched,PASS,app-specific output files
 CM17,-,-,-,unavailable values preserved,-1 preserved,PASS,Phase 3 representation

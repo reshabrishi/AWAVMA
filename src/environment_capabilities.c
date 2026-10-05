@@ -17,6 +17,13 @@ const char *environment_capability_state_name(EnvironmentCapabilityState state)
     }
 }
 
+bool environment_capabilities_production_real_migration_ready(const EnvironmentCapabilities *capabilities)
+{
+    return capabilities != NULL && capabilities->online_numa_nodes >= 2 &&
+           capabilities->thread_migration_ready && capabilities->page_migration_ready &&
+           capabilities->phase7_ready;
+}
+
 bool environment_capabilities_detect(EnvironmentCapabilities *capabilities)
 {
     cpu_set_t affinity;
@@ -62,8 +69,10 @@ bool environment_capabilities_detect(EnvironmentCapabilities *capabilities)
                                              capabilities->sched_getaffinity_ready &&
                                              capabilities->sched_setaffinity_ready;
     capabilities->page_migration_ready = capabilities->cross_node_destination_available &&
-                                           capabilities->move_pages_available && capabilities->move_pages_ready;
+                                            capabilities->move_pages_available && capabilities->move_pages_ready;
     capabilities->phase7_ready = capabilities->thread_migration_ready || capabilities->page_migration_ready;
+    capabilities->production_real_migration_ready =
+        environment_capabilities_production_real_migration_ready(capabilities);
     if (!capabilities->cross_node_destination_available) {
         capabilities->state = ENVIRONMENT_ENV_LIMITED;
         snprintf(capabilities->reason, sizeof(capabilities->reason), "fewer than two online NUMA nodes");

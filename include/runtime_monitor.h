@@ -41,6 +41,14 @@ typedef struct {
     size_t submissions;
     size_t samples;
     size_t deferred_jobs;
+    size_t valid_interval_cpu_samples;
+    bool persistent_monitor_ready;
+    bool access_signal_available;
+    bool stability_available;
+    bool classifier_confidence_available;
+    bool memory_utilization_available;
+    bool concurrency_available;
+    bool hard_safety_evidence_complete;
     int last_result;
     int last_worker_id;
 } runtime_monitor_record_t;

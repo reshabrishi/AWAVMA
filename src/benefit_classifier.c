@@ -31,6 +31,21 @@ static bool utility_evidence_complete(const DecisionData *phase5)
     return fabs(phase5->phase5_decision_margin - reconstructed_margin) <= 0.0000001;
 }
 
+bool benefit_utility_action_margin_matches(const DecisionData *decision,
+                                           ValidationAction action)
+{
+    if (decision == NULL || !isfinite(decision->phase5_memory_score_final) ||
+        !isfinite(decision->phase5_thread_score_final) || !isfinite(decision->phase5_epsilon))
+        return false;
+    if (action == VALIDATION_ACTION_MOVE_MEMORY)
+        return decision->phase5_memory_score_final > decision->phase5_thread_score_final +
+               decision->phase5_epsilon;
+    if (action == VALIDATION_ACTION_MOVE_THREAD)
+        return decision->phase5_thread_score_final > decision->phase5_memory_score_final +
+               decision->phase5_epsilon;
+    return false;
+}
+
 const char *benefit_classification_name(BenefitClassification classification)
 {
     static const char *names[] = {"BENEFIT_SUPPORTED", "BENEFIT_NOT_SUPPORTED",
@@ -136,7 +151,7 @@ BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *
         if (!utility_evidence_complete(phase5))
             return reject(decision, INSUFFICIENT_BENEFIT_EVIDENCE, "UTILITY_EVIDENCE_UNAVAILABLE",
                           "canonical Phase 5 utility evidence is incomplete or inconsistent");
-        if (!(phase5->phase5_decision_margin < -phase5->phase5_epsilon))
+        if (!benefit_utility_action_margin_matches(phase5, input->action))
             return reject(decision, BENEFIT_NOT_SUPPORTED, "PHASE5_EPSILON_ACTION_GATE_NOT_PASSED",
                           "recorded Phase 5 utility margin does not authorize MOVE_THREAD");
         if (phase6->roi_status != GATE_NOT_APPLICABLE)

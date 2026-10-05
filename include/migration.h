@@ -23,7 +23,10 @@ const char *MigrationResultName(MigrationResultCode result);
 const char *MigrationActionName(ValidationAction action);
 bool Migration_Init(const MigrationConfig *config);
 MigrationResultCode Migration_Execute(const MigrationRequest *request,
-                                      MigrationReport *report);
+                                       MigrationReport *report);
+/* Mechanism-only operation for callers that have already authorized the action. */
+MigrationResultCode Migration_ExecuteMemoryOperation(const MigrationRequest *request,
+                                                      MigrationReport *report);
 bool Migration_AcquireExecutionLock(const MigrationRequest *request);
 void Migration_ReleaseExecutionLock(const MigrationRequest *request);
 bool Migration_CleanupHistory(void);

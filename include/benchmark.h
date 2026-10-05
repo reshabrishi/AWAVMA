@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "benchmark_placement.h"
 
 typedef enum {
     PATTERN_SEQUENTIAL,
@@ -32,6 +33,11 @@ typedef struct {
     unsigned change_phases;
     uint64_t seed;
     const char *output_path;
+    const char *page_registration_socket;
+    uint64_t page_registration_timeout_ms;
+    bool page_registration_required;
+    benchmark_placement_mode_t placement_mode;
+    const char *placement_evidence_path;
 } benchmark_config_t;
 
 const char *benchmark_pattern_name(benchmark_pattern_t pattern);

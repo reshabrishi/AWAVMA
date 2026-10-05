@@ -90,5 +90,23 @@ int main(void)
     input = input_for(VALIDATION_ACTION_MOVE_MEMORY);
     passed = passed && migration_target_provider_get(&input, &topology, &target) == MIGRATION_TARGET_UNAVAILABLE;
     report("TP12_MEMORY_REQUIRES_NODE", passed);
+    input.has_authoritative_numa_node = true;
+    input.authoritative_numa_node = 1;
+    input.requires_cross_node = true;
+    passed = passed && migration_target_provider_get(&input, &topology, &target) == MIGRATION_TARGET_AVAILABLE &&
+             migration_target_structure_validate(&target, true) == MIGRATION_TARGET_STRUCTURE_VALID;
+    report("TP13_MEMORY_NUMA_STRUCTURE", passed);
+    input = input_for(VALIDATION_ACTION_MOVE_THREAD);
+    input.has_authoritative_cpu_mask = true;
+    CPU_SET(2, &input.authoritative_cpu_mask);
+    input.has_authoritative_numa_node = true;
+    input.authoritative_numa_node = 1;
+    passed = passed && migration_target_provider_get(&input, &topology, &target) == MIGRATION_TARGET_AVAILABLE &&
+             migration_target_structure_validate(&target, true) == MIGRATION_TARGET_STRUCTURE_VALID;
+    report("TP14_THREAD_CPU_STRUCTURE", passed);
+    target.has_target_cpu_mask = false;
+    passed = passed && migration_target_structure_validate(&target, true) ==
+             MIGRATION_TARGET_STRUCTURE_THREAD_CPU_INVALID;
+    report("TP15_THREAD_CPU_REQUIRED", passed);
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

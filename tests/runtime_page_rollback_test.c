@@ -49,7 +49,8 @@ int main(void)
     snprintf(bin_dir, sizeof(bin_dir), "%s/bin", cwd); snprintf(config_path, sizeof(config_path), "%s/config/awavma.conf", cwd);
     snprintf(feedback_path, sizeof(feedback_path), "%s/apps/target-integration/history/migration_feedback.csv", root);
     awavma_runtime_config_default(&config); config.root_dir = root; config.bin_dir = bin_dir;
-    config.phase_config_path = config_path; config.migration_safety_enabled = true;
+    config.phase_config_path = config_path;
+    config.execution_profile.migration_safety_requested = true;
     runtime = awavma_runtime_create(); page_rollback_test_adapter_set(&adapter);
     passed = runtime != NULL && awavma_runtime_init(runtime, &config) == 0 &&
         awavma_runtime_test_resume_page_recovery(runtime, checkpoint.attempt_id, &checkpoint, &stats) == 0 &&

@@ -57,8 +57,8 @@ static awavma_runtime_t *start_runtime(char *root, bool execution_enabled)
     config.root_dir = root;
     config.bin_dir = bin_dir;
     config.phase_config_path = config_path;
-    config.migration_safety_enabled = true;
-    config.migration_execution_enabled = execution_enabled;
+    config.execution_profile.migration_safety_requested = true;
+    config.execution_profile.migration_execution_requested = execution_enabled;
     runtime = awavma_runtime_create();
     if (runtime == NULL || awavma_runtime_init(runtime, &config) != 0) {
         awavma_runtime_destroy(runtime);
@@ -228,7 +228,7 @@ int main(void)
     bool passed;
 
     awavma_runtime_config_default(&defaults);
-    passed = !defaults.migration_execution_enabled;
+    passed = !defaults.execution_profile.migration_execution_requested;
     printf("RV01_EXECUTION_DEFAULT_DISABLED: %s\n", passed ? "PASS" : "FAIL");
     child = fork();
     if (child == 0) {

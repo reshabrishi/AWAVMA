@@ -74,6 +74,8 @@ typedef struct {
     size_t pages_migrated;
     size_t pages_failed;
     double execution_time_ms;
+    /* move_pages mutation plus immediate destination verification only. */
+    double memory_operation_time_ms;
     char verification_status[64];
     char old_affinity[256];
     char requested_affinity[256];

@@ -105,6 +105,14 @@ bool runtime_get_migration_metadata(pid_t pid, uint64_t start_time_ticks,
     return true;
 }
 
+bool runtime_read_start_time_ticks(pid_t pid, uint64_t *start_time_ticks)
+{
+    uint64_t cpu_ticks = 0;
+    int cpu = -1;
+
+    return start_time_ticks != NULL && read_stat(pid, start_time_ticks, &cpu_ticks, &cpu);
+}
+
 bool runtime_migration_checkpoint_affinity(const RuntimeMigrationMetadata *metadata,
                                            RuntimeMigrationCheckpoint *checkpoint)
 {

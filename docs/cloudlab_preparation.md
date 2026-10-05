@@ -6,7 +6,7 @@ Use an exclusive Linux machine with at least two visible NUMA nodes, `numactl`, 
 
 ## Exact Order
 
-The required order is **metadata -> build -> tests -> environment check -> preflight -> baseline -> AWAVMA -> aggregate -> graphs -> manifests**. The runner discovers the first two observed NUMA node IDs, records topology, platform, compiler, locale, Git revision/status, and environment-check output, then uses the existing Makefile targets.
+The required order is **metadata -> build -> tests -> environment check -> preflight -> baseline -> AWAVMA -> aggregate -> graphs -> manifests**. The benchmark selects the lowest permitted local node and deterministic farthest permitted remote node, temporarily binds first-touch only, restores default memory policy, and publishes aggregate placement evidence. The runner records topology, platform, compiler, locale, Git revision/status, and environment-check output without imposing inherited NUMA binding.
 
 ## Commands
 
@@ -21,7 +21,9 @@ The public Phase 4D interface is exactly `--check-only`, `--tests-only`, `--base
 
 ## Layout And Outputs
 
-Each collection is isolated at `DIR/raw/RUN_ID/` with `metadata/`, `baseline/logs/`, `awavma/logs/`, `awavma/runtime/`, `measurements.csv`, and `manifest.json`. Only CSV files beneath a passing run-local manifest with `data_source=REAL` and `collection_status=PASS` are ingested. The aggregator rejects address-named fields and IP/MAC values.
+Each collection is isolated at `DIR/raw/RUN_ID/` with `metadata/`, `baseline/logs/`, `awavma/logs/`, `awavma/runtime/`, `measurements.csv`, and `manifest.json`. The AWAVMA scenario requests `--production-real-migration -S -M -R`; it is accepted only after the runtime writes `runtime_execution_profile.csv` with `ACTIVE` effective production mode, all three effective mechanisms, and the strict production capability profile. A missing, malformed, inactive, or environment-limited profile fails collection rather than being reported as monitoring-only. Baselines start no runtime and remain migration-free. Only CSV files beneath a passing run-local manifest with `data_source=REAL` and `collection_status=PASS` are ingested. The aggregator rejects address-named fields and IP/MAC values.
+
+LOCAL, REMOTE, and AWAVMA also require a passing benchmark-owned `placement_evidence.csv` equivalent artifact. REMOTE and AWAVMA must have identical aggregate initial placement evidence; AWAVMA additionally requires P2 registration ACK. Placement establishes an initial state only and neither authorizes nor executes migration.
 
 `DIR/unified/cloudlab_experiment_results.csv` is the canonical wide CSV. `cloudlab_comparator.csv` contains only complete four-scenario comparisons. `summaries/elapsed_seconds_summary.csv`, `summaries/throughput_summary.csv`, and `summaries/latency_ms_summary.csv` provide mean, median, and sample standard deviation. Graph generation consumes the comparator and its matching summary, skips each unavailable named graph independently, and fails when none can be generated.
 

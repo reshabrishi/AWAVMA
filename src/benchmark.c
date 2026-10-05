@@ -1,9 +1,12 @@
 #include "benchmark.h"
+#include "page_candidate_provider.h"
+#include "runtime_migration_metadata.h"
 
 #include <errno.h>
 #include <getopt.h>
 #include <math.h>
 #include <numa.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
@@ -13,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #define DEFAULT_THREADS 1U
 #define DEFAULT_MEMORY_MB 64U
@@ -85,6 +89,11 @@ static void print_usage(const char *program)
     printf("  -M, --memory-node N          Allocate memory on NUMA node N\n");
     printf("  -n, --numa-node N            Set both thread and memory node to N\n");
     printf("  -o, --output FILE            Append one result row to CSV FILE\n");
+    printf("      --page-registration-socket PATH  Runtime-owned registration socket\n");
+    printf("      --page-registration-required      Require accepted owned-page registration\n");
+    printf("      --page-registration-timeout-ms N  Bounded registration wait\n");
+    printf("      --placement-mode MODE      default, local, or remote\n");
+    printf("      --placement-evidence FILE  Atomic placement evidence CSV\n");
     printf("  -h, --help                   Show this help\n");
 }
 
@@ -167,7 +176,12 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         OPTION_HOT_PERCENT = 1000,
         OPTION_MODERATE_PERCENT,
         OPTION_COLD_PERCENT,
-        OPTION_CHANGE_PHASES
+        OPTION_CHANGE_PHASES,
+        OPTION_PAGE_REGISTRATION_SOCKET,
+        OPTION_PAGE_REGISTRATION_REQUIRED,
+        OPTION_PAGE_REGISTRATION_TIMEOUT,
+        OPTION_PLACEMENT_MODE,
+        OPTION_PLACEMENT_EVIDENCE
     };
     static const struct option options[] = {
         {"threads", required_argument, NULL, 't'},
@@ -184,6 +198,11 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         {"change-phases", required_argument, NULL, OPTION_CHANGE_PHASES},
         {"seed", required_argument, NULL, 's'},
         {"output", required_argument, NULL, 'o'},
+        {"page-registration-socket", required_argument, NULL, OPTION_PAGE_REGISTRATION_SOCKET},
+        {"page-registration-required", no_argument, NULL, OPTION_PAGE_REGISTRATION_REQUIRED},
+        {"page-registration-timeout-ms", required_argument, NULL, OPTION_PAGE_REGISTRATION_TIMEOUT},
+        {"placement-mode", required_argument, NULL, OPTION_PLACEMENT_MODE},
+        {"placement-evidence", required_argument, NULL, OPTION_PLACEMENT_EVIDENCE},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -238,6 +257,26 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         case 'o':
             config->output_path = optarg;
             break;
+        case OPTION_PAGE_REGISTRATION_SOCKET:
+            config->page_registration_socket = optarg;
+            break;
+        case OPTION_PAGE_REGISTRATION_REQUIRED:
+            config->page_registration_required = true;
+            break;
+        case OPTION_PAGE_REGISTRATION_TIMEOUT:
+            if (parse_u64(optarg, &integer_value) != 0 || integer_value == 0)
+                goto invalid_argument;
+            config->page_registration_timeout_ms = integer_value;
+            break;
+        case OPTION_PLACEMENT_MODE:
+            if (strcmp(optarg, "default") == 0) config->placement_mode = BENCHMARK_PLACEMENT_DEFAULT;
+            else if (strcmp(optarg, "local") == 0) config->placement_mode = BENCHMARK_PLACEMENT_LOCAL;
+            else if (strcmp(optarg, "remote") == 0) config->placement_mode = BENCHMARK_PLACEMENT_REMOTE;
+            else goto invalid_argument;
+            break;
+        case OPTION_PLACEMENT_EVIDENCE:
+            config->placement_evidence_path = optarg;
+            break;
         case OPTION_HOT_PERCENT:
             if (parse_percent(optarg, &config->hot_percent) != 0)
                 goto invalid_argument;
@@ -272,6 +311,46 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
 
 invalid_argument:
     fprintf(stderr, "Error: invalid value for option near '%s'.\n", optarg);
+    return -1;
+}
+
+static int register_owned_allocation(const benchmark_config_t *config, void *memory, size_t bytes)
+{
+    PageCandidateWireMessage message = {0};
+    PageCandidateResponseReason reason;
+    uint64_t start_time_ticks;
+    uint64_t waited = 0;
+    long page_size = sysconf(_SC_PAGESIZE);
+
+    if (!config->page_registration_required)
+        return 0;
+    if (config->page_registration_socket == NULL || page_size <= 0 ||
+        bytes % (size_t)page_size != 0 || (uintptr_t)memory % (size_t)page_size != 0 ||
+        !runtime_read_start_time_ticks(getpid(), &start_time_ticks))
+        return -1;
+    message.version = PAGE_CANDIDATE_WIRE_VERSION;
+    message.operation = PAGE_CANDIDATE_WIRE_REGISTER;
+    message.pid = getpid();
+    message.start_time_ticks = start_time_ticks;
+    message.region_start = (uintptr_t)memory;
+    message.region_length = bytes;
+    message.page_size = (uint64_t)page_size;
+    message.client_generation = 1;
+    snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(),
+             (unsigned long long)start_time_ticks);
+    snprintf(message.provenance, sizeof(message.provenance), "benchmark-owned-allocation");
+    while (waited < config->page_registration_timeout_ms) {
+        uint64_t slice = config->page_registration_timeout_ms - waited;
+        PageCandidateClientStatus status;
+        status = page_candidate_provider_send_wait(config->page_registration_socket, &message, slice, &reason);
+        if (status == PAGE_CANDIDATE_STATUS_ACCEPTED)
+            return 0;
+        if (status != PAGE_CANDIDATE_STATUS_IO)
+            return -1;
+        if (slice > 100) slice = 100;
+        (void)poll(NULL, 0, (int)slice);
+        waited += slice;
+    }
     return -1;
 }
 
@@ -393,6 +472,7 @@ static int bind_worker_to_node(const benchmark_config_t *config, size_t thread_i
     unsigned int cpu_count;
     unsigned int cpu;
     cpu_set_t affinity;
+    cpu_set_t allowed;
     int result;
 
     if (config->thread_node < 0)
@@ -404,14 +484,21 @@ static int bind_worker_to_node(const benchmark_config_t *config, size_t thread_i
         numa_bitmask_free(cpu_mask);
         return -1;
     }
-    cpu_count = numa_bitmask_weight(cpu_mask);
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) {
+        numa_bitmask_free(cpu_mask);
+        return -1;
+    }
+    cpu_count = 0;
+    for (cpu = 0; cpu < cpu_mask->size && cpu < CPU_SETSIZE; cpu++)
+        if (numa_bitmask_isbitset(cpu_mask, cpu) && CPU_ISSET(cpu, &allowed))
+            cpu_count++;
     if (cpu_count == 0) {
         numa_bitmask_free(cpu_mask);
         return -1;
     }
     CPU_ZERO(&affinity);
     for (cpu = 0; cpu < cpu_mask->size; cpu++) {
-        if (numa_bitmask_isbitset(cpu_mask, cpu)) {
+        if (numa_bitmask_isbitset(cpu_mask, cpu) && cpu < CPU_SETSIZE && CPU_ISSET(cpu, &allowed)) {
             if (selected++ == thread_id % (size_t)cpu_count) {
                 if (cpu >= CPU_SETSIZE) {
                     numa_bitmask_free(cpu_mask);
@@ -596,11 +683,10 @@ static int allocate_memory(const benchmark_config_t *config, size_t bytes, uint6
                     bytes, config->memory_node);
             return -1;
         }
-    } else if (posix_memalign(&allocation, 64, bytes) != 0) {
+    } else if (posix_memalign(&allocation, (size_t)sysconf(_SC_PAGESIZE), bytes) != 0) {
         fprintf(stderr, "Error: could not allocate %zu bytes.\n", bytes);
         return -1;
     }
-    memset(allocation, 0, bytes);
     *memory = allocation;
     return 0;
 }
@@ -664,7 +750,12 @@ int main(int argc, char **argv)
         .cold_percent = DEFAULT_COLD_PERCENT,
         .change_phases = DEFAULT_CHANGE_PHASES,
         .seed = DEFAULT_SEED,
-        .output_path = NULL
+        .output_path = NULL,
+        .page_registration_socket = NULL,
+        .page_registration_timeout_ms = 30000,
+        .page_registration_required = false,
+        .placement_mode = BENCHMARK_PLACEMENT_DEFAULT,
+        .placement_evidence_path = NULL
     };
     pthread_t *threads = NULL;
     worker_context_t *workers = NULL;
@@ -685,6 +776,9 @@ int main(int argc, char **argv)
     double execution_time;
     char timestamp[32];
     int result = EXIT_FAILURE;
+    benchmark_placement_topology_t placement_topology;
+    benchmark_placement_evidence_t placement_evidence;
+    int placement_result;
 
     parse_result = parse_options(argc, argv, &config);
     if (parse_result != 0)
@@ -714,8 +808,49 @@ int main(int argc, char **argv)
     }
     if (validate_and_resolve_numa(&config, &numa_nodes) != 0)
         return EXIT_FAILURE;
+    placement_result = benchmark_placement_discover(&placement_topology);
+    if (config.placement_mode != BENCHMARK_PLACEMENT_DEFAULT) {
+        if (placement_result == 1) {
+            fprintf(stderr, "ENV_LIMITED: fewer than two usable NUMA nodes for controlled placement.\n");
+            return 3;
+        }
+        if (placement_result != 0 || config.placement_evidence_path == NULL) {
+            fprintf(stderr, "Error: controlled placement setup is unavailable.\n");
+            return EXIT_FAILURE;
+        }
+        if (config.thread_node >= 0 && config.thread_node != placement_topology.local_node) {
+            fprintf(stderr, "Error: controlled placement conflicts with --thread-node.\n");
+            return EXIT_FAILURE;
+        }
+        if (config.memory_node >= 0) {
+            fprintf(stderr, "Error: controlled placement conflicts with --memory-node.\n");
+            return EXIT_FAILURE;
+        }
+        config.thread_node = placement_topology.local_node;
+    } else if (placement_result != 0) {
+        memset(&placement_topology, 0, sizeof(placement_topology));
+        placement_topology.local_node = -1;
+        placement_topology.remote_node = -1;
+        placement_topology.numa_distance = -1;
+    }
     if (allocate_memory(&config, memory_bytes, &memory) != 0)
         return EXIT_FAILURE;
+    if ((config.page_registration_required && config.page_registration_socket == NULL) ||
+        (!config.page_registration_required && config.page_registration_socket != NULL)) {
+        fprintf(stderr, "Error: page registration socket and required mode must be used together.\n");
+        goto cleanup;
+    }
+    placement_result = benchmark_placement_prepare(config.placement_mode, &placement_topology, memory,
+                                                    memory_bytes, &placement_evidence);
+    if ((config.placement_evidence_path != NULL &&
+         benchmark_placement_write(config.placement_evidence_path, &placement_evidence) != 0) ||
+        placement_result != 0) {
+        fprintf(stderr, "%s: %s\n", placement_evidence.verification_status,
+                placement_evidence.verification_reason);
+        if (placement_result > 0)
+            result = 3;
+        goto cleanup;
+    }
 
     threads = calloc(config.threads, sizeof(*threads));
     workers = calloc(config.threads, sizeof(*workers));
@@ -764,6 +899,10 @@ int main(int argc, char **argv)
         pthread_cond_wait(&gate.condition, &gate.mutex);
     if (atomic_load(&worker_error) != 0)
         gate.abort = true;
+    if (!gate.abort && register_owned_allocation(&config, memory, memory_bytes) != 0) {
+        fprintf(stderr, "Error: benchmark-owned page registration was not accepted.\n");
+        gate.abort = true;
+    }
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     for (i = 0; i < config.threads; i++)
         workers[i].start_time = start_time;

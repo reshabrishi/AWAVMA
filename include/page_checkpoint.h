@@ -47,6 +47,19 @@ typedef struct {
     PageCheckpointEntry *entries;
 } MigrationPageCheckpoint;
 
+/* Address-free summary for a future memory-action recovery eligibility check. */
+typedef struct {
+    pid_t pid;
+    uint64_t start_time_ticks;
+    char attempt_id[128];
+    size_t candidate_count;
+    bool checkpoint_complete;
+    bool original_placement_known;
+    bool rollback_provider_retained;
+    int source_numa_node;
+    int target_numa_node;
+} MemoryRecoveryEvidence;
+
 typedef int (*page_checkpoint_query_fn)(void *context, pid_t pid, void **pages,
                                          size_t page_count, int *status);
 
@@ -68,5 +81,11 @@ PageCheckpointResult page_checkpoint_capture(const PageCheckpointRequest *reques
 bool page_checkpoint_matches_attempt(const MigrationPageCheckpoint *checkpoint, pid_t pid,
                                      uint64_t start_time_ticks, const char *attempt_id);
 void page_checkpoint_release(MigrationPageCheckpoint *checkpoint);
+
+/* Builds an immutable-by-value summary; it never copies page addresses. */
+bool page_checkpoint_recovery_evidence(const MigrationPageCheckpoint *checkpoint,
+                                       bool rollback_provider_retained,
+                                       int source_numa_node, int target_numa_node,
+                                       MemoryRecoveryEvidence *evidence);
 
 #endif

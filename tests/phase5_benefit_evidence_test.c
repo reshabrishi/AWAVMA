@@ -29,6 +29,7 @@ int main(void)
     char decision_path[256];
     char input_path[256];
     char validation_path[256];
+    char monitor_path[256];
     awavma_runtime_record_t record = {.pid = 42, .generation = 17};
     DecisionData decision;
     ValidationResult validation;
@@ -42,6 +43,7 @@ int main(void)
     snprintf(decision_path, sizeof(decision_path), "%s/decision.csv", directory);
     snprintf(input_path, sizeof(input_path), "%s/validation_input.csv", directory);
     snprintf(validation_path, sizeof(validation_path), "%s/validation.csv", directory);
+    snprintf(monitor_path, sizeof(monitor_path), "%s/evidence-app_monitoring.csv", directory);
     snprintf(record.app_id, sizeof(record.app_id), "evidence-app");
     passed = write_fixture(decision_path,
         "timestamp,app_id,pid,entity_id,classification,classification_score,f_access,f_threshold,f_gain_memory,f_cost_memory,f_cpu_memory,f_sharing_memory,f_gain_thread,f_cost_thread,f_cpu_thread,f_sharing_thread,memory_score_raw,thread_score_raw,memory_bias,thread_bias,memory_score_final,thread_score_final,decision_margin,epsilon,decision,weight_version,bias_version,status,predicted_gain,estimated_cost\n"
@@ -67,6 +69,19 @@ int main(void)
         equal(validation.confidence_score, 82.5) && equal(validation.roi_score, -1.0) &&
         strcmp(validation.migration_id, decision.migration_id) == 0;
     printf("P5BE01_ADAPTER_AND_JOIN_PRESERVE_EVIDENCE: %s\n", passed ? "PASS" : "FAIL");
+    passed = passed && write_fixture(monitor_path,
+        "timestamp,elapsed_ms,pid,start_time_ticks,process_cpu_utilization_percent\n"
+        "2026-09-07T12:00:00,0,42,0,-1\n"
+        "2026-09-07T12:00:01,100,42,0,17.5\n") &&
+        awavma_runtime_test_write_validation_input_with_monitor(decision_path, input_path, &record,
+                                                                directory) == 0;
+    FILE *adapter = fopen(input_path, "r");
+    char adapter_line[4096] = {0};
+    bool cpu_propagated = adapter != NULL && fgets(adapter_line, sizeof(adapter_line), adapter) != NULL &&
+                          fgets(adapter_line, sizeof(adapter_line), adapter) != NULL &&
+                          strstr(adapter_line, ",NA,NA,NA,17.5,NA,NA,") != NULL;
+    if (adapter != NULL) fclose(adapter);
+    printf("P5BE04_REAL_INTERVAL_CPU_PROPAGATED: %s\n", cpu_propagated ? "PASS" : "FAIL");
     awavma_runtime_record_t stale_record = record;
 
     stale_record.generation++;
@@ -106,10 +121,11 @@ int main(void)
     bool uncalibrated = benefit_classifier_evaluate(&classifier_input, &classifier_decision) ==
                         BENEFIT_POLICY_UNCALIBRATED;
     printf("P5BE03_COMPLETE_EVIDENCE_UNCALIBRATED: %s\n", uncalibrated ? "PASS" : "FAIL");
-    passed = passed && stale_rejected && uncalibrated;
+    passed = passed && cpu_propagated && stale_rejected && uncalibrated;
     unlink(decision_path);
     unlink(input_path);
     unlink(validation_path);
+    unlink(monitor_path);
     rmdir(directory);
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
