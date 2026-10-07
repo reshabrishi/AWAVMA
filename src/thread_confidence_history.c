@@ -69,7 +69,7 @@ static bool parse_bool(const char *text, bool *value)
 
 static bool valid_status(const char *text)
 {
-    static const char *names[] = {"VALID", "INVALID_EVIDENCE", "CANDIDATE_UNAVAILABLE", "MALFORMED_INPUT",
+    static const char *names[] = {"VALID", "INVALID_EVIDENCE", "CANDIDATE_UNAVAILABLE", "CANDIDATE_VERIFIED", "MALFORMED_INPUT",
                                   "IDENTITY_MISMATCH", "PERSISTENCE_UNAVAILABLE", "UNSUPPORTED"};
     for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++)
         if (strcmp(text, names[index]) == 0) return true;
@@ -186,7 +186,7 @@ failed:
 
 const char *thread_confidence_history_status_name(thread_confidence_history_status_t status)
 {
-    static const char *names[] = {"VALID", "INVALID_EVIDENCE", "CANDIDATE_UNAVAILABLE", "MALFORMED_INPUT",
+    static const char *names[] = {"VALID", "INVALID_EVIDENCE", "CANDIDATE_UNAVAILABLE", "CANDIDATE_VERIFIED", "MALFORMED_INPUT",
                                   "IDENTITY_MISMATCH", "PERSISTENCE_UNAVAILABLE", "UNSUPPORTED"};
     return status >= THREAD_CONFIDENCE_HISTORY_VALID && status <= THREAD_CONFIDENCE_HISTORY_UNSUPPORTED ?
         names[status] : "UNSUPPORTED";
@@ -249,7 +249,8 @@ int thread_confidence_history_persist(const char *path,
         observation->evidence_status < THREAD_CONFIDENCE_HISTORY_VALID ||
         observation->evidence_status > THREAD_CONFIDENCE_HISTORY_UNSUPPORTED ||
         observation->observation_valid || observation->evidence_status == THREAD_CONFIDENCE_HISTORY_VALID ||
-        observation->candidate_tid_available || observation->candidate_tid_verified || observation->candidate_tid != -1 ||
+        (observation->candidate_tid_available && observation->evidence_status != THREAD_CONFIDENCE_HISTORY_CANDIDATE_VERIFIED) ||
+        (!observation->candidate_tid_available && observation->evidence_status == THREAD_CONFIDENCE_HISTORY_CANDIDATE_VERIFIED) ||
         (observation->candidate_tid_available && (!observation->candidate_tid_verified || observation->candidate_tid <= 0)) ||
         (!observation->candidate_tid_available && (observation->candidate_tid != -1 || observation->candidate_tid_verified)) ||
         (observation->classification_available && !valid_text(observation->classification)) ||

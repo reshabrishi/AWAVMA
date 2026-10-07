@@ -56,6 +56,7 @@ LIVE_PAGE_MIGRATION_TEST_TARGET := bin/live-page-migration-test
 P4C_MIGRATION_COST_COLLECTOR_TARGET := bin/p4c-migration-cost-collector
 THREAD_CONFIDENCE_HISTORY_TEST_TARGET := bin/thread-confidence-history-test
 RUNTIME_ADMISSION_TEST_TARGET := bin/runtime-admission-test
+THREAD_CANDIDATE_TEST_TARGET := bin/thread-candidate-test
 RUNTIME_ADMISSION_TEST_SOURCES = tests/runtime_admission_test.c $(CONTINUOUS_MONITOR_SOURCES)
 THREAD_CONFIDENCE_HISTORY_TEST_SOURCES := tests/thread_confidence_history_test.c src/thread_confidence_history.c
 MEMORY_MIGRATION_TRANSACTION_TEST_TARGET := bin/memory-migration-transaction-test
@@ -91,26 +92,27 @@ APPLICATION_RUNTIME_TEST_SOURCES := tests/application_runtime_test.c $(APPLICATI
 CONTINUOUS_MONITOR_SOURCES := src/runtime_monitor.c src/application_manager.c src/application_discovery.c src/worker_pool.c src/monitor.c
 CONTINUOUS_MONITOR_TEST_SOURCES := tests/continuous_monitoring_test.c $(CONTINUOUS_MONITOR_SOURCES)
 AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/calibration.c src/environment_capabilities.c src/page_candidate_provider.c src/runtime_target_filter.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
-AWAVMA_RUNTIME_TEST_SOURCES := tests/awavma_runtime_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+AWAVMA_RUNTIME_SOURCES += src/thread_candidate.c
+AWAVMA_RUNTIME_TEST_SOURCES := tests/awavma_runtime_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/thread_candidate.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 AWAVMA_RUNTIME_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 RUNTIME_MIGRATION_METADATA_TEST_SOURCES := tests/runtime_migration_metadata_test.c src/runtime_migration_metadata.c
 MIGRATION_TARGET_PROVIDER_TEST_SOURCES := tests/migration_target_provider_test.c src/migration_target_provider.c
 THREAD_TARGET_POLICY_TEST_SOURCES := tests/thread_target_policy_test.c src/thread_target_policy.c src/benefit_classifier.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
 PAGE_CHECKPOINT_TEST_SOURCES := tests/page_checkpoint_test.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration_target_provider.c src/benefit_classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
-RUNTIME_PAGE_CHECKPOINT_TEST_SOURCES := tests/runtime_page_checkpoint_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+RUNTIME_PAGE_CHECKPOINT_TEST_SOURCES := tests/runtime_page_checkpoint_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/thread_candidate.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 RUNTIME_PAGE_CHECKPOINT_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 RUNTIME_PAGE_ROLLBACK_TEST_SOURCES := tests/runtime_page_rollback_test.c $(filter-out tests/awavma_runtime_test.c,$(AWAVMA_RUNTIME_TEST_SOURCES))
 PAGE_ROLLBACK_TEST_SOURCES := tests/page_rollback_test.c src/page_rollback.c src/page_checkpoint.c src/runtime_migration_metadata.c src/migration_target_provider.c
 BENEFIT_CLASSIFIER_TEST_SOURCES := tests/benefit_classifier_test.c src/benefit_classifier.c
 RUNTIME_BENEFIT_CLASSIFIER_TEST_SOURCES := tests/runtime_benefit_classifier_test.c src/benefit_classifier.c src/migration_safety_manager.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
-PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES := tests/phase5_benefit_evidence_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES := tests/phase5_benefit_evidence_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/thread_candidate.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 DECISION_BENEFIT_EVIDENCE_TEST_SOURCES := tests/decision_benefit_evidence_test.c src/decision.c
 BENEFIT_EVIDENCE_CONTRACT_TEST_SOURCES := tests/benefit_evidence_contract_test.c src/benefit_classifier.c
 RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_SOURCES := tests/runtime_migration_target_integration_test.c src/benefit_classifier.c src/runtime_migration_metadata.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
-RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_SOURCES := tests/runtime_migration_target_production_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_SOURCES := tests/runtime_migration_target_production_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/thread_candidate.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 RUNTIME_MIGRATION_TARGET_PRODUCTION_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
-RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES := tests/runtime_migration_validation_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
+RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES := tests/runtime_migration_validation_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/thread_candidate.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 RUNTIME_TARGET_FILTER_TEST_SOURCES := tests/runtime_target_filter_test.c src/runtime_target_filter.c
 DISCOVERY_CADENCE_TEST_SOURCES := tests/discovery_cadence_test.c $(CONTINUOUS_MONITOR_SOURCES)
@@ -393,6 +395,9 @@ test-benchmark-cli: $(BENCHMARK_TARGET)
 test-thread-confidence-history: $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET)
 	./$(THREAD_CONFIDENCE_HISTORY_TEST_TARGET)
 
+test-thread-candidate: $(THREAD_CANDIDATE_TEST_TARGET)
+	./$(THREAD_CANDIDATE_TEST_TARGET)
+
 test-runtime-admission: $(RUNTIME_ADMISSION_TEST_TARGET)
 	./$(RUNTIME_ADMISSION_TEST_TARGET)
 
@@ -565,6 +570,9 @@ $(BENCHMARK_PLACEMENT_TEST_TARGET): $(BENCHMARK_PLACEMENT_TEST_SOURCES) $(HEADER
 
 $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET): $(THREAD_CONFIDENCE_HISTORY_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(THREAD_CONFIDENCE_HISTORY_TEST_SOURCES)
+
+$(THREAD_CANDIDATE_TEST_TARGET): tests/thread_candidate_test.c src/thread_candidate.c src/runtime_migration_metadata.c $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ tests/thread_candidate_test.c src/thread_candidate.c src/runtime_migration_metadata.c -pthread
 
 $(RUNTIME_ADMISSION_TEST_TARGET): $(RUNTIME_ADMISSION_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_ADMISSION_TEST_SOURCES) -pthread $(NUMA_LDLIBS)

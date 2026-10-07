@@ -12,6 +12,7 @@
 #include "page_rollback.h"
 #include "runtime_migration_metadata.h"
 #include "thread_confidence_history.h"
+#include "thread_candidate.h"
 #include "thread_target_policy.h"
 #include "worker_pool.h"
 
@@ -1618,7 +1619,8 @@ static void set_status(awavma_runtime_record_t *record, awavma_runtime_status_t 
 }
 
 static int persist_temporal_observation(const char *history_path, awavma_runtime_record_t *record,
-                                        thread_confidence_history_status_t status, const char *reason)
+                                        thread_confidence_history_status_t status, const char *reason,
+                                        const thread_candidate_t *candidate)
 {
     char timestamp[32];
     struct tm utc;
@@ -1628,9 +1630,9 @@ static int persist_temporal_observation(const char *history_path, awavma_runtime
         .pid = record->pid,
         .start_time_ticks = record->start_time_ticks,
         .temporal_generation = record->temporal_generation,
-        .candidate_tid = -1,
-        .candidate_tid_available = false,
-        .candidate_tid_verified = false,
+        .candidate_tid = candidate == NULL ? -1 : candidate->tid,
+        .candidate_tid_available = candidate != NULL && candidate->verified,
+        .candidate_tid_verified = candidate != NULL && candidate->verified,
         .classification = "NA",
         .classification_available = false,
         .placement_relation = "NA",
@@ -1638,7 +1640,7 @@ static int persist_temporal_observation(const char *history_path, awavma_runtime
         .evidence_status = status,
         .observation_valid = false,
         .reason = reason,
-        .provenance = "CURRENT_RUNTIME_PROCESS_CYCLE"
+        .provenance = candidate == NULL ? "CURRENT_RUNTIME_PROCESS_CYCLE" : candidate->provenance
     };
 
     if (record->temporal_generation == 0 || gmtime_r(&now, &utc) == NULL ||
@@ -1865,8 +1867,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     if (normalize_monitoring_elapsed(phase3_path, normalized_monitoring_path,
                                     runtime->config.monitor_interval_ms) != 0) {
         if (persist_temporal_observation(temporal_history_path, record,
-                                         THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
-                                         "monitoring_normalization_failed") == 0)
+                                          THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
+                                          "monitoring_normalization_failed", NULL) == 0)
             record->temporal_history_available = true;
         else
             record->temporal_history_available = false;
@@ -1899,8 +1901,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     monitor_profile_scope_end(&phase4_profile, phase4_result == 0 ? "OK" : "ERROR");
     if (phase4_result != 0) {
         if (persist_temporal_observation(temporal_history_path, record,
-                                         THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
-                                         "phase4_classification_failed") == 0)
+                                          THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
+                                          "phase4_classification_failed", NULL) == 0)
             record->temporal_history_available = true;
         else
             record->temporal_history_available = false;
@@ -1915,8 +1917,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     monitor_profile_scope_end(&delta_profile, delta_result == 0 ? "OK" : "ERROR");
     if (delta_result != 0) {
         if (persist_temporal_observation(temporal_history_path, record,
-                                         THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
-                                         "classification_delta_failed") == 0)
+                                          THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
+                                          "classification_delta_failed", NULL) == 0)
             record->temporal_history_available = true;
         else
             record->temporal_history_available = false;
@@ -1924,9 +1926,13 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
     }
+    thread_candidate_t candidate;
+    bool candidate_available = thread_candidate_select(record->pid, record->start_time_ticks, &candidate);
     if (persist_temporal_observation(temporal_history_path, record,
-                                     THREAD_CONFIDENCE_HISTORY_CANDIDATE_UNAVAILABLE,
-                                     "canonical_candidate_tid_unavailable") == 0)
+                                     candidate_available ? THREAD_CONFIDENCE_HISTORY_CANDIDATE_VERIFIED :
+                                                           THREAD_CONFIDENCE_HISTORY_CANDIDATE_UNAVAILABLE,
+                                     candidate_available ? "verified_worker_tid" : "canonical_candidate_tid_unavailable",
+                                     candidate_available ? &candidate : NULL) == 0)
         record->temporal_history_available = true;
     else
         record->temporal_history_available = false;

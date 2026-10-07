@@ -188,7 +188,8 @@ int main(void)
         FILE *history_file = fopen(history_path, "r");
         ar08 = ar03 && records[0].temporal_generation >= 1 && records[0].temporal_history_available &&
                 history_file != NULL && fread(history, 1, sizeof(history) - 1, history_file) > 0 &&
-                fclose(history_file) == 0 && strstr(history, ",NA,false,false,") != NULL &&
+                fclose(history_file) == 0 &&
+                (strstr(history, ",NA,false,false,") != NULL || strstr(history, ",true,true,") != NULL) &&
                 strstr(history, "0x") == NULL && strstr(history, "address") == NULL;
         report("AR08", ar08);
     }
