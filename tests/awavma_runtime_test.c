@@ -27,6 +27,10 @@ int main(void)
     char bin_dir[PATH_MAX + 32];
     char config_path[PATH_MAX + 32];
     char results_path[PATH_MAX + 32];
+    char history_path[PATH_MAX + 256];
+    char history[2048] = {0};
+    char failure_root[] = "/tmp/awavma-temporal-failure-XXXXXX";
+    char missing_bin[] = "/tmp/awavma-no-classifier";
     awavma_runtime_config_t config;
     awavma_runtime_t *runtime;
     awavma_runtime_record_t records[4];
@@ -78,6 +82,37 @@ int main(void)
     snprintf(results_path, sizeof(results_path), "%s/runtime_results.csv", root);
     passed = passed && access(results_path, R_OK) == 0;
     report("AR07", passed);
+    snprintf(history_path, sizeof(history_path), "%s/apps/%s/history/thread_confidence.csv", root,
+             records[0].app_id);
+    FILE *history_file = fopen(history_path, "r");
+    passed = passed && records[0].temporal_generation >= 1 && records[0].temporal_history_available &&
+             history_file != NULL && fread(history, 1, sizeof(history) - 1, history_file) > 0 &&
+             fclose(history_file) == 0 && strstr(history, ",NA,false,false,") != NULL &&
+             strstr(history, "0x") == NULL && strstr(history, "address") == NULL;
+    report("AR08", passed);
+    awavma_runtime_destroy(runtime);
+    runtime = NULL;
+    passed = passed && mkdtemp(failure_root) != NULL;
+    awavma_runtime_config_default(&config);
+    config.root_dir = failure_root;
+    config.bin_dir = missing_bin;
+    config.phase_config_path = config_path;
+    config.phase4_mode = AWAVMA_PHASE4_SUBPROCESS;
+    config.monitor_interval_ms = 25;
+    config.evaluation_interval_ms = 160;
+    config.max_applications = 256;
+    config.worker_count = 1;
+    config.queue_capacity = 4;
+    config.application_filter = target_filter;
+    config.application_filter_context = &child;
+    runtime = awavma_runtime_create();
+    int failure_run = runtime != NULL && awavma_runtime_init(runtime, &config) == 0 ?
+        awavma_runtime_run_for(runtime, 220) : 0;
+    count = runtime == NULL ? 0 : awavma_runtime_snapshot(runtime, records, 4);
+    int ar09 = failure_run == 0 && count == 1 && records[0].generation == 0 &&
+               records[0].temporal_generation >= 1 && records[0].temporal_history_available;
+    passed = passed && ar09;
+    report("AR09", passed);
     awavma_runtime_destroy(runtime);
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);

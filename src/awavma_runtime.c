@@ -11,6 +11,7 @@
 #include "page_checkpoint.h"
 #include "page_rollback.h"
 #include "runtime_migration_metadata.h"
+#include "thread_confidence_history.h"
 #include "thread_target_policy.h"
 #include "worker_pool.h"
 
@@ -1615,6 +1616,37 @@ static void set_status(awavma_runtime_record_t *record, awavma_runtime_status_t 
     snprintf(record->detail, sizeof(record->detail), "%.*s", (int)(sizeof(record->detail) - 1), detail);
 }
 
+static int persist_temporal_observation(const char *history_path, awavma_runtime_record_t *record,
+                                        thread_confidence_history_status_t status, const char *reason)
+{
+    char timestamp[32];
+    struct tm utc;
+    time_t now = time(NULL);
+    thread_confidence_history_observation_t observation = {
+        .app_id = record->app_id,
+        .pid = record->pid,
+        .start_time_ticks = record->start_time_ticks,
+        .temporal_generation = record->temporal_generation,
+        .candidate_tid = -1,
+        .candidate_tid_available = false,
+        .candidate_tid_verified = false,
+        .classification = "NA",
+        .classification_available = false,
+        .placement_relation = "NA",
+        .placement_available = false,
+        .evidence_status = status,
+        .observation_valid = false,
+        .reason = reason,
+        .provenance = "CURRENT_RUNTIME_PROCESS_CYCLE"
+    };
+
+    if (record->temporal_generation == 0 || gmtime_r(&now, &utc) == NULL ||
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &utc) == 0)
+        return -1;
+    observation.timestamp_utc = timestamp;
+    return thread_confidence_history_persist(history_path, &observation);
+}
+
 static int write_runtime_results(const awavma_runtime_t *runtime)
 {
     char temporary[4096];
@@ -1746,6 +1778,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     char validation_path[4096];
     char state_dir[4096];
     char history_dir[4096];
+    char temporal_history_path[4096];
     char log_path[4096];
     char classifier[4096];
     char decision[4096];
@@ -1808,6 +1841,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         path_join(decision_path, sizeof(decision_path), cycle_dir, "decision.csv") != 0 ||
         path_join(validation_input_path, sizeof(validation_input_path), cycle_dir, "validation_input.csv") != 0 ||
         path_join(validation_path, sizeof(validation_path), cycle_dir, "validation.csv") != 0 ||
+        path_join(temporal_history_path, sizeof(temporal_history_path), history_dir,
+                  "thread_confidence.csv") != 0 ||
         path_join(classifier, sizeof(classifier), runtime->config.bin_dir, "classifier") != 0 ||
         path_join(decision, sizeof(decision), runtime->config.bin_dir, "decision") != 0 ||
         path_join(validation, sizeof(validation), runtime->config.bin_dir, "validation") != 0) {
@@ -1817,11 +1852,23 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         return -1;
     }
     monitor_profile_scope_end(&artifact_profile, "OK");
+    if (thread_confidence_history_next_generation(temporal_history_path, record->app_id, record->pid,
+                                                  record->start_time_ticks,
+                                                  &record->temporal_generation) != 0) {
+        record->temporal_generation = 0;
+        record->temporal_history_available = false;
+    }
     char *classifier_args[] = {classifier, "--input", normalized_monitoring_path, "--output", classification_path, NULL};
     monitor_profile_scope_begin(&normalize_profile, "pipeline", "monitoring_normalize_io", record->app_id,
                                 record->pid, record->generation + 1);
     if (normalize_monitoring_elapsed(phase3_path, normalized_monitoring_path,
                                     runtime->config.monitor_interval_ms) != 0) {
+        if (persist_temporal_observation(temporal_history_path, record,
+                                         THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
+                                         "monitoring_normalization_failed") == 0)
+            record->temporal_history_available = true;
+        else
+            record->temporal_history_available = false;
         set_status(record, AWAVMA_RUNTIME_ERROR, "Phase 4 failed");
         monitor_profile_scope_end(&normalize_profile, "ERROR");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
@@ -1850,6 +1897,12 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     }
     monitor_profile_scope_end(&phase4_profile, phase4_result == 0 ? "OK" : "ERROR");
     if (phase4_result != 0) {
+        if (persist_temporal_observation(temporal_history_path, record,
+                                         THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
+                                         "phase4_classification_failed") == 0)
+            record->temporal_history_available = true;
+        else
+            record->temporal_history_available = false;
         set_status(record, AWAVMA_RUNTIME_ERROR, "Phase 4 failed");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
@@ -1860,10 +1913,22 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
                                       record->phase5_committed_rows);
     monitor_profile_scope_end(&delta_profile, delta_result == 0 ? "OK" : "ERROR");
     if (delta_result != 0) {
+        if (persist_temporal_observation(temporal_history_path, record,
+                                         THREAD_CONFIDENCE_HISTORY_INVALID_EVIDENCE,
+                                         "classification_delta_failed") == 0)
+            record->temporal_history_available = true;
+        else
+            record->temporal_history_available = false;
         set_status(record, AWAVMA_RUNTIME_ERROR, "Phase 4 failed");
         monitor_profile_scope_end(&coordinator_profile, "ERROR");
         return -1;
     }
+    if (persist_temporal_observation(temporal_history_path, record,
+                                     THREAD_CONFIDENCE_HISTORY_CANDIDATE_UNAVAILABLE,
+                                     "canonical_candidate_tid_unavailable") == 0)
+        record->temporal_history_available = true;
+    else
+        record->temporal_history_available = false;
     char *decision_args[] = {decision, "--input", classification_delta_path, "--output", decision_path,
                              "--app-id", record->app_id, "--state-dir", state_dir,
                              "--history-dir", history_dir, "--log", log_path, NULL};

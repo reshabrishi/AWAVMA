@@ -78,6 +78,8 @@ typedef struct {
     pid_t pid;
     uint64_t start_time_ticks;
     uint64_t generation;
+    uint64_t temporal_generation;
+    bool temporal_history_available;
     size_t phase3_samples;
     size_t phase5_committed_rows;
     awavma_runtime_status_t status;
