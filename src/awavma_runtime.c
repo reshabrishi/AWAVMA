@@ -106,6 +106,7 @@ struct awavma_runtime {
 #ifdef AWAVMA_RUNTIME_TESTING
     awavma_runtime_test_target_case_t test_target_case;
     awavma_runtime_test_target_stats_t test_target_stats;
+    awavma_runtime_test_run_diagnostics_t test_run_diagnostics;
 #endif
     bool initialized;
     _Atomic bool stop_requested;
@@ -2062,6 +2063,10 @@ static int process_pipeline(awavma_runtime_t *runtime)
     monitor_profile_scope_begin(&snapshot_profile, "pipeline", "pipeline_snapshot_prepare", NULL, -1, 0);
     monitor_records = calloc(runtime->config.max_applications, sizeof(*monitor_records));
     if (monitor_records == NULL) {
+#ifdef AWAVMA_RUNTIME_TESTING
+        runtime->test_run_diagnostics.failing_stage = AWAVMA_RUNTIME_TEST_RUN_STAGE_PIPELINE_SNAPSHOT;
+        runtime->test_run_diagnostics.pipeline_result = ENOMEM;
+#endif
         monitor_profile_scope_end(&snapshot_profile, "ERROR");
         monitor_profile_scope_end(&pipeline_profile, "ERROR");
         return ENOMEM;
@@ -2095,7 +2100,20 @@ static int process_pipeline(awavma_runtime_t *runtime)
     free(monitor_records);
     process_pending_feedback(runtime);
     monitor_profile_scope_begin(&publish_profile, "pipeline", "runtime_results_publish_io", NULL, -1, 0);
-    int result = write_runtime_results(runtime) == 0 ? 0 : EIO;
+    int result;
+
+#ifdef AWAVMA_RUNTIME_TESTING
+    runtime->test_run_diagnostics.results_publish_attempted = true;
+    errno = 0;
+#endif
+    result = write_runtime_results(runtime) == 0 ? 0 : EIO;
+#ifdef AWAVMA_RUNTIME_TESTING
+    runtime->test_run_diagnostics.pipeline_result = result;
+    if (result != 0) {
+        runtime->test_run_diagnostics.failing_stage = AWAVMA_RUNTIME_TEST_RUN_STAGE_RESULTS_PUBLISH;
+        runtime->test_run_diagnostics.publish_errno = errno;
+    }
+#endif
     monitor_profile_scope_end(&publish_profile, result == 0 ? "OK" : "ERROR");
     monitor_profile_scope_end(&pipeline_profile, result == 0 ? "OK" : "ERROR");
     return result;
@@ -2391,6 +2409,11 @@ int awavma_runtime_run_for(awavma_runtime_t *runtime, uint64_t duration_ms)
     if (runtime == NULL || !runtime->initialized)
         return EINVAL;
     started = monotonic_ms();
+#ifdef AWAVMA_RUNTIME_TESTING
+    memset(&runtime->test_run_diagnostics, 0, sizeof(runtime->test_run_diagnostics));
+    runtime->test_run_diagnostics.monitor_result = -1;
+    runtime->test_run_diagnostics.pipeline_result = -1;
+#endif
     do {
         uint64_t slice = runtime->config.evaluation_interval_ms;
 
@@ -2402,17 +2425,40 @@ int awavma_runtime_run_for(awavma_runtime_t *runtime, uint64_t duration_ms)
         monitor_profile_scope_t cycle_profile;
 
         monitor_profile_scope_begin(&cycle_profile, "runtime", "runtime_cycle_total", NULL, -1, 0);
-        if (runtime_monitor_run_for(runtime->monitor, slice) != 0) {
+        int monitor_result = runtime_monitor_run_for(runtime->monitor, slice);
+
+#ifdef AWAVMA_RUNTIME_TESTING
+        runtime->test_run_diagnostics.monitor_result = monitor_result;
+#endif
+        if (monitor_result != 0) {
+#ifdef AWAVMA_RUNTIME_TESTING
+            runtime->test_run_diagnostics.failing_stage = AWAVMA_RUNTIME_TEST_RUN_STAGE_MONITOR;
+            runtime->test_run_diagnostics.run_result = EIO;
+            runtime->test_run_diagnostics.elapsed_ms = monotonic_ms() - started;
+#endif
             monitor_profile_scope_end(&cycle_profile, "ERROR");
             return EIO;
         }
-        if (process_pipeline(runtime) != 0) {
+        int pipeline_result = process_pipeline(runtime);
+
+#ifdef AWAVMA_RUNTIME_TESTING
+        runtime->test_run_diagnostics.pipeline_result = pipeline_result;
+#endif
+        if (pipeline_result != 0) {
+#ifdef AWAVMA_RUNTIME_TESTING
+            runtime->test_run_diagnostics.run_result = EIO;
+            runtime->test_run_diagnostics.elapsed_ms = monotonic_ms() - started;
+#endif
             monitor_profile_scope_end(&cycle_profile, "ERROR");
             return EIO;
         }
         monitor_profile_scope_end(&cycle_profile, "OK");
     } while (!atomic_load(&runtime->stop_requested) &&
              (duration_ms == 0 || monotonic_ms() - started < duration_ms));
+ #ifdef AWAVMA_RUNTIME_TESTING
+    runtime->test_run_diagnostics.run_result = 0;
+    runtime->test_run_diagnostics.elapsed_ms = monotonic_ms() - started;
+ #endif
     return 0;
 }
 
@@ -2437,6 +2483,25 @@ size_t awavma_runtime_snapshot(const awavma_runtime_t *runtime,
 }
 
 #ifdef AWAVMA_RUNTIME_TESTING
+bool awavma_runtime_test_run_diagnostics(const awavma_runtime_t *runtime,
+                                         awavma_runtime_test_run_diagnostics_t *diagnostics)
+{
+    runtime_monitor_record_t monitor_record;
+
+    if (runtime == NULL || !runtime->initialized || diagnostics == NULL)
+        return false;
+    *diagnostics = runtime->test_run_diagnostics;
+    diagnostics->runtime_record_count = runtime->record_count;
+    diagnostics->monitor_record_count = runtime_monitor_snapshot(runtime->monitor, &monitor_record, 1);
+    if (diagnostics->monitor_record_count == 1) {
+        diagnostics->target_discovered = true;
+        diagnostics->target_submitted = monitor_record.submissions > 0;
+        diagnostics->phase3_began = monitor_record.samples > 0 || monitor_record.in_flight ||
+                                    monitor_record.last_result != 0;
+    }
+    return true;
+}
+
 int awavma_runtime_test_submit_approved_migration(
     awavma_runtime_t *runtime, pid_t pid, uint64_t start_time_ticks,
     awavma_runtime_test_target_case_t target_case,

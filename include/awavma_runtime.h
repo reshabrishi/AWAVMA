@@ -139,6 +139,28 @@ typedef struct {
     char attempt_id[128];
 } awavma_runtime_test_target_stats_t;
 
+typedef enum {
+    AWAVMA_RUNTIME_TEST_RUN_STAGE_NONE,
+    AWAVMA_RUNTIME_TEST_RUN_STAGE_MONITOR,
+    AWAVMA_RUNTIME_TEST_RUN_STAGE_PIPELINE_SNAPSHOT,
+    AWAVMA_RUNTIME_TEST_RUN_STAGE_RESULTS_PUBLISH
+} awavma_runtime_test_run_stage_t;
+
+typedef struct {
+    int run_result;
+    int monitor_result;
+    int pipeline_result;
+    int publish_errno;
+    uint64_t elapsed_ms;
+    size_t monitor_record_count;
+    size_t runtime_record_count;
+    bool results_publish_attempted;
+    bool target_discovered;
+    bool target_submitted;
+    bool phase3_began;
+    awavma_runtime_test_run_stage_t failing_stage;
+} awavma_runtime_test_run_diagnostics_t;
+
 /* Test-only upstream decision entry; it preserves the production runtime callbacks. */
 int awavma_runtime_test_submit_approved_migration(
     awavma_runtime_t *runtime, pid_t pid, uint64_t start_time_ticks,
@@ -156,9 +178,11 @@ int awavma_runtime_test_write_validation_input_with_monitor(const char *decision
                                                              const awavma_runtime_record_t *record,
                                                              const char *monitor_dir);
 int awavma_runtime_test_load_benefit_evidence(const char *validation_input_path,
-                                              const char *validation_path,
-                                              const awavma_runtime_record_t *record,
-                                              DecisionData *decision, ValidationResult *validation);
+                                               const char *validation_path,
+                                               const awavma_runtime_record_t *record,
+                                               DecisionData *decision, ValidationResult *validation);
+bool awavma_runtime_test_run_diagnostics(const awavma_runtime_t *runtime,
+                                         awavma_runtime_test_run_diagnostics_t *diagnostics);
 #endif
 
 #endif
