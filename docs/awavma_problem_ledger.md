@@ -2,7 +2,7 @@
 
 | ID | Phase | Title | Status | CloudLab required | Commit | Evidence path | Remaining risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| B1A-001 | B1A | Persistent temporal history integration | LOCAL_PASS | YES | pending | `apps/<app>/history/thread_confidence.csv` | No canonical worker candidate TID exists; B1A rows cannot establish thread confidence. |
+| B1A-001 | B1A | Persistent temporal history integration | LOCAL_PASS | YES | da608e7 | `apps/<app>/history/thread_confidence.csv` | No canonical worker candidate TID exists; B1A rows cannot establish thread confidence. |
 
 ## B1A-001
 
