@@ -15,3 +15,4 @@
 - Implemented fix: app-owned atomic process-cycle history with a separate temporal generation; every B1A row records candidate TID unavailable.
 - Tests: thread-confidence-history unit test, runtime history integration, monitor/runtime regression suite.
 - Remaining risks: history is intentionally candidate-neutral; it must not be connected to decision, ROI, safety, or migration until a real worker candidate exists.
+- CloudLab validation attempt at `daaa754`: failed. The reported dedicated target compiled a misspelled history-test source, and `test-awavma-runtime` reported AR02-AR09 failures. The checked-out commit already uses the correct source spelling; the repair centralizes that source list, removes the target during `clean`, and makes AR01-AR09 report their independent assertions for the required second CloudLab diagnosis.

@@ -37,6 +37,7 @@ int main(void)
     pid_t child;
     size_t count;
     int passed = 1;
+    int ar01, ar02, ar03, ar04, ar05, ar06, ar07, ar08, ar09;
 
     if (mkdtemp(root) == NULL || getcwd(cwd, sizeof(cwd)) == NULL) {
         report("AR01", 0);
@@ -65,31 +66,30 @@ int main(void)
     config.application_filter = target_filter;
     config.application_filter_context = &child;
     runtime = awavma_runtime_create();
-    passed = runtime != NULL && awavma_runtime_init(runtime, &config) == 0;
-    report("AR01", passed);
-    if (passed)
-        passed = awavma_runtime_run_for(runtime, 220) == 0;
-    report("AR02", passed);
+    ar01 = runtime != NULL && awavma_runtime_init(runtime, &config) == 0;
+    report("AR01", ar01);
+    ar02 = ar01 && awavma_runtime_run_for(runtime, 220) == 0;
+    report("AR02", ar02);
     count = runtime == NULL ? 0 : awavma_runtime_snapshot(runtime, records, 4);
-    passed = passed && count == 1 && records[0].pid == child && records[0].start_time_ticks != 0;
-    report("AR03", passed);
-    passed = passed && records[0].phase3_samples > 0;
-    report("AR04", passed);
-    passed = passed && records[0].status == AWAVMA_RUNTIME_INSUFFICIENT;
-    report("AR05", passed);
-    passed = passed && strstr(records[0].detail, "unavailable") != NULL;
-    report("AR06", passed);
+    ar03 = ar02 && count == 1 && records[0].pid == child && records[0].start_time_ticks != 0;
+    report("AR03", ar03);
+    ar04 = ar03 && records[0].phase3_samples > 0;
+    report("AR04", ar04);
+    ar05 = ar03 && records[0].status == AWAVMA_RUNTIME_INSUFFICIENT;
+    report("AR05", ar05);
+    ar06 = ar03 && strstr(records[0].detail, "unavailable") != NULL;
+    report("AR06", ar06);
     snprintf(results_path, sizeof(results_path), "%s/runtime_results.csv", root);
-    passed = passed && access(results_path, R_OK) == 0;
-    report("AR07", passed);
+    ar07 = ar02 && access(results_path, R_OK) == 0;
+    report("AR07", ar07);
     snprintf(history_path, sizeof(history_path), "%s/apps/%s/history/thread_confidence.csv", root,
              records[0].app_id);
     FILE *history_file = fopen(history_path, "r");
-    passed = passed && records[0].temporal_generation >= 1 && records[0].temporal_history_available &&
-             history_file != NULL && fread(history, 1, sizeof(history) - 1, history_file) > 0 &&
-             fclose(history_file) == 0 && strstr(history, ",NA,false,false,") != NULL &&
-             strstr(history, "0x") == NULL && strstr(history, "address") == NULL;
-    report("AR08", passed);
+    ar08 = ar03 && records[0].temporal_generation >= 1 && records[0].temporal_history_available &&
+              history_file != NULL && fread(history, 1, sizeof(history) - 1, history_file) > 0 &&
+              fclose(history_file) == 0 && strstr(history, ",NA,false,false,") != NULL &&
+              strstr(history, "0x") == NULL && strstr(history, "address") == NULL;
+    report("AR08", ar08);
     awavma_runtime_destroy(runtime);
     runtime = NULL;
     passed = passed && mkdtemp(failure_root) != NULL;
@@ -109,12 +109,12 @@ int main(void)
     int failure_run = runtime != NULL && awavma_runtime_init(runtime, &config) == 0 ?
         awavma_runtime_run_for(runtime, 220) : 0;
     count = runtime == NULL ? 0 : awavma_runtime_snapshot(runtime, records, 4);
-    int ar09 = failure_run == 0 && count == 1 && records[0].generation == 0 &&
-               records[0].temporal_generation >= 1 && records[0].temporal_history_available;
-    passed = passed && ar09;
-    report("AR09", passed);
+    ar09 = failure_run == 0 && count == 1 && records[0].generation == 0 &&
+           records[0].temporal_generation >= 1 && records[0].temporal_history_available;
+    report("AR09", ar09);
     awavma_runtime_destroy(runtime);
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);
+    passed = ar01 && ar02 && ar03 && ar04 && ar05 && ar06 && ar07 && ar08 && ar09;
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
