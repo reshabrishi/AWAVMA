@@ -16,6 +16,12 @@ The collector defaults to smoke. Smoke performs one authenticated exact-4096-pag
 to a calibration artifact. Full collection requires a smoke manifest and retains
 two successful warmups plus seven successful measured samples; invalid attempts
 are retained but excluded, with bounded retries.
+`cost_migration_valid` describes only the retained cost evidence for that run:
+smoke requires one valid warmup; full requires exactly two valid warmups and
+seven valid measured rows. Every accepted row must be an exact 4096-page
+transaction with positive finite elapsed time and a consistent source,
+destination, distance, and page size. It is independent of timing calibration,
+thread calibration, remote equivalence, and production authorization.
 Smoke is always labelled `NOT_PRODUCTION_CALIBRATION`; it is not a production
 artifact. The builder requires at least seven valid pairs and seven exact,
 successful 4096-page `move_pages` cost observations for every production record.

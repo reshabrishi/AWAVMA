@@ -2,6 +2,7 @@
 """Build strict P4-B calibration CSVs from safe, retained CloudLab raw rows."""
 import argparse, csv, hashlib, math, os, statistics, sys, tempfile
 from collections import defaultdict
+from validate_numa_calibration import valid_cost
 
 SCHEMA = 1
 MIN_SAMPLES = 7
@@ -36,13 +37,6 @@ def atomic_csv(path, rows):
 def valid_placement(row, mode):
     required = ("placement_mode", "verification_status", "memory_policy_restored", "total_pages", "queryable_pages", "other_pages", "unknown_pages")
     return all(row.get(k, "") for k in required) and row["placement_mode"] == mode and row["verification_status"] == "PASS" and row["memory_policy_restored"] == "true" and row["total_pages"] == row["queryable_pages"] and row["other_pages"] == "0" and row["unknown_pages"] == "0"
-def valid_cost(row):
-    if not (row.get("warmup") == "false" and row.get("measurement_valid") == "true" and
-            row.get("requested_pages") == "4096" and row.get("attempted_pages") == "4096" and
-            row.get("migrated_pages") == "4096" and row.get("failed_pages") == "0"):
-        return False
-    try: return float(row.get("elapsed_ms", "")) > 0
-    except ValueError: return False
 def build(args):
     with open(args.raw, newline="", encoding="utf-8") as handle: raw = list(csv.DictReader(handle))
     with open(args.cost, newline="", encoding="utf-8") as handle: costs = list(csv.DictReader(handle))
@@ -51,7 +45,7 @@ def build(args):
         if row.get("warmup") != "false" or row.get("measurement_valid") != "true": continue
         key = tuple(row.get(k, "") for k in ("benchmark_pattern", "threads", "memory_bytes", "page_size", "local_node", "remote_node", "numa_distance", "duration_seconds"))
         groups[key].append(row)
-    valid_costs = [r for r in costs if valid_cost(r)]
+    valid_costs = [r for r in costs if r.get("warmup") == "false" and valid_cost(r)]
     if len(valid_costs) < args.minimum_cost_samples: raise SystemExit("CALIBRATION_INSUFFICIENT_COST_SAMPLES")
     cost_values = [float(r["elapsed_ms"]) for r in valid_costs]; cost_mean, cost_std = mean_std(cost_values); cost_upper = t_bound(cost_mean, cost_std, len(cost_values), True)
     records = []

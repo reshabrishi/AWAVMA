@@ -56,16 +56,17 @@ collect_costs() {
   done
   [[ $successful -eq $required ]]
 }
-SMOKE_COST_VALID=false; FULL_COST_VALID=true
+COST_VALID=false
 if [[ "$MODE" == --smoke ]]; then
-  if collect_costs true 1; then SMOKE_COST_VALID=true; else printf 'SMOKE_COST_SAMPLE_INVALID\n' >&2; fi
+  collect_costs true 1 || printf 'SMOKE_COST_SAMPLE_INVALID\n' >&2
 else
-  collect_costs true "$WARMUPS" || { printf 'FULL_COST_WARMUPS_INSUFFICIENT\n' >&2; FULL_COST_VALID=false; }
-  collect_costs false 7 || { printf 'FULL_COST_SAMPLES_INSUFFICIENT\n' >&2; FULL_COST_VALID=false; }
+  collect_costs true "$WARMUPS" || printf 'FULL_COST_WARMUPS_INSUFFICIENT\n' >&2
+  collect_costs false 7 || printf 'FULL_COST_SAMPLES_INSUFFICIENT\n' >&2
 fi
-printf '{"schema_version":1,"mode":"%s","status":"NOT_PRODUCTION_CALIBRATION","cost_migration_valid":%s,"git_dirty":%s,"raw_timing":"raw_timing.csv","raw_cost":"raw_cost.csv","thread_calibration":"NOT_IMPLEMENTED","awavma_remote_equivalence":"PENDING"}\n' "${MODE#--}" "$SMOKE_COST_VALID" "$(git -C "$ROOT" diff --quiet && printf false || printf true)" >"$RUN/manifest.json"
-if [[ "$MODE" == --smoke && "$SMOKE_COST_VALID" == true ]]; then
+if python3 "$ROOT/tools/validate_numa_calibration.py" cost-valid "$RUN/raw_cost.csv" "${MODE#--}"; then COST_VALID=true; else printf 'COST_EVIDENCE_INVALID\n' >&2; fi
+printf '{"schema_version":1,"mode":"%s","status":"NOT_PRODUCTION_CALIBRATION","cost_migration_valid":%s,"git_dirty":%s,"raw_timing":"raw_timing.csv","raw_cost":"raw_cost.csv","thread_calibration":"NOT_IMPLEMENTED","awavma_remote_equivalence":"PENDING"}\n' "${MODE#--}" "$COST_VALID" "$(git -C "$ROOT" diff --quiet && printf false || printf true)" >"$RUN/manifest.json"
+if [[ "$MODE" == --smoke && "$COST_VALID" == true ]]; then
   temporary="$OUT/smoke/.manifest.$$"; cp "$RUN/manifest.json" "$temporary"; mv -f "$temporary" "$OUT/smoke/manifest.json"
 fi
 printf 'P4-C collection retained at %s; raw_cost.csv contains retained controlled migration-cost attempts.\n' "$RUN"
-[[ "$MODE" == --smoke || "$FULL_COST_VALID" == true ]]
+[[ "$MODE" == --smoke || "$COST_VALID" == true ]]
