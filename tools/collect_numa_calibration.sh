@@ -4,7 +4,9 @@ set -Eeuo pipefail
 MODE=${1:---smoke}; [[ "$MODE" == --smoke || "$MODE" == --full ]] || exit 2
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd); OUT=${P4C_OUTPUT_DIR:-"$ROOT/results/cloudlab_calibration"}
 PAIRS=${P4C_PAIRS:-7}; WARMUPS=2; WORKLOADS=(mixed)
-[[ "$MODE" == --smoke ]] || WORKLOADS=(sequential random hot moderate cold mixed changing local)
+# "local" is a legacy NUMA placement pattern, not an independent access
+# distribution. Controlled LOCAL/REMOTE placement supplies that dimension here.
+[[ "$MODE" == --smoke ]] || WORKLOADS=(sequential random hot moderate cold mixed changing)
 [[ "$MODE" == --smoke ]] || [[ -f "${P4C_SMOKE_MANIFEST:-$OUT/smoke/manifest.json}" ]] || { printf 'FULL_REQUIRES_SUCCESSFUL_SMOKE_MANIFEST\n' >&2; exit 2; }
 [[ -x "$ROOT/bin/benchmark" ]] || { printf 'ENV_LIMITED: benchmark binary unavailable\n' >&2; exit 3; }
 make -C "$ROOT" bin/p4c-migration-cost-collector >/dev/null

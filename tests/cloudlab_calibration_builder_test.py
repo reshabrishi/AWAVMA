@@ -22,6 +22,9 @@ def main():
         command=[sys.executable, str(ROOT/"tools/build_numa_calibration.py"), "--raw",str(raw),"--cost",str(cost),"--output",str(out),"--experiment-id","fixture","--created-at-utc","2026-10-05T00:00:00Z","--cpu-architecture","x86_64","--cpu-model","fixture","--online-numa-nodes","2","--local-permitted-cpu-count","4","--production"]
         subprocess.run(command, check=True); subprocess.run([str(ROOT/"bin/calibration-validate"),str(out)], check=True)
         assert "0x" not in out.read_text().lower()
+        # The builder accepts the controlled matrix it receives; it does not
+        # require the legacy placement-oriented "local" benchmark pattern.
+        assert {row["benchmark_pattern"] for row in csv.DictReader(out.open())} == {"mixed"}
         # Warmup, invalid, and partial rows are retained but cannot satisfy seven measured samples.
         six = [dict(zip(COST_HEADER, ["fixture","false","4096","4096","4096","0",str(2 + i / 100),"1","0","20","4096","true",""])) for i in range(6)]
         six.extend([dict(zip(COST_HEADER, ["fixture","true","4096","4096","4096","0","2","1","0","20","4096","true",""])),

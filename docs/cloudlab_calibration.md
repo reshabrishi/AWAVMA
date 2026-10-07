@@ -25,6 +25,17 @@ t interval. `uncertainty_pct` is zero because those bounds already represent the
 statistical uncertainty; P4-C does not invent a second uncertainty percentage.
 `safety_margin_pct` is an explicit, configurable policy value (default 1%).
 
+## Controlled workload matrix
+
+The controlled timing workload matrix is `sequential`, `random`, `hot`,
+`moderate`, `cold`, `mixed`, and `changing`, each measured under both P3
+`LOCAL` and `REMOTE` placement. The benchmark's legacy `--pattern local` is
+not in this matrix: implementation assigns both the worker and allocation node
+and rejects unequal nodes, while its access loop is sequential. It is therefore
+a legacy placement-oriented mode, preserved for direct benchmark use but
+semantically redundant and incompatible with the single placement authority
+required by controlled P3 calibration.
+
 Thread calibration is deliberately `NOT_IMPLEMENTED`: P3 memory placement alone
 does not establish a valid CPU-affinity calibration. Persistent files contain no
 page addresses or map ranges.
