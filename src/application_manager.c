@@ -333,9 +333,11 @@ int application_manager_process_snapshot(application_manager_t *manager,
                 terminate_entry_locked(manager, entry, "PID reused");
             }
         }
-        if (append_entry_locked(manager, &records[index], now, now_monotonic) != 0) {
+        int result = append_entry_locked(manager, &records[index], now, now_monotonic);
+
+        if (result != 0) {
             pthread_mutex_unlock(&manager->mutex);
-            return ENOSPC;
+            return result;
         }
     }
     for (size_t index = 0; index < manager->count; index++) {

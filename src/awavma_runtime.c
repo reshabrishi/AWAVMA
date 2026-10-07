@@ -2146,6 +2146,8 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     config->benefit_calibration_provenance = "no_cross_numa_production_calibration";
     config->calibration_artifact_path = NULL;
     application_discovery_config_default(&config->discovery_config);
+    config->discovery_admission = NULL;
+    config->discovery_admission_context = NULL;
     config->application_filter = NULL;
     config->application_filter_context = NULL;
 }
@@ -2315,6 +2317,8 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     monitor_config.results_path = runtime->monitor_results_path;
     monitor_config.log_path = runtime->monitor_log_path;
     monitor_config.discovery_config = config->discovery_config;
+    monitor_config.discovery_admission = config->discovery_admission;
+    monitor_config.discovery_admission_context = config->discovery_admission_context;
     monitor_config.application_filter = config->application_filter;
     monitor_config.application_filter_context = config->application_filter_context;
     if (runtime_monitor_init(runtime->monitor, runtime->manager, runtime->pool, &monitor_config) != 0) {

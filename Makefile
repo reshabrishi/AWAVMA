@@ -55,6 +55,7 @@ DELAYED_FEEDBACK_TEST_TARGET := bin/delayed-feedback-test
 LIVE_PAGE_MIGRATION_TEST_TARGET := bin/live-page-migration-test
 P4C_MIGRATION_COST_COLLECTOR_TARGET := bin/p4c-migration-cost-collector
 THREAD_CONFIDENCE_HISTORY_TEST_TARGET := bin/thread-confidence-history-test
+RUNTIME_ADMISSION_TEST_TARGET := bin/runtime-admission-test
 THREAD_CONFIDENCE_HISTORY_TEST_SOURCES := tests/thread_confidence_history_test.c src/thread_confidence_history.c
 MEMORY_MIGRATION_TRANSACTION_TEST_TARGET := bin/memory-migration-transaction-test
 PROFILE_AWAVMA_RUNTIME_TARGET := bin/profile-awavma-runtime
@@ -391,6 +392,9 @@ test-benchmark-cli: $(BENCHMARK_TARGET)
 test-thread-confidence-history: $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET)
 	./$(THREAD_CONFIDENCE_HISTORY_TEST_TARGET)
 
+test-runtime-admission: $(RUNTIME_ADMISSION_TEST_TARGET)
+	./$(RUNTIME_ADMISSION_TEST_TARGET)
+
 test-calibration: $(CALIBRATION_TEST_TARGET)
 	./$(CALIBRATION_TEST_TARGET)
 
@@ -560,6 +564,9 @@ $(BENCHMARK_PLACEMENT_TEST_TARGET): $(BENCHMARK_PLACEMENT_TEST_SOURCES) $(HEADER
 
 $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET): $(THREAD_CONFIDENCE_HISTORY_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(THREAD_CONFIDENCE_HISTORY_TEST_SOURCES)
+
+$(RUNTIME_ADMISSION_TEST_TARGET): tests/runtime_admission_test.c src/runtime_monitor.c src/application_manager.c src/application_discovery.c src/worker_pool.c src/monitor.c $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ tests/runtime_admission_test.c src/runtime_monitor.c src/application_manager.c src/application_discovery.c src/worker_pool.c src/monitor.c -pthread
 
 $(DELAYED_FEEDBACK_TEST_TARGET): $(DELAYED_FEEDBACK_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(DELAYED_FEEDBACK_TEST_SOURCES)

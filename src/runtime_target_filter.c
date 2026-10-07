@@ -126,3 +126,17 @@ bool runtime_target_filter_matches(const application_manager_record_t *applicati
             return true;
     return false;
 }
+
+bool runtime_target_filter_admits_discovery(const application_discovery_record_t *application,
+                                            void *context)
+{
+    const runtime_target_filter_t *filter = context;
+
+    if (application == NULL || filter == NULL)
+        return false;
+    for (size_t index = 0; index < filter->count; index++)
+        if (filter->identities[index].pid == application->pid &&
+            filter->identities[index].start_time_ticks == application->start_time_ticks)
+            return true;
+    return false;
+}

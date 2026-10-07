@@ -152,6 +152,8 @@ int main(int argc, char **argv)
     if (optind != argc)
         goto invalid;
     if (target_filter.count > 0) {
+        config.discovery_admission = runtime_target_filter_admits_discovery;
+        config.discovery_admission_context = &target_filter;
         config.application_filter = runtime_target_filter_matches;
         config.application_filter_context = &target_filter;
     }

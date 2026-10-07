@@ -419,6 +419,8 @@ void runtime_monitor_config_default(runtime_monitor_config_t *config)
     config->results_path = DEFAULT_RESULTS_PATH;
     config->log_path = DEFAULT_LOG_PATH;
     application_discovery_config_default(&config->discovery_config);
+    config->discovery_admission = NULL;
+    config->discovery_admission_context = NULL;
     config->application_filter = NULL;
     config->application_filter_context = NULL;
 }
@@ -544,6 +546,15 @@ static int refresh_discovery(runtime_monitor_t *monitor, uint64_t now)
 #endif
             return EIO;
         }
+    if (monitor->config.discovery_admission != NULL) {
+        size_t admitted_count = 0;
+
+        for (size_t index = 0; index < discovered_count; index++)
+            if (monitor->config.discovery_admission(&discovered[index],
+                                                    monitor->config.discovery_admission_context))
+                discovered[admitted_count++] = discovered[index];
+        discovered_count = admitted_count;
+    }
     result = application_manager_process_snapshot(monitor->manager, discovered, discovered_count);
 #ifdef AWAVMA_RUNTIME_TESTING
     monitor->test_diagnostics.manager_update_result = result;

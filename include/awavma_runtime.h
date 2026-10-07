@@ -69,6 +69,8 @@ typedef struct {
     const char *benefit_calibration_provenance;
     const char *calibration_artifact_path;
     application_discovery_config_t discovery_config;
+    runtime_monitor_discovery_admission_fn discovery_admission;
+    void *discovery_admission_context;
     runtime_monitor_application_filter_fn application_filter;
     void *application_filter_context;
 } awavma_runtime_config_t;

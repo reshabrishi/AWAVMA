@@ -58,6 +58,12 @@ static bool target_filter(const application_manager_record_t *application, void 
     return application->pid == *(const pid_t *)context;
 }
 
+static bool target_discovery_admission(const application_discovery_record_t *application,
+                                       void *context)
+{
+    return application->pid == *(const pid_t *)context;
+}
+
 int main(void)
 {
     char root[] = "/tmp/awavma-runtime-test-XXXXXX";
@@ -105,6 +111,8 @@ int main(void)
     config.max_applications = 256;
     config.worker_count = 1;
     config.queue_capacity = 4;
+    config.discovery_admission = target_discovery_admission;
+    config.discovery_admission_context = &child;
     config.application_filter = target_filter;
     config.application_filter_context = &child;
     runtime = awavma_runtime_create();
@@ -197,6 +205,8 @@ int main(void)
     config.max_applications = 256;
     config.worker_count = 1;
     config.queue_capacity = 4;
+    config.discovery_admission = target_discovery_admission;
+    config.discovery_admission_context = &child;
     config.application_filter = target_filter;
     config.application_filter_context = &child;
     runtime = awavma_runtime_create();
