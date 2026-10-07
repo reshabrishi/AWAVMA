@@ -48,6 +48,9 @@ struct runtime_monitor {
     bool mutex_initialized;
     bool initialized;
     _Atomic bool stop_requested;
+#ifdef AWAVMA_RUNTIME_TESTING
+    runtime_monitor_test_diagnostics_t test_diagnostics;
+#endif
 };
 
 typedef struct {
@@ -345,6 +348,10 @@ static int schedule_active(runtime_monitor_t *monitor,
         monitor_profile_scope_begin(&submission_profile, "worker", "job_submission",
                                     entry->record.app_id, entry->record.pid, context->job_id);
         worker_pool_status_t result = worker_pool_submit(monitor->pool, &job);
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.submission_attempted = true;
+        monitor->test_diagnostics.submission_result = result;
+#endif
         monitor_profile_scope_end(&submission_profile,
                                   result == WORKER_POOL_SUCCESS ? "OK" : "DEFERRED");
 
@@ -487,23 +494,67 @@ static int refresh_discovery(runtime_monitor_t *monitor, uint64_t now)
 {
     application_discovery_record_t *discovered;
     size_t discovered_count;
+    int result;
 
     pthread_mutex_lock(&monitor->mutex);
     monitor->discovery_stats.last_discovery_started_ms = now;
     pthread_mutex_unlock(&monitor->mutex);
-    if (application_discovery_scan(monitor->discovery) != 0)
+#ifdef AWAVMA_RUNTIME_TESTING
+    errno = 0;
+#endif
+    result = application_discovery_scan(monitor->discovery);
+#ifdef AWAVMA_RUNTIME_TESTING
+    monitor->test_diagnostics.discovery_scan_result = result;
+    monitor->test_diagnostics.discovery_scan_errno = errno;
+#endif
+    if (result != 0) {
+
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.discovery_scan_result = result;
+        monitor->test_diagnostics.discovery_scan_errno = errno;
+        monitor->test_diagnostics.raw_result = result;
+        monitor->test_diagnostics.mapped_result = EIO;
+        monitor->test_diagnostics.failing_stage = RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SCAN;
+#endif
         return EIO;
+    }
     discovered_count = application_discovery_count(monitor->discovery);
+#ifdef AWAVMA_RUNTIME_TESTING
+    monitor->test_diagnostics.discovery_count = discovered_count;
+#endif
     discovered = calloc(discovered_count == 0 ? 1 : discovered_count, sizeof(*discovered));
-    if (discovered == NULL)
+    if (discovered == NULL) {
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.raw_result = ENOMEM;
+        monitor->test_diagnostics.mapped_result = ENOMEM;
+        monitor->test_diagnostics.failing_stage = RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SNAPSHOT;
+#endif
         return ENOMEM;
+    }
+#ifdef AWAVMA_RUNTIME_TESTING
+    monitor->test_diagnostics.discovery_snapshot_allocated = true;
+#endif
     for (size_t index = 0; index < discovered_count; index++)
         if (!application_discovery_get(monitor->discovery, index, &discovered[index])) {
             free(discovered);
+#ifdef AWAVMA_RUNTIME_TESTING
+            monitor->test_diagnostics.raw_result = EIO;
+            monitor->test_diagnostics.mapped_result = EIO;
+            monitor->test_diagnostics.failing_stage = RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SNAPSHOT;
+#endif
             return EIO;
         }
-    if (application_manager_process_snapshot(monitor->manager, discovered, discovered_count) != 0) {
+    result = application_manager_process_snapshot(monitor->manager, discovered, discovered_count);
+#ifdef AWAVMA_RUNTIME_TESTING
+    monitor->test_diagnostics.manager_update_result = result;
+#endif
+    if (result != 0) {
         free(discovered);
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.raw_result = result;
+        monitor->test_diagnostics.mapped_result = EIO;
+        monitor->test_diagnostics.failing_stage = RUNTIME_MONITOR_TEST_STAGE_MANAGER_UPDATE;
+#endif
         return EIO;
     }
     free(discovered);
@@ -526,6 +577,14 @@ int runtime_monitor_run_for(runtime_monitor_t *monitor, uint64_t duration_ms)
 
     if (monitor == NULL || !monitor->initialized || duration_ms == 0)
         return EINVAL;
+#ifdef AWAVMA_RUNTIME_TESTING
+    memset(&monitor->test_diagnostics, 0, sizeof(monitor->test_diagnostics));
+    monitor->test_diagnostics.discovery_scan_result = -1;
+    monitor->test_diagnostics.manager_update_result = -1;
+    monitor->test_diagnostics.active_snapshot_result = -1;
+    monitor->test_diagnostics.submission_result = -1;
+    monitor->test_diagnostics.worker_wait_result = -1;
+#endif
     deadline = monotonic_ms() + duration_ms;
     while (monotonic_ms() < deadline) {
         application_manager_record_t *active;
@@ -555,10 +614,24 @@ int runtime_monitor_run_for(runtime_monitor_t *monitor, uint64_t duration_ms)
 #endif
         }
         active_count = application_manager_active_count(monitor->manager);
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.manager_active_count = active_count;
+#endif
         active = calloc(active_count == 0 ? 1 : active_count, sizeof(*active));
-        if (active == NULL)
+        if (active == NULL) {
+#ifdef AWAVMA_RUNTIME_TESTING
+            monitor->test_diagnostics.raw_result = ENOMEM;
+            monitor->test_diagnostics.mapped_result = ENOMEM;
+            monitor->test_diagnostics.active_snapshot_result = ENOMEM;
+            monitor->test_diagnostics.failing_stage = RUNTIME_MONITOR_TEST_STAGE_ACTIVE_SNAPSHOT;
+#endif
             return ENOMEM;
+        }
         active_count = application_manager_snapshot(monitor->manager, active, active_count);
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.active_snapshot_result = 0;
+        monitor->test_diagnostics.active_count = active_count;
+#endif
         if (monitor->config.application_filter != NULL) {
             size_t filtered_count = 0;
 
@@ -568,6 +641,10 @@ int runtime_monitor_run_for(runtime_monitor_t *monitor, uint64_t duration_ms)
                     active[filtered_count++] = active[index];
             active_count = filtered_count;
         }
+#ifdef AWAVMA_RUNTIME_TESTING
+        monitor->test_diagnostics.eligibility_count = active_count;
+        monitor->test_diagnostics.target_seen_in_manager = active_count > 0;
+#endif
         monitor_profile_scope_begin(&schedule_profile, "runtime", "runtime_schedule_active",
                                     NULL, -1, 0);
         schedule_active(monitor, active, active_count, now);
@@ -578,7 +655,21 @@ int runtime_monitor_run_for(runtime_monitor_t *monitor, uint64_t duration_ms)
         free(active);
         sleep_ms((unsigned)(monitor->config.monitor_interval_ms / 4U + 1U));
     }
-    return worker_pool_wait_idle(monitor->pool) == WORKER_POOL_SUCCESS ? 0 : EIO;
+    worker_pool_status_t worker_result;
+
+#ifdef AWAVMA_RUNTIME_TESTING
+    monitor->test_diagnostics.worker_wait_attempted = true;
+#endif
+    worker_result = worker_pool_wait_idle(monitor->pool);
+#ifdef AWAVMA_RUNTIME_TESTING
+    monitor->test_diagnostics.worker_wait_result = worker_result;
+    if (worker_result != WORKER_POOL_SUCCESS) {
+        monitor->test_diagnostics.raw_result = worker_result;
+        monitor->test_diagnostics.mapped_result = EIO;
+        monitor->test_diagnostics.failing_stage = RUNTIME_MONITOR_TEST_STAGE_WORKER_WAIT;
+    }
+#endif
+    return worker_result == WORKER_POOL_SUCCESS ? 0 : EIO;
 }
 
 void runtime_monitor_request_stop(runtime_monitor_t *monitor)
@@ -628,7 +719,7 @@ size_t runtime_monitor_deferred_count(const runtime_monitor_t *monitor)
 }
 
 bool runtime_monitor_discovery_stats(const runtime_monitor_t *monitor,
-                                     runtime_monitor_discovery_stats_t *stats)
+                                      runtime_monitor_discovery_stats_t *stats)
 {
     if (monitor == NULL || stats == NULL || !monitor->initialized)
         return false;
@@ -637,6 +728,19 @@ bool runtime_monitor_discovery_stats(const runtime_monitor_t *monitor,
     pthread_mutex_unlock((pthread_mutex_t *)&monitor->mutex);
     return true;
 }
+
+#ifdef AWAVMA_RUNTIME_TESTING
+bool runtime_monitor_test_diagnostics(const runtime_monitor_t *monitor,
+                                      runtime_monitor_test_diagnostics_t *diagnostics)
+{
+    if (monitor == NULL || diagnostics == NULL || !monitor->initialized)
+        return false;
+    pthread_mutex_lock((pthread_mutex_t *)&monitor->mutex);
+    *diagnostics = monitor->test_diagnostics;
+    pthread_mutex_unlock((pthread_mutex_t *)&monitor->mutex);
+    return true;
+}
+#endif
 
 void runtime_monitor_shutdown(runtime_monitor_t *monitor)
 {

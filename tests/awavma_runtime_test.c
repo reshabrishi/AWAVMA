@@ -33,6 +33,18 @@ static const char *run_stage_name(awavma_runtime_test_run_stage_t stage)
     }
 }
 
+static const char *monitor_stage_name(runtime_monitor_test_stage_t stage)
+{
+    switch (stage) {
+    case RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SCAN: return "discovery_scan";
+    case RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SNAPSHOT: return "discovery_snapshot";
+    case RUNTIME_MONITOR_TEST_STAGE_MANAGER_UPDATE: return "manager_update";
+    case RUNTIME_MONITOR_TEST_STAGE_ACTIVE_SNAPSHOT: return "active_snapshot";
+    case RUNTIME_MONITOR_TEST_STAGE_WORKER_WAIT: return "worker_wait";
+    default: return "none";
+    }
+}
+
 static uint64_t monotonic_ms(void)
 {
     struct timespec value;
@@ -118,7 +130,11 @@ int main(void)
                "publish_attempted=%s publish_errno=%d discovered=%s submitted=%s phase3_began=%s "
                "monitor_records=%zu runtime_records=%zu results_path=%s results_exists=%s "
                "results_errno=%d root_exists=%s target_pid=%ld target_alive=%s elapsed_ms=%llu "
-               "runtime_elapsed_ms=%llu\n",
+               "runtime_elapsed_ms=%llu monitor_stage=%s monitor_raw_result=%d monitor_mapped_result=%d "
+               "discovery_scan_result=%d discovery_scan_errno=%d discovery_count=%zu "
+               "discovery_snapshot_allocated=%s manager_update_result=%d manager_active_count=%zu "
+               "active_snapshot_result=%d active_count=%zu eligibility_count=%zu target_seen_in_manager=%s "
+               "submission_attempted=%s submission_result=%d worker_wait_attempted=%s worker_wait_result=%d\n",
                run_result, run_stage_name(diagnostics.failing_stage), diagnostics.monitor_result,
                diagnostics.pipeline_result, diagnostics.results_publish_attempted ? "true" : "false",
                diagnostics.publish_errno, diagnostics.target_discovered ? "true" : "false",
@@ -127,7 +143,19 @@ int main(void)
                diagnostics.runtime_record_count, results_path, results_exists ? "true" : "false",
                results_errno, root_exists ? "true" : "false", (long)child,
                target_alive ? "true" : "false", (unsigned long long)run_elapsed_ms,
-               (unsigned long long)diagnostics.elapsed_ms);
+               (unsigned long long)diagnostics.elapsed_ms,
+               monitor_stage_name(diagnostics.monitor.failing_stage), diagnostics.monitor.raw_result,
+               diagnostics.monitor.mapped_result, diagnostics.monitor.discovery_scan_result,
+               diagnostics.monitor.discovery_scan_errno, diagnostics.monitor.discovery_count,
+               diagnostics.monitor.discovery_snapshot_allocated ? "true" : "false",
+               diagnostics.monitor.manager_update_result, diagnostics.monitor.manager_active_count,
+               diagnostics.monitor.active_snapshot_result, diagnostics.monitor.active_count,
+               diagnostics.monitor.eligibility_count,
+               diagnostics.monitor.target_seen_in_manager ? "true" : "false",
+               diagnostics.monitor.submission_attempted ? "true" : "false",
+               diagnostics.monitor.submission_result,
+               diagnostics.monitor.worker_wait_attempted ? "true" : "false",
+               diagnostics.monitor.worker_wait_result);
         ar03 = ar04 = ar05 = ar06 = ar07 = ar08 = 0;
         report_not_evaluated("AR03");
         report_not_evaluated("AR04");
@@ -172,12 +200,24 @@ int main(void)
     config.application_filter = target_filter;
     config.application_filter_context = &child;
     runtime = awavma_runtime_create();
-    int failure_run = runtime != NULL && awavma_runtime_init(runtime, &config) == 0 ?
-        awavma_runtime_run_for(runtime, 220) : 0;
+    int failure_init = runtime != NULL && awavma_runtime_init(runtime, &config) == 0;
+    int failure_run = failure_init ? awavma_runtime_run_for(runtime, 220) : EINVAL;
     count = runtime == NULL ? 0 : awavma_runtime_snapshot(runtime, records, 4);
     ar09 = failure_run == 0 && count == 1 && records[0].generation == 0 &&
            records[0].temporal_generation >= 1 && records[0].temporal_history_available;
     report("AR09", ar09);
+    if (!ar09) {
+        memset(&diagnostics, 0, sizeof(diagnostics));
+        if (failure_init)
+            (void)awavma_runtime_test_run_diagnostics(runtime, &diagnostics);
+        printf("AR09_DIAGNOSTIC init=%s run_result=%d records=%zu monitor_stage=%s "
+               "monitor_raw_result=%d discovery_scan_result=%d discovery_scan_errno=%d "
+               "manager_update_result=%d worker_wait_result=%d\n",
+               failure_init ? "true" : "false", failure_run, count,
+               monitor_stage_name(diagnostics.monitor.failing_stage), diagnostics.monitor.raw_result,
+               diagnostics.monitor.discovery_scan_result, diagnostics.monitor.discovery_scan_errno,
+               diagnostics.monitor.manager_update_result, diagnostics.monitor.worker_wait_result);
+    }
     awavma_runtime_destroy(runtime);
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);

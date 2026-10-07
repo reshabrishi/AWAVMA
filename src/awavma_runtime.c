@@ -2493,6 +2493,7 @@ bool awavma_runtime_test_run_diagnostics(const awavma_runtime_t *runtime,
     *diagnostics = runtime->test_run_diagnostics;
     diagnostics->runtime_record_count = runtime->record_count;
     diagnostics->monitor_record_count = runtime_monitor_snapshot(runtime->monitor, &monitor_record, 1);
+    (void)runtime_monitor_test_diagnostics(runtime->monitor, &diagnostics->monitor);
     if (diagnostics->monitor_record_count == 1) {
         diagnostics->target_discovered = true;
         diagnostics->target_submitted = monitor_record.submissions > 0;

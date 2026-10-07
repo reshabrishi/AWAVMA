@@ -85,4 +85,38 @@ bool runtime_monitor_discovery_stats(const runtime_monitor_t *monitor,
 void runtime_monitor_shutdown(runtime_monitor_t *monitor);
 void runtime_monitor_destroy(runtime_monitor_t *monitor);
 
+#ifdef AWAVMA_RUNTIME_TESTING
+typedef enum {
+    RUNTIME_MONITOR_TEST_STAGE_NONE,
+    RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SCAN,
+    RUNTIME_MONITOR_TEST_STAGE_DISCOVERY_SNAPSHOT,
+    RUNTIME_MONITOR_TEST_STAGE_MANAGER_UPDATE,
+    RUNTIME_MONITOR_TEST_STAGE_ACTIVE_SNAPSHOT,
+    RUNTIME_MONITOR_TEST_STAGE_WORKER_WAIT
+} runtime_monitor_test_stage_t;
+
+typedef struct {
+    runtime_monitor_test_stage_t failing_stage;
+    int raw_result;
+    int mapped_result;
+    int discovery_scan_result;
+    int discovery_scan_errno;
+    size_t discovery_count;
+    bool discovery_snapshot_allocated;
+    int manager_update_result;
+    size_t manager_active_count;
+    int active_snapshot_result;
+    size_t active_count;
+    size_t eligibility_count;
+    bool submission_attempted;
+    int submission_result;
+    bool worker_wait_attempted;
+    int worker_wait_result;
+    bool target_seen_in_manager;
+} runtime_monitor_test_diagnostics_t;
+
+bool runtime_monitor_test_diagnostics(const runtime_monitor_t *monitor,
+                                      runtime_monitor_test_diagnostics_t *diagnostics);
+#endif
+
 #endif

@@ -159,6 +159,7 @@ typedef struct {
     bool target_submitted;
     bool phase3_began;
     awavma_runtime_test_run_stage_t failing_stage;
+    runtime_monitor_test_diagnostics_t monitor;
 } awavma_runtime_test_run_diagnostics_t;
 
 /* Test-only upstream decision entry; it preserves the production runtime callbacks. */
