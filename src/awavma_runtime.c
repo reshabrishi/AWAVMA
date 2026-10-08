@@ -14,6 +14,7 @@
 #include "thread_confidence_history.h"
 #include "thread_confidence.h"
 #include "thread_candidate.h"
+#include "p5_opportunity.h"
 #include "thread_target_policy.h"
 #include "worker_pool.h"
 
@@ -1784,6 +1785,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     char history_dir[4096];
     char temporal_history_path[4096];
     char confidence_state_path[4096];
+    char opportunity_state_path[4096];
     char log_path[4096];
     char classifier[4096];
     char decision[4096];
@@ -1848,8 +1850,10 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         path_join(validation_path, sizeof(validation_path), cycle_dir, "validation.csv") != 0 ||
         path_join(temporal_history_path, sizeof(temporal_history_path), history_dir,
                    "thread_confidence.csv") != 0 ||
-        path_join(confidence_state_path, sizeof(confidence_state_path), app_dir,
-                  "thread_confidence_state.csv") != 0 ||
+         path_join(confidence_state_path, sizeof(confidence_state_path), app_dir,
+                   "thread_confidence_state.csv") != 0 ||
+         path_join(opportunity_state_path, sizeof(opportunity_state_path), app_dir,
+                   "p5_opportunity_state.csv") != 0 ||
         path_join(classifier, sizeof(classifier), runtime->config.bin_dir, "classifier") != 0 ||
         path_join(decision, sizeof(decision), runtime->config.bin_dir, "decision") != 0 ||
         path_join(validation, sizeof(validation), runtime->config.bin_dir, "validation") != 0) {
@@ -1932,6 +1936,44 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     }
     thread_candidate_t candidate;
     bool candidate_available = thread_candidate_select(record->pid, record->start_time_ticks, &candidate);
+    MigrationTargetTopology candidate_topology;
+    bool candidate_source_available = candidate_available && candidate.current_cpu_available &&
+        migration_target_topology_read(&candidate_topology) &&
+        candidate.current_cpu < CPU_SETSIZE && candidate_topology.cpu_node[candidate.current_cpu] >= 0;
+    /* P5 records only evidence produced by this cycle; unavailable factors stay unavailable. */
+    p5_opportunity_input_t opportunity_input = {
+        .app_id = record->app_id,
+        .pid = record->pid,
+        .start_time_ticks = record->start_time_ticks,
+        .temporal_generation = record->temporal_generation,
+        .candidate_tid = candidate_available ? candidate.tid : -1,
+        .candidate_tid_start_time_ticks = candidate_available && candidate.start_time_ticks_available ?
+            candidate.start_time_ticks : 0,
+        .candidate_available = candidate_available,
+        .candidate_verified = candidate_available && candidate.verified,
+        .identity_match = candidate_available,
+        .generation_current = record->temporal_generation != 0,
+        .classification_available = false,
+        .classification_candidate_bound = false,
+        .placement_available = false,
+        .source_cpu = candidate_source_available ? candidate.current_cpu : -1,
+        .source_node = candidate_source_available ? candidate_topology.cpu_node[candidate.current_cpu] : -1,
+        .source_available = candidate_source_available,
+        .proposed_cpu = -1,
+        .proposed_node = -1,
+        .destination_available = false,
+        .destination_permitted = false,
+        .expected_gain_available = false,
+        .migration_cost_available = false,
+        .decision_available = false
+    };
+    p5_opportunity_result_t opportunity;
+    if (p5_opportunity_evaluate(&opportunity_input, &opportunity) != 0 ||
+        p5_opportunity_write_state(opportunity_state_path, &opportunity) != 0) {
+        set_status(record, AWAVMA_RUNTIME_ERROR, "cannot persist P5 opportunity state");
+        monitor_profile_scope_end(&coordinator_profile, "ERROR");
+        return -1;
+    }
     if (persist_temporal_observation(temporal_history_path, record,
                                      candidate_available ? THREAD_CONFIDENCE_HISTORY_CANDIDATE_VERIFIED :
                                                            THREAD_CONFIDENCE_HISTORY_CANDIDATE_UNAVAILABLE,

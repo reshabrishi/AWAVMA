@@ -9,6 +9,8 @@ typedef struct {
     pid_t tid;
     uint64_t start_time_ticks;
     bool start_time_ticks_available;
+    int current_cpu;
+    bool current_cpu_available;
     bool verified;
     char provenance[64];
 } thread_candidate_t;

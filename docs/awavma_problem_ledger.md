@@ -5,6 +5,7 @@
 | B1A-001 | B1A | Persistent temporal history integration | LOCAL_PASS | YES | da608e7 | `apps/<app>/history/thread_confidence.csv` | No canonical worker candidate TID exists; B1A rows cannot establish thread confidence. |
 | B2-001 | B2 | Real worker-TID selection and provenance | LOCAL_PASS | YES | pending | `apps/<app>/history/thread_confidence.csv` | Candidate evidence is observational only; no confidence or migration authority exists. |
 | B1B-001 | B1B | Candidate-bound thread-confidence streak | LOCAL_PASS | YES | pending | `apps/<app>/thread_confidence_state.csv` | LIVE_RUNTIME_PASS_CAPABILITY=NO_REAL_QUALIFYING_EVIDENCE; numeric TID incarnation protection remains partial. |
+| P5-001 | P5 | Genuine beneficial opportunity | LOCAL_PASS | YES | pending | `apps/<app>/p5_opportunity_state.csv` | Live candidate-bound classification, memory relation, and workload-equivalent gain evidence are unavailable, so live state fails closed. |
 
 ## B1A-001
 
@@ -37,3 +38,11 @@
 - Evidence boundary: `CANDIDATE_VERIFIED` with `observation_valid=false` is insufficient and cannot pass. `LIVE_RUNTIME_PASS_CAPABILITY=NO_REAL_QUALIFYING_EVIDENCE`.
 - Authority boundary: derived state is not consumed by Phase 5/6/7, ROI, safety, migration selection, affinity, or memory migration.
 - Residual risk: schema v1 does not persist candidate task start ticks. TID incarnation protection remains partial; a future additive schema may add `candidate_tid_start_time_ticks`.
+
+## P5-001
+
+- Root cause: the runtime has verified candidates, temporal confidence infrastructure, and calibrated migration cost, but still lacks an end-to-end real opportunity determination using genuine candidate-bound evidence.
+- Chosen design: current-native fail-closed real-evidence opportunity evaluator.
+- Status after local pass: LOCAL_PASS.
+- Evidence boundary: the evaluator requires candidate-bound classification, a measured REMOTE candidate-memory relation, a distinct permitted analysis destination, a strict P4 calibration match, and the existing decision margin. Missing factors remain unavailable and cannot become zero or positive by default.
+- Authority boundary: P5 writes only the atomic current-state artifact. It does not update B1B history, invoke `sched_setaffinity` or `move_pages`, mutate `MigrationRequest`, modify P4 artifacts, or authorize Phase 6/7 execution.

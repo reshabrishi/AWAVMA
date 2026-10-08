@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool task_start(pid_t pid, pid_t tid, uint64_t *ticks)
+static bool task_evidence(pid_t pid, pid_t tid, uint64_t *ticks, int *cpu)
 {
     char path[96], line[4096], *cursor, *save = NULL;
     FILE *file;
@@ -22,29 +22,32 @@ static bool task_start(pid_t pid, pid_t tid, uint64_t *ticks)
     cursor = strrchr(line, ')');
     if (cursor == NULL || cursor[1] != ' ') return false;
     cursor += 2;
-    for (int field = 3; field <= 22; field++) {
+    *cpu = -1;
+    for (int field = 3; field <= 39; field++) {
         char *token = strtok_r(field == 3 ? cursor : NULL, " ", &save);
         char *end = NULL;
         unsigned long long value;
         if (token == NULL) return false;
-        if (field != 22) continue;
+        if (field != 22 && field != 39) continue;
         errno = 0; value = strtoull(token, &end, 10);
         if (errno != 0 || end == token) return false;
-        *ticks = (uint64_t)value;
-        return true;
+        if (field == 22) *ticks = (uint64_t)value;
+        else if (value <= INT_MAX) *cpu = (int)value;
     }
-    return false;
+    return *ticks != 0;
 }
 
 static bool valid_task(pid_t pid, pid_t tid, uint64_t process_ticks, thread_candidate_t *candidate)
 {
     RuntimeMigrationMetadata metadata;
     cpu_set_t affinity;
-    uint64_t ticks;
+    uint64_t ticks = 0;
+    int cpu = -1;
     if (!runtime_get_migration_metadata(pid, process_ticks, &metadata) || !metadata.process_exists ||
         !metadata.identity_match || tid <= 0 || sched_getaffinity(tid, sizeof(affinity), &affinity) != 0 ||
-        CPU_COUNT(&affinity) == 0 || !task_start(pid, tid, &ticks)) return false;
+        CPU_COUNT(&affinity) == 0 || !task_evidence(pid, tid, &ticks, &cpu)) return false;
     candidate->tid = tid; candidate->start_time_ticks = ticks; candidate->start_time_ticks_available = true;
+    candidate->current_cpu = cpu; candidate->current_cpu_available = cpu >= 0;
     candidate->verified = true;
     snprintf(candidate->provenance, sizeof(candidate->provenance), "PROC_TASK_AFFINITY");
     return true;
