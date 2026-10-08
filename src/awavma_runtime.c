@@ -12,6 +12,7 @@
 #include "page_rollback.h"
 #include "runtime_migration_metadata.h"
 #include "thread_confidence_history.h"
+#include "thread_confidence.h"
 #include "thread_candidate.h"
 #include "thread_target_policy.h"
 #include "worker_pool.h"
@@ -1782,6 +1783,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     char state_dir[4096];
     char history_dir[4096];
     char temporal_history_path[4096];
+    char confidence_state_path[4096];
     char log_path[4096];
     char classifier[4096];
     char decision[4096];
@@ -1845,7 +1847,9 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         path_join(validation_input_path, sizeof(validation_input_path), cycle_dir, "validation_input.csv") != 0 ||
         path_join(validation_path, sizeof(validation_path), cycle_dir, "validation.csv") != 0 ||
         path_join(temporal_history_path, sizeof(temporal_history_path), history_dir,
-                  "thread_confidence.csv") != 0 ||
+                   "thread_confidence.csv") != 0 ||
+        path_join(confidence_state_path, sizeof(confidence_state_path), app_dir,
+                  "thread_confidence_state.csv") != 0 ||
         path_join(classifier, sizeof(classifier), runtime->config.bin_dir, "classifier") != 0 ||
         path_join(decision, sizeof(decision), runtime->config.bin_dir, "decision") != 0 ||
         path_join(validation, sizeof(validation), runtime->config.bin_dir, "validation") != 0) {
@@ -1936,6 +1940,13 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         record->temporal_history_available = true;
     else
         record->temporal_history_available = false;
+    if (candidate_available) {
+        thread_confidence_result_t confidence;
+
+        if (thread_confidence_evaluate(temporal_history_path, record->app_id, record->pid,
+                                       record->start_time_ticks, candidate.tid, &confidence) == 0)
+            (void)thread_confidence_write_state(confidence_state_path, &confidence);
+    }
     char *decision_args[] = {decision, "--input", classification_delta_path, "--output", decision_path,
                              "--app-id", record->app_id, "--state-dir", state_dir,
                              "--history-dir", history_dir, "--log", log_path, NULL};

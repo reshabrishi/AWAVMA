@@ -4,6 +4,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B1A-001 | B1A | Persistent temporal history integration | LOCAL_PASS | YES | da608e7 | `apps/<app>/history/thread_confidence.csv` | No canonical worker candidate TID exists; B1A rows cannot establish thread confidence. |
 | B2-001 | B2 | Real worker-TID selection and provenance | LOCAL_PASS | YES | pending | `apps/<app>/history/thread_confidence.csv` | Candidate evidence is observational only; no confidence or migration authority exists. |
+| B1B-001 | B1B | Candidate-bound thread-confidence streak | LOCAL_PASS | YES | pending | `apps/<app>/thread_confidence_state.csv` | LIVE_RUNTIME_PASS_CAPABILITY=NO_REAL_QUALIFYING_EVIDENCE; numeric TID incarnation protection remains partial. |
 
 ## B1A-001
 
@@ -25,3 +26,14 @@
 - Old implementation reference: `origin/fix-persistent-monitor-session`.
 - Chosen integration: current-native `/proc/<pid>/task` enumeration with process identity, task existence, task-stat, and per-thread affinity verification.
 - Authority boundary: candidate provenance reaches B1A only; Phase 5/6/7 and `MigrationRequest.tid` remain unchanged.
+
+## B1B-001
+
+- Root cause: verified candidate TIDs and persistent temporal history existed, but no strict candidate-specific adjacent-generation confidence evaluator existed.
+- Old reference: `origin/fix-persistent-monitor-session`.
+- Chosen design: current-native exact-identity, generation-adjacent, duplicate-safe, row-order-independent, fail-closed, observational evaluator.
+- Identity: `(app_id, pid, start_time_ticks, candidate_tid)` over `temporal_generation`.
+- Required streak: `THREAD_CONFIDENCE_REQUIRED_STREAK=3`.
+- Evidence boundary: `CANDIDATE_VERIFIED` with `observation_valid=false` is insufficient and cannot pass. `LIVE_RUNTIME_PASS_CAPABILITY=NO_REAL_QUALIFYING_EVIDENCE`.
+- Authority boundary: derived state is not consumed by Phase 5/6/7, ROI, safety, migration selection, affinity, or memory migration.
+- Residual risk: schema v1 does not persist candidate task start ticks. TID incarnation protection remains partial; a future additive schema may add `candidate_tid_start_time_ticks`.
