@@ -15,8 +15,8 @@ static p5_opportunity_input_t valid_input(void)
     input.classification = "HOT"; input.classification_available = true; input.classification_candidate_bound = true;
     input.placement_relation = "REMOTE"; input.placement_available = true; input.source_cpu = 1;
     input.source_node = 0; input.source_available = true; input.proposed_cpu = 2; input.proposed_node = 1;
-    input.destination_available = true; input.destination_permitted = true; input.expected_gain_available = true;
-    input.expected_gain_pct = 20; input.migration_cost_available = true; input.migration_cost_pct = 5;
+    input.destination_available = true; input.destination_permitted = true; input.affinity_valid = true; input.expected_gain_available = true;
+    input.expected_gain_ms = 20; input.migration_cost_available = true; input.migration_cost_ms = 5;
     input.decision_available = true; input.memory_score = 0.2; input.thread_score = 0.4; input.epsilon = 0.05;
     return input;
 }
@@ -38,17 +38,17 @@ int main(void)
     memset(nodes, -1, sizeof(nodes)); nodes[1] = 0; nodes[3] = 1;
     CPU_ZERO(&affinity); CPU_SET(1, &affinity); CPU_SET(3, &affinity);
     passed &= has(input, P5_OPPORTUNITY_BENEFICIAL); printf("P5O01_VALID_FIXTURE_BENEFICIAL: %s\n", passed ? "PASS" : "FAIL");
-    input.expected_gain_pct = 5; passed &= has(input, P5_OPPORTUNITY_NOT_BENEFICIAL); printf("P5O02_GAIN_LE_COST: %s\n", passed ? "PASS" : "FAIL");
+    input.expected_gain_ms = 5; passed &= has(input, P5_OPPORTUNITY_NOT_BENEFICIAL); printf("P5O02_GAIN_LE_COST: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.candidate_available = false; passed &= has(input, P5_OPPORTUNITY_CANDIDATE_UNAVAILABLE); printf("P5O03_MISSING_CANDIDATE: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.identity_match = false; passed &= has(input, P5_OPPORTUNITY_STALE_IDENTITY); printf("P5O04_IDENTITY_MISMATCH: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.placement_available = false; passed &= has(input, P5_OPPORTUNITY_PLACEMENT_UNAVAILABLE); printf("P5O05_PLACEMENT_UNAVAILABLE: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.expected_gain_available = false; passed &= has(input, P5_OPPORTUNITY_GAIN_UNAVAILABLE); printf("P5O06_GAIN_UNAVAILABLE: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.migration_cost_available = false; passed &= has(input, P5_OPPORTUNITY_COST_UNAVAILABLE); printf("P5O07_COST_UNAVAILABLE: %s\n", passed ? "PASS" : "FAIL");
-    input = valid_input(); input.migration_cost_pct = -1; passed &= has(input, P5_OPPORTUNITY_COST_UNAVAILABLE); printf("P5O08_INVALID_COST_REJECTED: %s\n", passed ? "PASS" : "FAIL");
+    input = valid_input(); input.migration_cost_ms = -1; passed &= has(input, P5_OPPORTUNITY_COST_UNAVAILABLE); printf("P5O08_INVALID_COST_REJECTED: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.generation_current = false; passed &= has(input, P5_OPPORTUNITY_STALE_IDENTITY); printf("P5O09_STALE_GENERATION: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.destination_permitted = false; passed &= has(input, P5_OPPORTUNITY_PLACEMENT_UNAVAILABLE); printf("P5O10_DESTINATION_OUTSIDE_AFFINITY: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.proposed_node = 0; passed &= has(input, P5_OPPORTUNITY_PLACEMENT_UNAVAILABLE); printf("P5O11_SAME_DESTINATION: %s\n", passed ? "PASS" : "FAIL");
-    int cpu = -1, node = -1; passed &= p5_opportunity_select_destination(1, 0, &affinity, nodes, &cpu, &node) && cpu == 3 && node == 1; printf("P5O12_DETERMINISTIC_DESTINATION: %s\n", passed ? "PASS" : "FAIL");
+    int cpu = -1, node = -1; passed &= p5_opportunity_select_destination(1, 1, &affinity, nodes, &cpu, &node) && cpu == 3 && node == 1; printf("P5O12_DETERMINISTIC_DESTINATION: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.classification_candidate_bound = false; passed &= has(input, P5_OPPORTUNITY_INSUFFICIENT_EVIDENCE); printf("P5O13_PROCESS_CLASSIFICATION_REJECTED: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.decision_available = false; passed &= has(input, P5_OPPORTUNITY_DECISION_UNAVAILABLE); printf("P5O14_UNAVAILABLE_NOT_ZERO: %s\n", passed ? "PASS" : "FAIL");
     input = valid_input(); input.thread_score = .25; passed &= has(input, P5_OPPORTUNITY_NOT_BENEFICIAL); printf("P5O15_EPSILON_PRESERVED: %s\n", passed ? "PASS" : "FAIL");

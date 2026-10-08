@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include <sched.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1940,6 +1941,26 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     bool candidate_source_available = candidate_available && candidate.current_cpu_available &&
         migration_target_topology_read(&candidate_topology) &&
         candidate.current_cpu < CPU_SETSIZE && candidate_topology.cpu_node[candidate.current_cpu] >= 0;
+    cpu_set_t candidate_affinity;
+    bool candidate_affinity_valid = candidate_available &&
+        sched_getaffinity(candidate.tid, sizeof(candidate_affinity), &candidate_affinity) == 0 &&
+        CPU_COUNT(&candidate_affinity) != 0;
+    PageCandidatePlacementEvidence placement = {0};
+    bool placement_observed = runtime->config.page_candidate_provider != NULL &&
+        page_candidate_provider_placement_evidence(runtime->config.page_candidate_provider, record->app_id,
+                                                   record->pid, record->start_time_ticks, &placement);
+    const char *observed_relation = placement_observed && candidate_source_available ?
+        p5_opportunity_memory_relation(placement.total_pages, placement.queryable_pages,
+                                       placement.unknown_pages, placement.dominant_pages,
+                                       placement.dominant_node,
+                                       candidate_topology.cpu_node[candidate.current_cpu]) : "UNKNOWN";
+    bool dominant_memory = strcmp(observed_relation, "LOCAL") == 0 || strcmp(observed_relation, "REMOTE") == 0;
+    const char *memory_relation = dominant_memory ? observed_relation : NULL;
+    int proposed_cpu = -1, proposed_node = -1;
+    bool destination_available = dominant_memory && candidate_source_available && candidate_affinity_valid &&
+        strcmp(memory_relation, "REMOTE") == 0 &&
+        p5_opportunity_select_destination(candidate.current_cpu, placement.dominant_node, &candidate_affinity,
+                                          candidate_topology.cpu_node, &proposed_cpu, &proposed_node);
     /* P5 records only evidence produced by this cycle; unavailable factors stay unavailable. */
     p5_opportunity_input_t opportunity_input = {
         .app_id = record->app_id,
@@ -1955,14 +1976,21 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         .generation_current = record->temporal_generation != 0,
         .classification_available = false,
         .classification_candidate_bound = false,
-        .placement_available = false,
+        .placement_relation = memory_relation,
+        .placement_available = memory_relation != NULL,
+        .memory_total_pages = placement.total_pages,
+        .memory_queryable_pages = placement.queryable_pages,
+        .memory_dominant_node = dominant_memory ? placement.dominant_node : -1,
         .source_cpu = candidate_source_available ? candidate.current_cpu : -1,
         .source_node = candidate_source_available ? candidate_topology.cpu_node[candidate.current_cpu] : -1,
         .source_available = candidate_source_available,
-        .proposed_cpu = -1,
-        .proposed_node = -1,
-        .destination_available = false,
-        .destination_permitted = false,
+        .allowed_affinity = candidate_affinity,
+        .allowed_affinity_available = candidate_affinity_valid,
+        .affinity_valid = candidate_affinity_valid,
+        .proposed_cpu = proposed_cpu,
+        .proposed_node = proposed_node,
+        .destination_available = destination_available,
+        .destination_permitted = destination_available && CPU_ISSET(proposed_cpu, &candidate_affinity),
         .expected_gain_available = false,
         .migration_cost_available = false,
         .decision_available = false

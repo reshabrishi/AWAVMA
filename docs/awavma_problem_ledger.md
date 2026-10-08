@@ -6,6 +6,7 @@
 | B2-001 | B2 | Real worker-TID selection and provenance | LOCAL_PASS | YES | pending | `apps/<app>/history/thread_confidence.csv` | Candidate evidence is observational only; no confidence or migration authority exists. |
 | B1B-001 | B1B | Candidate-bound thread-confidence streak | LOCAL_PASS | YES | pending | `apps/<app>/thread_confidence_state.csv` | LIVE_RUNTIME_PASS_CAPABILITY=NO_REAL_QUALIFYING_EVIDENCE; numeric TID incarnation protection remains partial. |
 | P5-001 | P5 | Genuine beneficial opportunity | LOCAL_PASS | YES | pending | `apps/<app>/p5_opportunity_state.csv` | Live candidate-bound classification, memory relation, and workload-equivalent gain evidence are unavailable, so live state fails closed. |
+| P5B-001 | P5-B | Real candidate-bound placement/gain/cost evidence | LOCAL_PASS | YES | pending | `apps/<app>/p5_opportunity_state.csv` | Classification and measured activity remain unavailable, so P5 remains fail-closed. |
 
 ## B1A-001
 
@@ -46,3 +47,11 @@
 - Status after local pass: LOCAL_PASS.
 - Evidence boundary: the evaluator requires candidate-bound classification, a measured REMOTE candidate-memory relation, a distinct permitted analysis destination, a strict P4 calibration match, and the existing decision margin. Missing factors remain unavailable and cannot become zero or positive by default.
 - Authority boundary: P5 writes only the atomic current-state artifact. It does not update B1B history, invoke `sched_setaffinity` or `move_pages`, mutate `MigrationRequest`, modify P4 artifacts, or authorize Phase 6/7 execution.
+
+## P5B-001
+
+- Root cause: P5 evaluator is correct, but live runtime lacked real candidate-bound placement, destination, gain, and cost evidence.
+- Chosen design: read-only current-native evidence plumbing with exact identity and strict unit-compatible ROI semantics.
+- Implemented evidence: verified task CPU from `/proc/<pid>/task/<tid>/stat`, task affinity from `sched_getaffinity(tid)`, CPU/node topology, and read-only `move_pages(..., nodes=NULL)` queries restricted to P2-authenticated owned registrations.
+- Unit contract: P5 schema v2 names gain and cost in milliseconds. Gain remains unavailable without measured relevant memory activity; P4 conservative cost is exposed in milliseconds only for an exact frozen calibration match.
+- Authority boundary: no affinity changes, page moves, memory-policy changes, migration request mutation, B1B qualification changes, or P4 artifact writes occur.

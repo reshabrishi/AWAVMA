@@ -37,19 +37,23 @@ typedef struct {
     bool classification_candidate_bound;
     const char *placement_relation;
     bool placement_available;
+    size_t memory_total_pages;
+    size_t memory_queryable_pages;
+    int memory_dominant_node;
     int source_cpu;
     int source_node;
     bool source_available;
     cpu_set_t allowed_affinity;
     bool allowed_affinity_available;
+    bool affinity_valid;
     int proposed_cpu;
     int proposed_node;
     bool destination_available;
     bool destination_permitted;
     bool expected_gain_available;
-    double expected_gain_pct;
+    double expected_gain_ms;
     bool migration_cost_available;
-    double migration_cost_pct;
+    double migration_cost_ms;
     bool decision_available;
     double memory_score;
     double thread_score;
@@ -72,9 +76,14 @@ typedef struct {
     int proposed_cpu;
     int proposed_node;
     bool destination_available;
-    double expected_gain_pct;
+    size_t memory_total_pages;
+    size_t memory_queryable_pages;
+    int memory_dominant_node;
+    double expected_gain_ms;
     bool expected_gain_available;
-    double migration_cost_pct;
+    double migration_cost_ms;
+    double roi_margin_ms;
+    bool roi_available;
     bool migration_cost_available;
     double decision_score;
     bool decision_available;
@@ -84,7 +93,11 @@ typedef struct {
 } p5_opportunity_result_t;
 
 const char *p5_opportunity_status_name(p5_opportunity_status_t status);
-bool p5_opportunity_select_destination(int source_cpu, int source_node,
+/* Returns LOCAL, REMOTE, MIXED, or UNKNOWN from fully attributed owned-page evidence. */
+const char *p5_opportunity_memory_relation(size_t total_pages, size_t queryable_pages,
+                                           size_t unknown_pages, size_t dominant_pages,
+                                           int dominant_node, int candidate_node);
+bool p5_opportunity_select_destination(int source_cpu, int target_node,
                                        const cpu_set_t *allowed_affinity,
                                        const int cpu_nodes[CPU_SETSIZE],
                                        int *proposed_cpu, int *proposed_node);
@@ -94,7 +107,7 @@ int p5_opportunity_evaluate(const p5_opportunity_input_t *input,
 bool p5_opportunity_calibration_evidence(const CalibrationSnapshot *snapshot,
                                          const CalibrationMatchRequest *request,
                                          double *expected_gain_pct,
-                                         double *migration_cost_pct,
+                                          double *migration_cost_ms,
                                          calibration_match_status_t *status);
 int p5_opportunity_write_state(const char *path, const p5_opportunity_result_t *result);
 

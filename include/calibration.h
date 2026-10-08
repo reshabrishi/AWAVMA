@@ -106,6 +106,7 @@ typedef struct {
     double uncertainty_pct;
     double safety_margin_pct;
     double effective_cost_pct;
+    double migration_cost_conservative_ms;
     size_t valid_pair_count, cost_sample_count;
     int source_node, destination_node;
     size_t migration_page_bucket;

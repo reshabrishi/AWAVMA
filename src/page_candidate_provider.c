@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
@@ -365,6 +366,57 @@ bool page_candidate_provider_registration_status(page_candidate_provider_t *prov
         }
     }
     return false;
+}
+
+bool page_candidate_provider_placement_evidence(page_candidate_provider_t *provider,
+                                                const char *app_id, pid_t pid,
+                                                uint64_t start_time_ticks,
+                                                PageCandidatePlacementEvidence *evidence)
+{
+    registration_entry_t *entry = NULL;
+    RuntimeMigrationMetadata metadata;
+    size_t total;
+    int counts[64] = {0};
+
+    if (evidence == NULL) return false;
+    memset(evidence, 0, sizeof(*evidence));
+    evidence->dominant_node = -1;
+    if (provider == NULL || !safe_text(app_id, PAGE_CANDIDATE_APP_ID_MAX) || pid <= 0 ||
+        start_time_ticks == 0 || !runtime_get_migration_metadata(pid, start_time_ticks, &metadata) ||
+        !metadata.identity_match) return false;
+    expire_entries(provider);
+    for (size_t index = 0; index < PAGE_CANDIDATE_MAX_REGISTRATIONS; index++)
+        if (provider->entries[index].used && provider->entries[index].registration.pid == pid &&
+            provider->entries[index].registration.start_time_ticks == start_time_ticks &&
+            strcmp(provider->entries[index].app_id, app_id) == 0) { entry = &provider->entries[index]; break; }
+    if (entry == NULL || !proc_maps_contains(pid, (uintptr_t)entry->registration.region_start,
+                                             entry->registration.region_length) ||
+        entry->registration.page_size == 0) return false;
+    total = entry->registration.region_length / entry->registration.page_size;
+    evidence->identity_match = true; evidence->total_pages = total;
+    for (size_t base = 0; base < total; base += PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST) {
+        void *pages[PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST];
+        int status[PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST];
+        size_t count = total - base < PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST ? total - base : PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST;
+        for (size_t index = 0; index < count; index++) pages[index] =
+            (char *)entry->registration.region_start + (base + index) * entry->registration.page_size;
+#ifdef SYS_move_pages
+        if (syscall(SYS_move_pages, pid, count, pages, NULL, status, 0) < 0) return false;
+#else
+        return false;
+#endif
+        for (size_t index = 0; index < count; index++) {
+            if (status[index] < 0 || status[index] >= (int)(sizeof(counts) / sizeof(counts[0]))) {
+                evidence->unknown_pages++; continue;
+            }
+            evidence->queryable_pages++;
+            if (++counts[status[index]] > (int)evidence->dominant_pages) {
+                evidence->dominant_pages = (size_t)counts[status[index]];
+                evidence->dominant_node = status[index];
+            }
+        }
+    }
+    return true;
 }
 
 bool page_candidate_provider_send(const char *socket_path, const PageCandidateWireMessage *message)

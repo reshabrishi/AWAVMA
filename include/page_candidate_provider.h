@@ -84,6 +84,16 @@ typedef struct {
     size_t candidate_pages_per_request;
 } PageCandidateRegistrationStatus;
 
+/* Read-only placement summary for an authenticated owned registration. */
+typedef struct {
+    bool identity_match;
+    size_t total_pages;
+    size_t queryable_pages;
+    size_t unknown_pages;
+    int dominant_node;
+    size_t dominant_pages;
+} PageCandidatePlacementEvidence;
+
 page_candidate_provider_t *page_candidate_provider_create(void);
 void page_candidate_provider_destroy(page_candidate_provider_t *provider);
 /* The runtime owns this socket and calls poll from its foreground cycle. */
@@ -98,7 +108,12 @@ PageCandidateClientStatus page_candidate_provider_send_wait(
 bool page_candidate_provider_registration_status(page_candidate_provider_t *provider,
                                                  const char *app_id, pid_t pid,
                                                  uint64_t start_time_ticks,
-                                                 PageCandidateRegistrationStatus *status);
+                                                  PageCandidateRegistrationStatus *status);
+/* Queries registered pages with move_pages(nodes=NULL); it never changes placement. */
+bool page_candidate_provider_placement_evidence(page_candidate_provider_t *provider,
+                                                const char *app_id, pid_t pid,
+                                                uint64_t start_time_ticks,
+                                                PageCandidatePlacementEvidence *evidence);
 /* Must be called by the workload process that owns the allocation. */
 bool page_candidate_provider_register_owned_region(page_candidate_provider_t *provider,
                                                    const PageCandidateRegistration *registration);
