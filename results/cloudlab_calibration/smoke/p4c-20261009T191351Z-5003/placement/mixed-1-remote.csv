@@ -1,0 +1,2 @@
+schema_version,placement_mode,local_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored
+1,remote,0,1,21,262144,262144,262144,0,262144,0,0,1.000000000,1,PASS,all pages verified on requested node,true
