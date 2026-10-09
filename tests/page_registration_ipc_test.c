@@ -24,6 +24,7 @@ int main(void)
     PageCandidateRegistration small_registration;
     PageCandidateRegistration window_registration;
     PageCandidateRegistrationStatus large_status;
+    PageCandidateRegistrationStatus expired_status;
     MigrationRequest request = {0};
 
     assert(sizeof(PageCandidateWireMessage) == 280U);
@@ -85,7 +86,8 @@ int main(void)
     };
     assert(page_candidate_provider_register_owned_region(provider, &large_registration));
     assert(page_candidate_provider_registration_status(provider, large_registration.app_id, getpid(), ticks,
-                                                        &large_status));
+                                                         &large_status));
+    assert(large_status.accepted && large_status.generation == 1U);
     assert(large_status.registered_bytes == large_bytes);
     assert(large_status.registered_pages == large_bytes / (size_t)page_size);
     assert(large_status.candidate_pages_per_request == PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST);
@@ -119,6 +121,9 @@ int main(void)
     page_candidate_provider_release_request(&request);
     large_registration.region_length = PAGE_CANDIDATE_MAX_REGISTERED_REGION_BYTES + (size_t)page_size;
     assert(!page_candidate_provider_register_owned_region(provider, &large_registration));
+    usleep(1100000);
+    assert(!page_candidate_provider_registration_status(provider, large_registration.app_id, getpid(), ticks,
+                                                         &expired_status));
     large_registration.region_length = (size_t)page_size;
     large_registration.region_start = (void *)(UINTPTR_MAX - (uintptr_t)page_size + 1U);
     assert(!page_candidate_provider_register_owned_region(provider, &large_registration));

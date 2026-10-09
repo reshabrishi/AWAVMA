@@ -1653,7 +1653,18 @@ static int persist_temporal_observation(const char *history_path, awavma_runtime
     return thread_confidence_history_persist(history_path, &observation);
 }
 
-static int write_runtime_results(const awavma_runtime_t *runtime)
+static void record_registration_evidence(awavma_runtime_record_t *record,
+                                         const PageCandidateRegistrationStatus *registration)
+{
+    if (record == NULL || registration == NULL || !registration->accepted) return;
+    record->registration_last_accepted = true;
+    record->registration_last_generation = registration->generation;
+    record->registration_last_registered_bytes = registration->registered_bytes;
+    record->registration_last_registered_pages = registration->registered_pages;
+    record->registration_last_candidate_pages_per_request = registration->candidate_pages_per_request;
+}
+
+static int write_runtime_results(awavma_runtime_t *runtime)
 {
     char temporary[4096];
     FILE *file;
@@ -1664,19 +1675,24 @@ static int write_runtime_results(const awavma_runtime_t *runtime)
     file = fopen(temporary, "w");
     if (file == NULL)
         return -1;
-    fprintf(file, "app_id,pid,start_time_ticks,generation,phase3_samples,phase5_committed_rows,registration_status,registration_generation,registered_bytes,registered_pages,candidate_pages_per_request,status,detail\n");
+    fprintf(file, "app_id,pid,start_time_ticks,generation,phase3_samples,phase5_committed_rows,registration_status,registration_generation,registered_bytes,registered_pages,candidate_pages_per_request,registration_last_status,registration_last_generation,registration_last_registered_bytes,registration_last_registered_pages,registration_last_candidate_pages_per_request,status,detail\n");
     for (size_t index = 0; index < runtime->record_count; index++) {
-        const awavma_runtime_record_t *record = &runtime->records[index];
+        awavma_runtime_record_t *record = &runtime->records[index];
 
         PageCandidateRegistrationStatus registration = {0};
         bool registered = page_candidate_provider_registration_status(runtime->config.page_candidate_provider,
             record->app_id, record->pid, record->start_time_ticks, &registration);
-        fprintf(file, "%s,%ld,%llu,%llu,%zu,%zu,%s,%llu,%zu,%zu,%zu,%s,%s\n", record->app_id, (long)record->pid,
+        if (registered) record_registration_evidence(record, &registration);
+        fprintf(file, "%s,%ld,%llu,%llu,%zu,%zu,%s,%llu,%zu,%zu,%zu,%s,%llu,%zu,%zu,%zu,%s,%s\n", record->app_id, (long)record->pid,
                 (unsigned long long)record->start_time_ticks,
                 (unsigned long long)record->generation, record->phase3_samples,
                 record->phase5_committed_rows, registered ? "ACCEPTED" : "NONE",
                 (unsigned long long)registration.generation, registration.registered_bytes,
                 registration.registered_pages, registered ? registration.candidate_pages_per_request : 0,
+                record->registration_last_accepted ? "ACCEPTED" : "NONE",
+                (unsigned long long)record->registration_last_generation,
+                record->registration_last_registered_bytes, record->registration_last_registered_pages,
+                record->registration_last_candidate_pages_per_request,
                 awavma_runtime_status_name(record->status),
                 record->detail);
     }
@@ -1951,6 +1967,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         page_candidate_provider_registration_status(runtime->config.page_candidate_provider, record->app_id,
                                                     record->pid, record->start_time_ticks, &registration) &&
         registration.accepted && registration.generation != 0;
+    if (registration_current) record_registration_evidence(record, &registration);
     bool placement_observed = runtime->config.page_candidate_provider != NULL &&
         page_candidate_provider_placement_evidence(runtime->config.page_candidate_provider, record->app_id,
                                                     record->pid, record->start_time_ticks,

@@ -84,6 +84,11 @@ typedef struct {
     bool temporal_history_available;
     size_t phase3_samples;
     size_t phase5_committed_rows;
+    bool registration_last_accepted;
+    uint64_t registration_last_generation;
+    size_t registration_last_registered_bytes;
+    size_t registration_last_registered_pages;
+    size_t registration_last_candidate_pages_per_request;
     awavma_runtime_status_t status;
     char detail[128];
 } awavma_runtime_record_t;
