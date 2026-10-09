@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
-struct worker_evidence_provider { int socket_fd; char socket_path[sizeof(((struct sockaddr_un *)0)->sun_path)]; worker_evidence_activity_t entries[WORKER_EVIDENCE_MAX_WORKERS]; };
+struct worker_evidence_provider { int socket_fd; pthread_mutex_t entries_mutex; char socket_path[sizeof(((struct sockaddr_un *)0)->sun_path)]; worker_evidence_activity_t entries[WORKER_EVIDENCE_MAX_WORKERS]; };
 
 
 static uint64_t now_ms(void) { struct timespec t; return clock_gettime(CLOCK_MONOTONIC, &t) == 0 ? (uint64_t)t.tv_sec * 1000U + (uint64_t)t.tv_nsec / 1000000U : 0; }
@@ -41,9 +42,9 @@ static bool task_ticks(pid_t pid, pid_t tid, uint64_t *ticks)
     return false;
 }
 
-worker_evidence_provider_t *worker_evidence_provider_create(void) { worker_evidence_provider_t *p = calloc(1, sizeof(*p)); if (p != NULL) p->socket_fd = -1; return p; }
+worker_evidence_provider_t *worker_evidence_provider_create(void) { worker_evidence_provider_t *p = calloc(1, sizeof(*p)); if (p != NULL && pthread_mutex_init(&p->entries_mutex, NULL) == 0) p->socket_fd = -1; else { free(p); p = NULL; } return p; }
 void worker_evidence_provider_stop(worker_evidence_provider_t *p) { if (p == NULL) return; if (p->socket_fd >= 0) close(p->socket_fd); p->socket_fd = -1; if (p->socket_path[0] != '\0') unlink(p->socket_path); p->socket_path[0] = '\0'; }
-void worker_evidence_provider_destroy(worker_evidence_provider_t *p) { if (p != NULL) worker_evidence_provider_stop(p); free(p); }
+void worker_evidence_provider_destroy(worker_evidence_provider_t *p) { if (p != NULL) { worker_evidence_provider_stop(p); pthread_mutex_destroy(&p->entries_mutex); } free(p); }
 bool worker_evidence_provider_start(worker_evidence_provider_t *p, const char *path)
 {
     struct sockaddr_un address = {0}; int flags;
@@ -67,6 +68,7 @@ bool worker_evidence_provider_poll(worker_evidence_provider_t *p)
             if (runtime_get_migration_metadata(message.pid, message.process_start_time_ticks, &metadata) && metadata.process_exists && metadata.identity_match &&
                 task_ticks(message.pid, message.tid, &ticks) && ticks == message.worker_start_time_ticks) {
                 size_t index = WORKER_EVIDENCE_MAX_WORKERS;
+                pthread_mutex_lock(&p->entries_mutex);
                 for (size_t i = 0; i < WORKER_EVIDENCE_MAX_WORKERS; i++) if (p->entries[i].pid == message.pid && p->entries[i].tid == message.tid && p->entries[i].worker_start_time_ticks == ticks) { index = i; break; }
                 if (index == WORKER_EVIDENCE_MAX_WORKERS) for (size_t i = 0; i < WORKER_EVIDENCE_MAX_WORKERS; i++) if (p->entries[i].pid == 0) { index = i; break; }
                 if (index < WORKER_EVIDENCE_MAX_WORKERS && message.evidence_generation != 0 &&
@@ -76,6 +78,7 @@ bool worker_evidence_provider_poll(worker_evidence_provider_t *p)
                       message.registered_memory_load_operations >= p->entries[index].registered_memory_load_operations))) {
                     worker_evidence_activity_t previous = p->entries[index];
                     p->entries[index] = (worker_evidence_activity_t){.pid = message.pid, .process_start_time_ticks = message.process_start_time_ticks, .tid = message.tid, .worker_start_time_ticks = ticks, .registration_generation = message.registration_generation, .evidence_generation = message.evidence_generation, .interval_ms = message.interval_ms, .worker_index = message.worker_index, .registered_memory_load_operations = message.registered_memory_load_operations, .load_operations_delta = previous.pid == 0 ? 0 : message.registered_memory_load_operations - previous.registered_memory_load_operations, .received_at_ms = now_ms()}; snprintf(p->entries[index].app_id, sizeof(p->entries[index].app_id), "%s", message.app_id); accepted = true; }
+                pthread_mutex_unlock(&p->entries_mutex);
             }
         }
         close(client);
@@ -92,8 +95,21 @@ bool worker_evidence_provider_candidate(worker_evidence_provider_t *p, const cha
 {
     if (activity != NULL) memset(activity, 0, sizeof(*activity));
     if (p == NULL || app == NULL || activity == NULL) return false;
-    for (size_t i = 0; i < WORKER_EVIDENCE_MAX_WORKERS; i++) if (p->entries[i].pid == pid && p->entries[i].process_start_time_ticks == process_ticks && p->entries[i].tid == tid && p->entries[i].worker_start_time_ticks == worker_ticks && p->entries[i].registration_generation == registration_generation && p->entries[i].load_operations_delta != 0 && now_ms() >= p->entries[i].received_at_ms && now_ms() - p->entries[i].received_at_ms <= WORKER_EVIDENCE_FRESHNESS_MS && strcmp(p->entries[i].app_id, app) == 0) { *activity = p->entries[i]; return true; }
+    pthread_mutex_lock(&p->entries_mutex);
+    for (size_t i = 0; i < WORKER_EVIDENCE_MAX_WORKERS; i++) if (p->entries[i].pid == pid && p->entries[i].process_start_time_ticks == process_ticks && p->entries[i].tid == tid && p->entries[i].worker_start_time_ticks == worker_ticks && p->entries[i].registration_generation == registration_generation && p->entries[i].load_operations_delta != 0 && now_ms() >= p->entries[i].received_at_ms && now_ms() - p->entries[i].received_at_ms <= WORKER_EVIDENCE_FRESHNESS_MS && strcmp(p->entries[i].app_id, app) == 0) { *activity = p->entries[i]; pthread_mutex_unlock(&p->entries_mutex); return true; }
+    pthread_mutex_unlock(&p->entries_mutex);
     return false;
+}
+size_t worker_evidence_provider_snapshot(worker_evidence_provider_t *p, pid_t pid, worker_evidence_activity_t *out, size_t capacity)
+{
+    size_t count = 0;
+    if (p == NULL || out == NULL) return 0;
+    pthread_mutex_lock(&p->entries_mutex);
+    for (size_t i = 0; i < WORKER_EVIDENCE_MAX_WORKERS && count < capacity; ++i)
+        if (p->entries[i].pid == pid && p->entries[i].load_operations_delta != 0 && now_ms() >= p->entries[i].received_at_ms && now_ms() - p->entries[i].received_at_ms <= WORKER_EVIDENCE_FRESHNESS_MS)
+            out[count++] = p->entries[i];
+    pthread_mutex_unlock(&p->entries_mutex);
+    return count;
 }
 int worker_evidence_activity_append(const char *path, const worker_evidence_activity_t *activity, bool matched)
 {

@@ -52,7 +52,10 @@ bool worker_evidence_provider_candidate(worker_evidence_provider_t *provider, co
                                         pid_t pid, uint64_t process_start_time_ticks, pid_t tid,
                                          uint64_t worker_start_time_ticks,
                                          uint64_t registration_generation,
-                                         worker_evidence_activity_t *activity);
+                                          worker_evidence_activity_t *activity);
+/* Copies only fresh, already authenticated activity for one collector-owned process. */
+size_t worker_evidence_provider_snapshot(worker_evidence_provider_t *provider, pid_t pid,
+                                         worker_evidence_activity_t *activities, size_t capacity);
 int worker_evidence_activity_append(const char *path, const worker_evidence_activity_t *activity,
                                     bool exact_candidate_match);
 

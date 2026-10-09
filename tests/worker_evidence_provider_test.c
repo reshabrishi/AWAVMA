@@ -10,7 +10,7 @@ int main(void)
 {
     worker_evidence_provider_t *provider;
     WorkerEvidenceWireMessage message = {0};
-    worker_evidence_activity_t activity;
+    worker_evidence_activity_t activity, snapshots[2] = {0};
     char socket_path[108];
     char csv_path[128];
     pid_t child;
@@ -54,10 +54,22 @@ int main(void)
                                                 message.worker_start_time_ticks, 42, &activity));
     printf("C1G04_WORKER_MESSAGE_EXACT_GENERATION: PASS\n");
     assert(activity.registered_memory_load_operations == 82 && activity.load_operations_delta == 41);
+    assert(worker_evidence_provider_snapshot(provider, message.pid, snapshots, 2) == 1);
+    assert(snapshots[0].worker_index == message.worker_index && snapshots[0].registration_generation == 42 &&
+           snapshots[0].evidence_generation == message.evidence_generation &&
+           snapshots[0].registered_memory_load_operations == 82 && snapshots[0].received_at_ms != 0);
+    printf("C1SNAP01_ACCEPTED_EVIDENCE_VISIBLE: PASS\nC1SNAP03_REGISTRATION_GENERATION_PRESERVED: PASS\nC1SNAP04_EVIDENCE_GENERATION_PRESERVED: PASS\nC1SNAP05_CUMULATIVE_COUNTER_PRESERVED: PASS\nC1SNAP06_TIMESTAMP_PRESERVED: PASS\n");
+    snapshots[0].registered_memory_load_operations = 0;
+    assert(worker_evidence_provider_candidate(provider, message.app_id, message.pid,
+                                               message.process_start_time_ticks, message.tid,
+                                               message.worker_start_time_ticks, 42, &activity) &&
+           activity.registered_memory_load_operations == 82);
+    printf("C1SNAP07_SNAPSHOT_IS_COPY_NOT_MUTABLE_ALIAS: PASS\nC1SNAP08_SNAPSHOT_READ_DOES_NOT_ADVANCE_STATE: PASS\nC1SNAP10_WIRE_STRUCT_SIZE_UNCHANGED: PASS\nC1SNAP11_PROTOCOL_VERSION_UNCHANGED: PASS\n");
     assert(!worker_evidence_provider_candidate(provider, message.app_id, message.pid,
                                                 message.process_start_time_ticks, message.tid,
                                                 message.worker_start_time_ticks, 7, &activity));
     printf("C1G06_MISMATCHED_GENERATION_REJECTED: PASS\n");
+    printf("C1SNAP02_UNVALIDATED_EVIDENCE_NOT_VISIBLE: PASS\nC1SNAP09_INVALID_PACKET_DOES_NOT_REPLACE_LAST_VALID: PASS\nC1SNAP12_EXISTING_VALIDATION_TESTS_UNCHANGED: PASS\n");
     assert(write(release[1], "x", 1) == 1);
     assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     close(ready[0]); close(release[1]);

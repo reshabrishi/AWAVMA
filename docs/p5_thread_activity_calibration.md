@@ -78,5 +78,24 @@ renames that directory only after every write succeeds. It refuses an existing
 final ID directory rather than overwriting or repairing it, preventing partial
 artifact corruption.
 
-Controlled collection and authoritative CloudLab calibration are C2A-3/C2A-4
-work. Runtime classification remains off.
+## C2A-3 Collector
+
+`make p5-c2a-collector` builds the isolated `bin/p5-c2a-collector` executable.
+It defaults to Matrix A (`LOW=10`, `MID=40`, `HIGH=100`) planning. `--dry-run`
+only discovers permitted NUMA topology and prints `ENV_LIMITED` (exit status 3)
+when fewer than two permitted NUMA nodes exist; it does not alter affinity,
+NUMA policy, NUMA balancing, files, or runtime state.
+
+The collector deterministically selects the lowest permitted NUMA node as local,
+then the greatest-distance permitted node (lowest node ID on a distance tie).
+It selects one lowest-numbered logical CPU per physical `(package, core)` pair,
+never SMT siblings. Evidence counters are explicitly labelled `BASELINE` then
+`DELTA`; counter regressions invalidate a run. A run plan requires verified
+source placement, observed NUMA-balancing state, worker evidence, and a completed
+restoration whenever a future controlled runner changes NUMA balancing.
+
+`--execute` deliberately fails closed with `ENV_LIMITED` after read-only topology
+discovery. An authoritative CloudLab runner has not been approved or implemented,
+so this path performs no unsafe operation and creates no artifacts. Frozen C2A-2
+artifact paths remain owned solely by the existing artifact writer. Runtime
+classification remains off.
