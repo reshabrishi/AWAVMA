@@ -99,3 +99,74 @@ bin/calibration-validate "$ARTIFACT"
 The expected success message is `CALIBRATION_VALIDATED records=7`. The helper
 `tools/check_cloudlab_p4_results.py` is diagnostic only and does not replace this
 strict validator.
+
+## P5-C.2B Matrix B Locality Validation
+
+This collection is behavioral validation only. It records
+`registered_memory_load_rate` in `ops/ms` and does not assume an ordering among
+`cold`, `moderate`, and `hot`. A default 54-run collection is authoritative as
+descriptive locality evidence; classification authority remains `UNAVAILABLE`
+and runtime authority remains `DISABLED`. Smoke or any protocol override is
+non-authoritative.
+Each replicate requires worker affinity, P2 page registration, C1 evidence
+continuity, and verified start/end placement. Invalid replicates remain in the
+diagnostic artifact but are excluded from statistics; each context requires at
+least 12 of 14 expected worker-run units. A NUMA-balancing restoration failure
+stops collection immediately. The launch intentionally omits `--memory-node`.
+
+Build and verify the 54-launch plan without changing NUMA balancing:
+
+```bash
+cd ~/AWAVMA
+make benchmark p5-c2b-locality-collector test-p5-c2b-locality
+ID="p5-c2b-$(date -u +%Y%m%dT%H%M%SZ)"
+bin/p5-c2b-locality-collector --matrix-b-v1 --dry-run --id "$ID"
+```
+
+The dry run prints `configurations=54 authoritative=1`. On a one-node host, exit status `3` and
+`status=ENV_LIMITED` are expected; no output directory or sysctl mutation is
+performed.
+
+Run the 12-launch non-authoritative smoke matrix:
+
+The smoke preset uses two workers, 64 MiB, one warmup, one measured run,
+5 seconds per run, and a 1-second startup discard.
+
+```bash
+cd ~/AWAVMA
+SMOKE_ID="p5-c2b-smoke-$(date -u +%Y%m%dT%H%M%SZ)"
+sudo bin/p5-c2b-locality-collector --matrix-b-v1 --execute --smoke --id "$SMOKE_ID" --output-root "$PWD/results"
+python3 tools/check_p5_locality_validation.py "$PWD/results/p5_locality_validation/$SMOKE_ID"
+```
+
+Run the fixed full matrix (three patterns, intensity 100, LOCAL and REMOTE, two
+warmups plus seven measured runs per cell, two workers, 256 MiB, 20 seconds,
+2-second startup discard, seed 12345):
+
+```bash
+cd ~/AWAVMA
+FULL_ID="p5-c2b-$(date -u +%Y%m%dT%H%M%SZ)"
+sudo bin/p5-c2b-locality-collector --matrix-b-v1 --execute --id "$FULL_ID" --output-root "$PWD/results"
+make check-p5-c2b-locality DIR="$PWD/results/p5_locality_validation/$FULL_ID"
+```
+
+Retain exactly the separate C2B artifacts under
+`results/p5_locality_validation/$FULL_ID`: `raw_intervals.csv`,
+`worker_run_summaries.csv`, `locality_manifest.csv`,
+`locality_validation_runs.csv`, and per-run placement evidence. The strict
+checker validates schema, hardware/topology consistency, all 54 diagnostics,
+deterministic base-plus-run seeds, K=5 non-overlapping windows, 14 worker-run
+median replicates per pattern and placement, the >=12 validity gate, and
+min/max/mean/median/population-standard-deviation/p10/p90 arithmetic. Percentiles
+use linear interpolation at `p * (n - 1)`. These statistics are descriptive;
+the checker does not test or impose pattern order.
+
+After the checker succeeds, commit and push the immutable Matrix B evidence:
+
+```bash
+cd ~/AWAVMA
+git add "results/p5_locality_validation/$FULL_ID"
+git diff --cached --check
+git commit -m "Add CloudLab Matrix B locality evidence"
+git push origin p4c1b-cloudlab-validation
+```
