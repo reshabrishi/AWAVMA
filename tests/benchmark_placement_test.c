@@ -11,6 +11,7 @@ int main(void)
     benchmark_placement_evidence_t evidence = {
         .mode = BENCHMARK_PLACEMENT_REMOTE,
         .local_node = 4,
+        .remote_node = 7,
         .requested_memory_node = 7,
         .numa_distance = 21,
         .total_pages = 16,
@@ -46,8 +47,8 @@ int main(void)
     assert(file != NULL);
     assert(fread(contents, 1, sizeof(contents) - 1, file) > 0);
     assert(fclose(file) == 0);
-    assert(strstr(contents, "placement_mode,local_node,requested_memory_node") != NULL);
-    assert(strstr(contents, "remote,4,7,21,16,16,16,0,16,0,0,1.000000000") != NULL);
+    assert(strstr(contents, "placement_mode,local_node,remote_node,requested_memory_node") != NULL);
+    assert(strstr(contents, "remote,4,7,7,21,16,16,16,0,16,0,0,1.000000000") != NULL);
     assert(strstr(contents, "address") == NULL);
     assert(unlink(artifact) == 0);
     printf("benchmark_placement_test: PASS\n");

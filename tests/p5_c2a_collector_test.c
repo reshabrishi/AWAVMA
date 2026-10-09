@@ -10,6 +10,11 @@ static void check(unsigned id, const char *name, bool ok)
     printf("P5C2COL%02u_%s: %s\n", id, name, ok ? "PASS" : "FAIL");
     passed = passed && ok;
 }
+static void check_named(const char *name, bool ok)
+{
+    printf("%s: %s\n", name, ok ? "PASS" : "FAIL");
+    passed = passed && ok;
+}
 
 static char *read_source(const char *path)
 {
@@ -68,6 +73,8 @@ int main(void)
     char *makefile = read_source("Makefile");
     char *validator = read_source("src/p5_thread_activity_calibration_validate_main.c");
     char escaped0[32], escaped1[32], diagnostic_row[2048], header_fields[64][128], row_fields[64][128];
+    const char *cpuinfo_fixture = "processor : 0\nvendor_id : GenuineIntel\ncpu family : 6\nmodel : 85\nmodel name : Intel(R) Xeon(R) Gold 6142 CPU @ 2.60GHz\n";
+    uint32_t parsed_family = 0, parsed_model = 0;
     check(1, "TOPOLOGY_SELECTS_LOWEST_LOCAL", p5_c2a_collector_select_topology(nodes, 4, &topology) && topology.local_node == 0);
     check(2, "TOPOLOGY_SELECTS_FARTHEST_REMOTE", topology.remote_node == 2 && topology.distance == 20);
     check(3, "TOPOLOGY_DISTANCE_TIE_LOWEST_NODE", topology.remote_node == 2);
@@ -190,6 +197,13 @@ int main(void)
     check(114, "DIAGNOSTIC_HEADER_ROW_COLUMN_COUNT_MATCH", header_count == 58 && row_count == header_count);
     check(115, "DIAGNOSTIC_ROUND_TRIP_PARSE", row_count == 58 && !strcmp(row_fields[23], "0,32") && !strcmp(row_fields[28], "2,34"));
     check(116, "DIAGNOSTIC_FINAL_FIELDS_NOT_SHIFTED", row_count == 58 && !strcmp(row_fields[29], "1") && !strcmp(row_fields[30], "1") && !strcmp(row_fields[31], "1") && !strcmp(row_fields[32], "42") && !strcmp(row_fields[54], "0") && !strcmp(row_fields[55], "1") && !strcmp(row_fields[56], "OK") && !strcmp(row_fields[57], "0"));
+    check_named("P5C2CTX_CPU_FAMILY_MODEL_PARSE", p5_c2a_collector_parse_cpu_family_model(cpuinfo_fixture, &parsed_family, &parsed_model) && parsed_family == 6 && parsed_model == 85);
+    check_named("P5C2CTX_CPU_FAMILY_MODEL_MALFORMED", !p5_c2a_collector_parse_cpu_family_model("cpu family : six\nmodel : 85x\n", &parsed_family, &parsed_model));
+    P5ThreadActivityContext fingerprint_context = {.online_cpu_count = 32, .numa_node_count = 2, .page_size = 4096, .cpu_family = 6, .cpu_model = 85};
+    snprintf(fingerprint_context.architecture, sizeof(fingerprint_context.architecture), "x86_64");
+    snprintf(fingerprint_context.cpu_vendor, sizeof(fingerprint_context.cpu_vendor), "GenuineIntel");
+    char fingerprint[P5_THREAD_ACTIVITY_TEXT_MAX];
+    check_named("P5C2CTX_HARDWARE_FINGERPRINT_USES_PARSED_VALUES", p5_thread_activity_hardware_fingerprint(&fingerprint_context, fingerprint, sizeof(fingerprint)) && strstr(fingerprint, "family=6|model=85") != NULL);
     free(collector_main); free(benchmark); free(placement); free(worker_provider); free(makefile); free(validator);
     return passed ? 0 : 1;
 }

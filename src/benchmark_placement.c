@@ -172,7 +172,7 @@ int benchmark_placement_prepare(benchmark_placement_mode_t mode,
     if (topology == NULL || allocation == NULL || evidence == NULL || page_size <= 0 ||
         bytes == 0 || bytes % (size_t)page_size != 0) return -1;
     memset(evidence, 0, sizeof(*evidence));
-    evidence->mode = mode; evidence->local_node = topology->local_node;
+    evidence->mode = mode; evidence->local_node = topology->local_node; evidence->remote_node = topology->remote_node;
     evidence->requested_memory_node = mode == BENCHMARK_PLACEMENT_LOCAL ? topology->local_node :
                                       mode == BENCHMARK_PLACEMENT_REMOTE ? topology->remote_node : -1;
     evidence->numa_distance = topology->numa_distance; evidence->total_pages = bytes / (size_t)page_size;
@@ -254,9 +254,9 @@ int benchmark_placement_write(const char *path, const benchmark_placement_eviden
     if (path == NULL || evidence == NULL || snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return -1;
     file = fopen(temporary, "w");
     if (file == NULL) return -1;
-    fprintf(file, "schema_version,placement_mode,local_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored\n");
-    fprintf(file, "1,%s,%d,%d,%d,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%.9f,%d,%s,%s,%s\n",
-            benchmark_placement_mode_name(evidence->mode), evidence->local_node, evidence->requested_memory_node,
+    fprintf(file, "schema_version,placement_mode,local_node,remote_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored\n");
+    fprintf(file, "1,%s,%d,%d,%d,%d,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%.9f,%d,%s,%s,%s\n",
+            benchmark_placement_mode_name(evidence->mode), evidence->local_node, evidence->remote_node, evidence->requested_memory_node,
             evidence->numa_distance, evidence->total_pages, evidence->queryable_pages,
             evidence->expected_node_pages, evidence->local_pages, evidence->remote_pages,
             evidence->other_pages, evidence->unknown_pages,

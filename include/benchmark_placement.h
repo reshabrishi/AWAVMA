@@ -26,6 +26,7 @@ typedef struct {
 typedef struct {
     benchmark_placement_mode_t mode;
     int local_node;
+    int remote_node;
     int requested_memory_node;
     int numa_distance;
     size_t total_pages;

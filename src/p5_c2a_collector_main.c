@@ -94,8 +94,8 @@ static bool read_placement_csv(const char *path, benchmark_placement_evidence_t 
     if (fgets(header, sizeof(header), file) == NULL || fgets(row, sizeof(row), file) == NULL) { fclose(file); return false; }
     fclose(file);
     char mode[32], restored[16]; double ratio;
-    return sscanf(row, "%*u,%31[^,],%d,%d,%d,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%lf,%d,%31[^,],%159[^,],%15[^\n]",
-                  mode, &e->local_node, &e->requested_memory_node, &e->numa_distance, &e->total_pages,
+    return sscanf(row, "%*u,%31[^,],%d,%d,%d,%d,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%lf,%d,%31[^,],%159[^,],%15[^\n]",
+                  mode, &e->local_node, &e->remote_node, &e->requested_memory_node, &e->numa_distance, &e->total_pages,
                   &e->queryable_pages, &e->expected_node_pages, &e->local_pages, &e->remote_pages,
                   &e->other_pages, &e->unknown_pages, &ratio, &e->observed_dominant_node,
                   e->verification_status, e->verification_reason, restored) >= 15;
@@ -226,25 +226,37 @@ static bool disable_numa_balancing(void)
     return true;
 }
 
-static void context(P5ThreadActivityContext *context, const Options *options,
+static bool context(P5ThreadActivityContext *context, const Options *options,
                     const benchmark_placement_topology_t *topology, P5ThreadActivityPlacementMode placement)
 {
     struct utsname name;
-    memset(context, 0, sizeof(*context)); (void)uname(&name);
+    memset(context, 0, sizeof(*context));
+    if (uname(&name) != 0) return false;
     context->schema_version = P5_THREAD_ACTIVITY_SCHEMA_VERSION;
     snprintf(context->architecture, sizeof(context->architecture), "%s", name.machine[0] ? name.machine : "unknown");
     {
-        FILE *cpuinfo = fopen("/proc/cpuinfo", "r"); char line[512];
+        FILE *cpuinfo = fopen("/proc/cpuinfo", "r"); char *line = NULL, *cpuinfo_text = NULL; size_t line_size = 0, text_size = 0, text_capacity = 0; ssize_t length;
         snprintf(context->cpu_vendor, sizeof(context->cpu_vendor), "unknown");
         snprintf(context->cpu_model_name, sizeof(context->cpu_model_name), "unknown");
-        while (cpuinfo != NULL && fgets(line, sizeof(line), cpuinfo) != NULL) {
+        if (cpuinfo == NULL) return false;
+        while ((length = getline(&line, &line_size, cpuinfo)) >= 0) {
+            if (text_size + (size_t)length + 1 > text_capacity) {
+                size_t capacity = text_capacity == 0 ? 4096 : text_capacity * 2;
+                while (capacity < text_size + (size_t)length + 1) capacity *= 2;
+                char *grown = realloc(cpuinfo_text, capacity);
+                if (grown == NULL) { free(line); free(cpuinfo_text); fclose(cpuinfo); return false; }
+                cpuinfo_text = grown; text_capacity = capacity;
+            }
+            memcpy(cpuinfo_text + text_size, line, (size_t)length); text_size += (size_t)length; cpuinfo_text[text_size] = '\0';
             char *value = strchr(line, ':');
             if (value == NULL) continue;
             value += 2; value[strcspn(value, "\n")] = '\0';
             if (!strncmp(line, "vendor_id", 9)) snprintf(context->cpu_vendor, sizeof(context->cpu_vendor), "%s", value);
             else if (!strncmp(line, "model name", 10)) snprintf(context->cpu_model_name, sizeof(context->cpu_model_name), "%s", value);
         }
-        if (cpuinfo != NULL) fclose(cpuinfo);
+        free(line); fclose(cpuinfo);
+        if (!p5_c2a_collector_parse_cpu_family_model(cpuinfo_text, &context->cpu_family, &context->cpu_model)) { free(cpuinfo_text); return false; }
+        free(cpuinfo_text);
     }
     context->online_cpu_count = (uint32_t)sysconf(_SC_NPROCESSORS_ONLN); context->numa_node_count = topology->permitted_node_count;
     context->page_size = (uint64_t)sysconf(_SC_PAGESIZE); context->worker_count = options->workers;
@@ -257,7 +269,7 @@ static void context(P5ThreadActivityContext *context, const Options *options,
     context->mid_intensity_percent = 40; context->high_intensity_percent = 100; context->numa_balancing_state = 0;
     context->window_interval_count = P5_THREAD_ACTIVITY_WINDOW_INTERVALS;
     context->minimum_worker_run_units = P5_THREAD_ACTIVITY_MIN_WORKER_RUN_UNITS;
-    (void)p5_thread_activity_hardware_fingerprint(context, context->hardware_fingerprint, sizeof(context->hardware_fingerprint));
+    return p5_thread_activity_hardware_fingerprint(context, context->hardware_fingerprint, sizeof(context->hardware_fingerprint));
 }
 
 static pid_t launch(const Options *o, const benchmark_placement_topology_t *t, P5ThreadActivityPlacementMode placement,
@@ -360,7 +372,8 @@ static int collect_placement(const Options *o, const benchmark_placement_topolog
 {
     P5ThreadActivityContext c; P5ThreadActivityRawSample *samples; P5ThreadActivityCalibration calibration; P5C2ACollectorMatrixEntry matrix[3];
     size_t count = 0; char socket[108], cpus[256], reason[P5_THREAD_ACTIVITY_REASON_MAX] = {0}; unsigned global_run = 0;
-    context(&c, o, topology, placement); samples = calloc(MAX_SAMPLES, sizeof(*samples)); if (!samples) return -1;
+    if (!context(&c, o, topology, placement)) { fprintf(stderr, "status=FAILED reason=cpu_identity_unavailable\n"); return -1; }
+    samples = calloc(MAX_SAMPLES, sizeof(*samples)); if (!samples) return -1;
     if (mkdir(o->root, 0700) != 0 && errno != EEXIST) { free(samples); return -1; }
     snprintf(socket, sizeof(socket), "/tmp/awavma-c2a-%ld-%c.sock", (long)getpid(), placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? 'l' : 'r');
     if (!selected_cpus(topology->local_node, o->workers, cpus, sizeof(cpus))) { free(samples); return -1; }

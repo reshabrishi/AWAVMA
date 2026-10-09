@@ -1,6 +1,9 @@
 #include "p5_c2a_collector.h"
 
 #include <stdio.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void set_reason(char *reason, size_t size, const char *value)
@@ -110,4 +113,47 @@ bool p5_c2a_collector_csv_text(const char *text, char *output, size_t output_siz
     }
     output[used] = '\0';
     return true;
+}
+
+static bool cpuinfo_number(const char *line, const char *key, uint32_t *value)
+{
+    const char *colon;
+    char *end;
+    unsigned long parsed;
+    size_t key_length = strlen(key), name_length;
+    colon = strchr(line, ':');
+    if (colon == NULL) return false;
+    name_length = (size_t)(colon - line);
+    while (name_length != 0 && (line[name_length - 1] == ' ' || line[name_length - 1] == '\t')) name_length--;
+    if (name_length != key_length || strncmp(line, key, key_length) != 0) return false;
+    colon++;
+    while (*colon == ' ' || *colon == '\t') colon++;
+    errno = 0;
+    parsed = strtoul(colon, &end, 10);
+    if (errno != 0 || end == colon || parsed > UINT32_MAX) return false;
+    while (*end == ' ' || *end == '\t' || *end == '\r') end++;
+    if (*end != '\0' && *end != '\n') return false;
+    *value = (uint32_t)parsed;
+    return true;
+}
+
+bool p5_c2a_collector_parse_cpu_family_model(const char *cpuinfo, uint32_t *family, uint32_t *model)
+{
+    bool family_found = false, model_found = false;
+    const char *line;
+    if (cpuinfo == NULL || family == NULL || model == NULL) return false;
+    line = cpuinfo;
+    while (*line != '\0') {
+        const char *next = strchr(line, '\n');
+        size_t length = next == NULL ? strlen(line) : (size_t)(next - line) + 1;
+        char buffer[512];
+        if (length >= sizeof(buffer)) return false;
+        memcpy(buffer, line, length); buffer[length] = '\0';
+        if (!family_found && !strncmp(buffer, "cpu family", 10)) family_found = cpuinfo_number(buffer, "cpu family", family);
+        else if (!model_found && !strncmp(buffer, "model", 5)) model_found = cpuinfo_number(buffer, "model", model);
+        if (family_found && model_found) return true;
+        if (next == NULL) break;
+        line = next + 1;
+    }
+    return false;
 }
