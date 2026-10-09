@@ -23,6 +23,17 @@ def main():
     assert "controlled placement conflicts with --memory-node" in source
     assert 'WORKLOADS=(sequential random hot moderate cold mixed changing)' in collector
     assert 'WORKLOADS=(sequential random hot moderate cold mixed changing local)' not in collector
+    assert '"worker-evidence-socket", required_argument' in source
+    assert 'config->worker_evidence_socket = optarg' in source
+    assert '--worker-evidence-socket PATH' in source
+
+    help_output = run("--help")
+    assert help_output.returncode == 0
+    assert "worker-evidence-socket" in help_output.stdout
+
+    # The option is recognized and still cannot bypass P2 registration.
+    missing_registration = run("--worker-evidence-socket", "/tmp/test.sock")
+    assert missing_registration.returncode != 0
 
     # Direct legacy local placement remains usable on a single-NUMA host.
     direct = run("--threads", "1", "--memory", "1", "--iterations", "1", "--pattern", "local")

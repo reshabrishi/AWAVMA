@@ -111,6 +111,7 @@ static void print_usage(const char *program)
     printf("      --page-registration-socket PATH  Runtime-owned registration socket\n");
     printf("      --page-registration-required      Require accepted owned-page registration\n");
     printf("      --page-registration-timeout-ms N  Bounded registration wait\n");
+    printf("      --worker-evidence-socket PATH     Runtime-owned cooperative worker evidence socket\n");
     printf("      --placement-mode MODE      default, local, or remote\n");
     printf("      --placement-evidence FILE  Atomic placement evidence CSV\n");
     printf("  -h, --help                   Show this help\n");
@@ -200,7 +201,8 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         OPTION_PAGE_REGISTRATION_REQUIRED,
         OPTION_PAGE_REGISTRATION_TIMEOUT,
         OPTION_PLACEMENT_MODE,
-        OPTION_PLACEMENT_EVIDENCE
+        OPTION_PLACEMENT_EVIDENCE,
+        OPTION_WORKER_EVIDENCE_SOCKET
     };
     static const struct option options[] = {
         {"threads", required_argument, NULL, 't'},
@@ -222,6 +224,7 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         {"page-registration-timeout-ms", required_argument, NULL, OPTION_PAGE_REGISTRATION_TIMEOUT},
         {"placement-mode", required_argument, NULL, OPTION_PLACEMENT_MODE},
         {"placement-evidence", required_argument, NULL, OPTION_PLACEMENT_EVIDENCE},
+        {"worker-evidence-socket", required_argument, NULL, OPTION_WORKER_EVIDENCE_SOCKET},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -295,6 +298,9 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
             break;
         case OPTION_PLACEMENT_EVIDENCE:
             config->placement_evidence_path = optarg;
+            break;
+        case OPTION_WORKER_EVIDENCE_SOCKET:
+            config->worker_evidence_socket = optarg;
             break;
         case OPTION_HOT_PERCENT:
             if (parse_percent(optarg, &config->hot_percent) != 0)
