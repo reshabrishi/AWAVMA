@@ -104,30 +104,45 @@ static bool read_placement_csv(const char *path, benchmark_placement_evidence_t 
 static int write_diagnostic_row(const Options *o, const RunDiagnostic *d)
 {
     char path[512]; FILE *file; bool header;
+    char calibration_id[2 * P5_THREAD_ACTIVITY_CALIBRATION_ID_MAX + 3], placement[16], profile[32], run_kind[16];
+    char pattern[16], numa_original[2 * sizeof(saved_numa_balancing) + 3], restore_status[80];
+    char worker0_siblings[2 * sizeof(d->worker_siblings[0]) + 3], worker1_siblings[2 * sizeof(d->worker_siblings[1]) + 3];
+    char start_status[80], end_status[80], reason[2 * sizeof(d->reason) + 3];
     snprintf(path, sizeof(path), "%s/calibration_runs.csv", o->root);
     file = fopen(path, "a+"); if (file == NULL) return -1;
     header = fseek(file, 0, SEEK_END) != 0 || ftell(file) == 0;
     if (header) fputs(diagnostic_header, file);
     double start_ratio = d->start_placement.total_pages == 0 ? 0.0 : (double)d->start_placement.expected_node_pages / d->start_placement.total_pages;
     double end_ratio = d->end_placement.total_pages == 0 ? 0.0 : (double)d->end_placement.expected_node_pages / d->end_placement.total_pages;
-    fprintf(file, "1,%s,%s,%s,%u,%s,%u,%u,%u,%u,%u,random,%u,%d,%d,%d,%s,0,%s,%ld,%d,%d,%d,%s,%ld,%d,%d,%d,%s,%u,%u,%u,%llu,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%.9f,%s,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%.9f,%s,%u,%u,%u,%d,%u,%s,%u\n",
-            d->calibration_id, d->placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? "LOCAL" : "REMOTE",
-            p5_thread_activity_profile_name(d->profile), d->intensity_percent, d->run_kind_warmup ? "WARMUP" : "MEASURED",
-            d->run_index, o->workers, o->memory_mb, o->duration_ms, o->discard_ms, d->seed, d->topology->local_node,
+    if (!p5_c2a_collector_csv_text(d->calibration_id, calibration_id, sizeof(calibration_id)) ||
+        !p5_c2a_collector_csv_text(d->placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? "LOCAL" : "REMOTE", placement, sizeof(placement)) ||
+        !p5_c2a_collector_csv_text(p5_thread_activity_profile_name(d->profile), profile, sizeof(profile)) ||
+        !p5_c2a_collector_csv_text(d->run_kind_warmup ? "WARMUP" : "MEASURED", run_kind, sizeof(run_kind)) ||
+        !p5_c2a_collector_csv_text("random", pattern, sizeof(pattern)) ||
+        !p5_c2a_collector_csv_text(saved_numa_balancing[0] ? saved_numa_balancing : "UNKNOWN", numa_original, sizeof(numa_original)) ||
+        !p5_c2a_collector_csv_text(d->restore_status, restore_status, sizeof(restore_status)) ||
+        !p5_c2a_collector_csv_text(d->worker_siblings[0], worker0_siblings, sizeof(worker0_siblings)) ||
+        !p5_c2a_collector_csv_text(d->worker_siblings[1], worker1_siblings, sizeof(worker1_siblings)) ||
+        !p5_c2a_collector_csv_text(d->start_status, start_status, sizeof(start_status)) ||
+        !p5_c2a_collector_csv_text(d->end_status, end_status, sizeof(end_status)) ||
+        !p5_c2a_collector_csv_text(d->reason, reason, sizeof(reason))) { fclose(file); return -1; }
+    fprintf(file, "1,%s,%s,%s,%u,%s,%u,%u,%u,%u,%u,%s,%u,%d,%d,%d,%s,0,%s,%ld,%d,%d,%d,%s,%ld,%d,%d,%d,%s,%u,%u,%u,%llu,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%.9f,%s,%zu,%zu,%zu,%zu,%zu,%zu,%zu,%.9f,%s,%u,%u,%u,%d,%u,%s,%u\n",
+            calibration_id, placement, profile, d->intensity_percent, run_kind,
+            d->run_index, o->workers, o->memory_mb, o->duration_ms, o->discard_ms, pattern, d->seed, d->topology->local_node,
             d->placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? d->topology->local_node : d->topology->remote_node, d->topology->numa_distance,
-            saved_numa_balancing[0] ? saved_numa_balancing : "UNKNOWN", d->restore_status,
-            (long)d->worker_tid[0], d->worker_cpu[0], d->worker_package[0], d->worker_core[0], d->worker_siblings[0],
-            (long)d->worker_tid[1], d->worker_cpu[1], d->worker_package[1], d->worker_core[1], d->worker_siblings[1],
+            numa_original, restore_status,
+            (long)d->worker_tid[0], d->worker_cpu[0], d->worker_package[0], d->worker_core[0], worker0_siblings,
+            (long)d->worker_tid[1], d->worker_cpu[1], d->worker_package[1], d->worker_core[1], worker1_siblings,
             d->worker_package[0] != d->worker_package[1] || d->worker_core[0] != d->worker_core[1],
             d->worker_cpu[0] >= 0 && d->worker_cpu[1] >= 0, d->registration_generation != 0,
             (unsigned long long)d->registration_generation,
             d->start_placement.total_pages, d->start_placement.queryable_pages, d->start_placement.expected_node_pages,
             d->start_placement.local_pages, d->start_placement.remote_pages, d->start_placement.other_pages, d->start_placement.unknown_pages,
-            start_ratio, d->start_status,
+            start_ratio, start_status,
             d->end_placement.total_pages, d->end_placement.queryable_pages, d->end_placement.expected_node_pages,
             d->end_placement.local_pages, d->end_placement.remote_pages, d->end_placement.other_pages, d->end_placement.unknown_pages,
-            end_ratio, d->end_status, d->worker_evidence_ok, d->worker_seen[0], d->worker_seen[1], d->benchmark_exit_code,
-            d->valid, d->reason, d->authoritative);
+            end_ratio, end_status, d->worker_evidence_ok, d->worker_seen[0], d->worker_seen[1], d->benchmark_exit_code,
+            d->valid, reason, d->authoritative);
     fflush(file); fsync(fileno(file)); return fclose(file) == 0 ? 0 : -1;
 }
 

@@ -59,5 +59,6 @@ const char *p5_c2a_collector_evidence_label_name(P5C2AEvidenceLabel label);
 bool p5_c2a_collector_label_delta(uint64_t previous, uint64_t current,
                                   P5C2AEvidenceLabel *label, uint64_t *delta);
 bool p5_c2a_collector_run_valid(const P5C2ARunPlan *plan, char *reason, size_t reason_size);
+bool p5_c2a_collector_csv_text(const char *text, char *output, size_t output_size);
 
 #endif

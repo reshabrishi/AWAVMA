@@ -1,6 +1,7 @@
 #include "p5_c2a_collector.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static void set_reason(char *reason, size_t size, const char *value)
 {
@@ -80,5 +81,33 @@ bool p5_c2a_collector_run_valid(const P5C2ARunPlan *plan, char *reason, size_t r
     if (plan->numa_balancing_restoration_planned && !plan->numa_balancing_restored) { set_reason(reason, reason_size, "numa_balancing_not_restored"); return false; }
     if (!plan->worker_evidence_available) { set_reason(reason, reason_size, "worker_evidence_unavailable"); return false; }
     set_reason(reason, reason_size, "valid");
+    return true;
+}
+
+bool p5_c2a_collector_csv_text(const char *text, char *output, size_t output_size)
+{
+    bool quote;
+    size_t used = 0;
+    if (text == NULL || output == NULL || output_size == 0) return false;
+    quote = strpbrk(text, ",\"\r\n") != NULL;
+    if (quote) {
+        if (used + 1 >= output_size) return false;
+        output[used++] = '"';
+    }
+    for (const char *cursor = text; *cursor != '\0'; ++cursor) {
+        if (*cursor == '"') {
+            if (used + 2 >= output_size) return false;
+            output[used++] = '"';
+            output[used++] = '"';
+        } else {
+            if (used + 1 >= output_size) return false;
+            output[used++] = *cursor;
+        }
+    }
+    if (quote) {
+        if (used + 1 >= output_size) return false;
+        output[used++] = '"';
+    }
+    output[used] = '\0';
     return true;
 }

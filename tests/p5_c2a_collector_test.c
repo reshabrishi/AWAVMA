@@ -27,6 +27,30 @@ static char *read_source(const char *path)
 
 static bool has(const char *text, const char *needle) { return text != NULL && strstr(text, needle) != NULL; }
 
+static size_t parse_csv(const char *row, char fields[][128], size_t capacity)
+{
+    size_t count = 0, used = 0;
+    bool quoted = false;
+    if (row == NULL || fields == NULL || capacity == 0) return 0;
+    memset(fields, 0, capacity * 128U);
+    for (const char *cursor = row; ; ++cursor) {
+        char value = *cursor;
+        if (quoted && value == '"' && cursor[1] == '"') {
+            if (used + 1 >= 128) return 0;
+            fields[count][used++] = '"'; cursor++; continue;
+        }
+        if (value == '"') { quoted = !quoted; continue; }
+        if ((!quoted && value == ',') || value == '\0' || value == '\n') {
+            if (quoted || count >= capacity) return 0;
+            fields[count][used] = '\0'; count++; used = 0;
+            if (value == '\0' || value == '\n') return count;
+            continue;
+        }
+        if (used + 1 >= 128) return 0;
+        fields[count][used++] = value;
+    }
+}
+
 static const char *expected_diagnostic_header =
     "schema_version,calibration_id,placement_mode,controlled_profile,intensity_percent,run_kind,run_index,workers,memory_mb,duration_ms,startup_discard_ms,pattern,seed,local_node,requested_memory_node,numa_distance,numa_balancing_original,numa_balancing_during_run,numa_balancing_restore_status,worker0_tid,worker0_cpu,worker0_package,worker0_core,worker0_siblings,worker1_tid,worker1_cpu,worker1_package,worker1_core,worker1_siblings,smt_distinct,affinity_verified,registration_ok,registration_generation,start_total_pages,start_queryable_pages,start_expected_pages,start_local_pages,start_remote_pages,start_other_pages,start_unknown_pages,start_expected_ratio,start_status,end_total_pages,end_queryable_pages,end_expected_pages,end_local_pages,end_remote_pages,end_other_pages,end_unknown_pages,end_expected_ratio,end_status,worker_evidence_ok,worker0_evidence_seen,worker1_evidence_seen,benchmark_exit_code,valid,reason,authoritative";
 
@@ -43,6 +67,7 @@ int main(void)
     char *worker_provider = read_source("src/worker_evidence_provider.c");
     char *makefile = read_source("Makefile");
     char *validator = read_source("src/p5_thread_activity_calibration_validate_main.c");
+    char escaped0[32], escaped1[32], diagnostic_row[2048], header_fields[64][128], row_fields[64][128];
     check(1, "TOPOLOGY_SELECTS_LOWEST_LOCAL", p5_c2a_collector_select_topology(nodes, 4, &topology) && topology.local_node == 0);
     check(2, "TOPOLOGY_SELECTS_FARTHEST_REMOTE", topology.remote_node == 2 && topology.distance == 20);
     check(3, "TOPOLOGY_DISTANCE_TIE_LOWEST_NODE", topology.remote_node == 2);
@@ -155,6 +180,16 @@ int main(void)
     check(110, "CONTROLLED_LAUNCH_OMITS_MEMORY_NODE", !has(collector_main, "\"--memory-node\"") && has(collector_main, "\"--placement-mode\"") && has(collector_main, "\"--placement-evidence\"") && has(collector_main, "\"--worker-cpus\"") && has(collector_main, "\"--intensity-percent\""));
     check(111, "BENCHMARK_MEMORY_NODE_CONFLICT_GUARD_PRESERVED", has(benchmark, "controlled placement conflicts with --memory-node"));
     check(112, "NUMA_NODE_COUNT_FROM_REAL_TOPOLOGY", has(collector_main, "context->numa_node_count = topology->permitted_node_count") && has(placement, "topology->permitted_node_count = permitted_node_count") && !has(collector_main, "context->numa_node_count = 2"));
+    bool escaped = p5_c2a_collector_csv_text("0,32", escaped0, sizeof(escaped0)) && p5_c2a_collector_csv_text("2,34", escaped1, sizeof(escaped1));
+    check(113, "DIAGNOSTIC_SIBLING_LIST_CSV_ESCAPED", escaped && !strcmp(escaped0, "\"0,32\"") && !strcmp(escaped1, "\"2,34\""));
+    snprintf(diagnostic_row, sizeof(diagnostic_row),
+             "1,id,LOCAL,LOW,10,MEASURED,0,2,64,5000,1000,random,12345,0,1,20,1,0,RESTORED,100,0,0,0,%s,101,2,0,1,%s,1,1,1,42,16384,16384,16384,16384,0,0,0,1.0,PASS,16384,16384,16384,16384,0,0,0,1.0,PASS,1,1,1,0,1,OK,0",
+             escaped0, escaped1);
+    size_t header_count = parse_csv(expected_diagnostic_header, header_fields, 64);
+    size_t row_count = parse_csv(diagnostic_row, row_fields, 64);
+    check(114, "DIAGNOSTIC_HEADER_ROW_COLUMN_COUNT_MATCH", header_count == 58 && row_count == header_count);
+    check(115, "DIAGNOSTIC_ROUND_TRIP_PARSE", row_count == 58 && !strcmp(row_fields[23], "0,32") && !strcmp(row_fields[28], "2,34"));
+    check(116, "DIAGNOSTIC_FINAL_FIELDS_NOT_SHIFTED", row_count == 58 && !strcmp(row_fields[29], "1") && !strcmp(row_fields[30], "1") && !strcmp(row_fields[31], "1") && !strcmp(row_fields[32], "42") && !strcmp(row_fields[54], "0") && !strcmp(row_fields[55], "1") && !strcmp(row_fields[56], "OK") && !strcmp(row_fields[57], "0"));
     free(collector_main); free(benchmark); free(placement); free(worker_provider); free(makefile); free(validator);
     return passed ? 0 : 1;
 }
