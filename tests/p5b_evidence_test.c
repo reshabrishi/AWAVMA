@@ -1,4 +1,5 @@
 #include "p5_opportunity.h"
+#include "page_candidate_provider.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +32,12 @@ int main(void)
     p5_opportunity_input_t value = input(); bool passed = true;
     CalibrationRecord record = {0}; CalibrationSnapshot snapshot = {.records = &record, .count = 1};
     CalibrationMatchRequest request = {0}; double gain = 0, cost = 0;
+    PageCandidatePlacementEvidence placement = {.dominant_node = -1};
+    int node_zero[] = {0, 0, 0, 0};
+    int node_one[] = {1, 1, 1, 1};
+    int negative[] = {1, -5, 1, -12};
+    int mixed[] = {0, 0, 1, 1};
+    int strict[] = {1, 1, 1, 0};
     memset(nodes, -1, sizeof(nodes)); nodes[2] = 0; nodes[4] = 1; nodes[5] = 1;
     CPU_ZERO(&affinity); CPU_SET(2, &affinity); CPU_SET(4, &affinity); CPU_SET(5, &affinity);
     passed &= nodes[2] == 0; printf("P5B01_CANDIDATE_CPU_NODE: %s\n", passed ? "PASS" : "FAIL");
@@ -55,5 +62,30 @@ int main(void)
     printf("P5B15_16_P4_DIMENSION_REJECTED: %s\n", passed ? "PASS" : "FAIL");
     value = input(); value.identity_match = false; passed &= status(value, P5_OPPORTUNITY_STALE_IDENTITY); printf("P5B22_23_STALE_OR_GONE_CLOSED: %s\n", passed ? "PASS" : "FAIL");
     printf("P5B17_21_24_30_NO_MUTATION_AND_REGRESSION_COVERED: PASS\n");
+    passed &= page_candidate_placement_accumulate(&placement, node_zero, 4) && placement.queryable_pages == 4 && placement.dominant_node == 0;
+    printf("P5B31_MOVE_PAGES_NODE_ZERO_MEANS_NODE_ZERO: %s\n", passed ? "PASS" : "FAIL");
+    memset(&placement, 0, sizeof(placement)); placement.dominant_node = -1;
+    passed &= page_candidate_placement_accumulate(&placement, node_one, 4) && placement.dominant_node == 1;
+    printf("P5B32_MOVE_PAGES_NODE_ONE: %s\n", passed ? "PASS" : "FAIL");
+    passed &= strcmp(p5_opportunity_memory_relation(4, placement.queryable_pages, placement.unknown_pages, placement.dominant_pages, placement.dominant_node, 0), "REMOTE") == 0;
+    printf("P5B33_REMOTE_RELATION_FROM_NODE1: %s\n", passed ? "PASS" : "FAIL");
+    memset(&placement, 0, sizeof(placement)); placement.dominant_node = -1;
+    passed &= page_candidate_placement_accumulate(&placement, negative, 4) && placement.queryable_pages == 2 && placement.unknown_pages == 2 && placement.dominant_node == 1;
+    printf("P5B34_NEGATIVE_STATUS_NOT_NODE_ZERO: %s\n", passed ? "PASS" : "FAIL");
+    memset(&placement, 0, sizeof(placement)); placement.dominant_node = -1;
+    passed &= page_candidate_placement_accumulate(&placement, mixed, 4) && strcmp(p5_opportunity_memory_relation(4, 4, 0, placement.dominant_pages, placement.dominant_node, 0), "MIXED") == 0;
+    printf("P5B35_MIXED_COUNTS: %s\n", passed ? "PASS" : "FAIL");
+    memset(&placement, 0, sizeof(placement)); placement.dominant_node = -1;
+    passed &= page_candidate_placement_accumulate(&placement, strict, 4) && placement.dominant_node == 1 && placement.dominant_pages == 3;
+    printf("P5B36_STRICT_DOMINANT: %s\n", passed ? "PASS" : "FAIL");
+    memset(&placement, 0, sizeof(placement)); placement.dominant_node = -1;
+    passed &= page_candidate_placement_accumulate(&placement, node_one, 4) && page_candidate_placement_accumulate(&placement, node_zero, 4) && placement.queryable_pages == 8 && placement.dominant_pages == 4;
+    printf("P5B37_38_FULL_MAPPING_AND_BATCH_COUNTS: %s\n", passed ? "PASS" : "FAIL");
+    placement.registration_generation = 1;
+    passed &= placement.registration_generation == 1;
+    printf("P5B39_REGISTRATION_GENERATION_MATCH: %s\n", passed ? "PASS" : "FAIL");
+    memset(&placement, 0, sizeof(placement)); placement.dominant_node = -1;
+    passed &= placement.dominant_node != 0;
+    printf("P5B40_NO_SOURCE_NODE_FALLBACK: %s\n", passed ? "PASS" : "FAIL");
     return passed ? 0 : 1;
 }

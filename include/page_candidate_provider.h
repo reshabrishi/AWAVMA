@@ -12,6 +12,7 @@
 /* Compact registrations may describe large workloads without per-page metadata. */
 #define PAGE_CANDIDATE_MAX_REGISTERED_REGION_BYTES (1024ULL * 1024ULL * 1024ULL * 1024ULL)
 #define PAGE_CANDIDATE_MAX_REGISTRATIONS 64U
+#define PAGE_CANDIDATE_PLACEMENT_MAX_NODES 64U
 #define PAGE_CANDIDATE_APP_ID_MAX 128U
 #define PAGE_CANDIDATE_PROVENANCE_MAX 96U
 #define PAGE_CANDIDATE_WIRE_VERSION 1U
@@ -87,11 +88,13 @@ typedef struct {
 /* Read-only placement summary for an authenticated owned registration. */
 typedef struct {
     bool identity_match;
+    uint64_t registration_generation;
     size_t total_pages;
     size_t queryable_pages;
     size_t unknown_pages;
     int dominant_node;
     size_t dominant_pages;
+    size_t node_counts[PAGE_CANDIDATE_PLACEMENT_MAX_NODES];
 } PageCandidatePlacementEvidence;
 
 page_candidate_provider_t *page_candidate_provider_create(void);
@@ -113,7 +116,11 @@ bool page_candidate_provider_registration_status(page_candidate_provider_t *prov
 bool page_candidate_provider_placement_evidence(page_candidate_provider_t *provider,
                                                 const char *app_id, pid_t pid,
                                                 uint64_t start_time_ticks,
+                                                uint64_t registration_generation,
                                                 PageCandidatePlacementEvidence *evidence);
+/* Accumulates raw move_pages query statuses; non-negative values are NUMA nodes. */
+bool page_candidate_placement_accumulate(PageCandidatePlacementEvidence *evidence,
+                                         const int *status, size_t count);
 /* Must be called by the workload process that owns the allocation. */
 bool page_candidate_provider_register_owned_region(page_candidate_provider_t *provider,
                                                    const PageCandidateRegistration *registration);

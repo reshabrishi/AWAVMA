@@ -1946,9 +1946,15 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         sched_getaffinity(candidate.tid, sizeof(candidate_affinity), &candidate_affinity) == 0 &&
         CPU_COUNT(&candidate_affinity) != 0;
     PageCandidatePlacementEvidence placement = {0};
+    PageCandidateRegistrationStatus registration = {0};
+    bool registration_current = runtime->config.page_candidate_provider != NULL &&
+        page_candidate_provider_registration_status(runtime->config.page_candidate_provider, record->app_id,
+                                                    record->pid, record->start_time_ticks, &registration) &&
+        registration.accepted && registration.generation != 0;
     bool placement_observed = runtime->config.page_candidate_provider != NULL &&
         page_candidate_provider_placement_evidence(runtime->config.page_candidate_provider, record->app_id,
-                                                   record->pid, record->start_time_ticks, &placement);
+                                                    record->pid, record->start_time_ticks,
+                                                    registration_current ? registration.generation : 0, &placement);
     const char *observed_relation = placement_observed && candidate_source_available ?
         p5_opportunity_memory_relation(placement.total_pages, placement.queryable_pages,
                                        placement.unknown_pages, placement.dominant_pages,
