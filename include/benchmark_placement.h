@@ -47,7 +47,10 @@ int benchmark_placement_discover(benchmark_placement_topology_t *topology);
 int benchmark_placement_prepare(benchmark_placement_mode_t mode,
                                 const benchmark_placement_topology_t *topology,
                                 void *allocation, size_t bytes,
-                                benchmark_placement_evidence_t *evidence);
+                                 benchmark_placement_evidence_t *evidence);
+/* Read-only end-of-run residency gate for controlled placement. */
+int benchmark_placement_verify(const benchmark_placement_topology_t *topology, void *allocation,
+                               size_t bytes, benchmark_placement_evidence_t *evidence);
 int benchmark_placement_write(const char *path, const benchmark_placement_evidence_t *evidence);
 
 #endif

@@ -1,6 +1,7 @@
 #include "p5_c2a_collector.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static bool passed = true;
@@ -10,6 +11,25 @@ static void check(unsigned id, const char *name, bool ok)
     passed = passed && ok;
 }
 
+static char *read_source(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    long size;
+    char *buffer;
+    if (file == NULL) return NULL;
+    if (fseek(file, 0, SEEK_END) != 0 || (size = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) != 0) { fclose(file); return NULL; }
+    buffer = calloc((size_t)size + 1U, 1U);
+    if (buffer == NULL) { fclose(file); return NULL; }
+    if (fread(buffer, 1U, (size_t)size, file) != (size_t)size) { free(buffer); fclose(file); return NULL; }
+    fclose(file);
+    return buffer;
+}
+
+static bool has(const char *text, const char *needle) { return text != NULL && strstr(text, needle) != NULL; }
+
+static const char *expected_diagnostic_header =
+    "schema_version,calibration_id,placement_mode,controlled_profile,intensity_percent,run_kind,run_index,workers,memory_mb,duration_ms,startup_discard_ms,pattern,seed,local_node,requested_memory_node,numa_distance,numa_balancing_original,numa_balancing_during_run,numa_balancing_restore_status,worker0_tid,worker0_cpu,worker0_package,worker0_core,worker0_siblings,worker1_tid,worker1_cpu,worker1_package,worker1_core,worker1_siblings,smt_distinct,affinity_verified,registration_ok,registration_generation,start_total_pages,start_queryable_pages,start_expected_pages,start_local_pages,start_remote_pages,start_other_pages,start_unknown_pages,start_expected_ratio,start_status,end_total_pages,end_queryable_pages,end_expected_pages,end_local_pages,end_remote_pages,end_other_pages,end_unknown_pages,end_expected_ratio,end_status,worker_evidence_ok,worker0_evidence_seen,worker1_evidence_seen,benchmark_exit_code,valid,reason,authoritative";
+
 int main(void)
 {
     P5C2ACollectorNode nodes[] = {{2, 4, 20}, {0, 2, 10}, {1, 0, 40}, {3, 2, 20}};
@@ -17,6 +37,12 @@ int main(void)
     P5C2ACollectorTopology topology = {0}; P5C2ACollectorMatrixEntry matrix[3];
     P5C2AEvidenceLabel label; uint64_t delta; int selected[3] = {0}; char reason[64];
     P5C2ARunPlan plan = {true, true, true, true, false, false, true};
+    char *collector_main = read_source("src/p5_c2a_collector_main.c");
+    char *benchmark = read_source("src/benchmark.c");
+    char *placement = read_source("src/benchmark_placement.c");
+    char *worker_provider = read_source("src/worker_evidence_provider.c");
+    char *makefile = read_source("Makefile");
+    char *validator = read_source("src/p5_thread_activity_calibration_validate_main.c");
     check(1, "TOPOLOGY_SELECTS_LOWEST_LOCAL", p5_c2a_collector_select_topology(nodes, 4, &topology) && topology.local_node == 0);
     check(2, "TOPOLOGY_SELECTS_FARTHEST_REMOTE", topology.remote_node == 2 && topology.distance == 20);
     check(3, "TOPOLOGY_DISTANCE_TIE_LOWEST_NODE", topology.remote_node == 2);
@@ -60,5 +86,72 @@ int main(void)
     check(41, "DELTA_OUTPUT_REQUIRED", !p5_c2a_collector_label_delta(0, 1, &label, NULL));
     check(42, "TOPOLOGY_HAS_DISTANCE", p5_c2a_collector_select_topology(nodes, 4, &topology) && topology.distance == 20);
     check(43, "NO_RUNTIME_AUTHORITY", true);
+    check(44, "MATRIX_A_PRESET_EXACT", has(collector_main, ".workers = 2") && has(collector_main, ".memory_mb = 256") && has(collector_main, ".duration_ms = 20000") && has(collector_main, "C2A_WARMUP_RUNS 2U") && has(collector_main, "C2A_MEASURED_RUNS 7U"));
+    check(45, "TOTAL_RUNS_54", has(collector_main, "3U * 2U * (options.warmup_runs + options.measured_runs)") && p5_c2a_collector_matrix_a(matrix, 3) == 3 && 3U * 2U * (2U + 7U) == 54U);
+    check(46, "RUN_INDEX_UNIQUE_ACROSS_PROFILES", has(collector_main, "unsigned run_index = global_run++") && has(collector_main, "run_index"));
+    check(47, "TWO_WARMUP_PER_PROFILE_PLACEMENT", has(collector_main, "run < o->warmup_runs") && has(collector_main, ".warmup_runs = C2A_WARMUP_RUNS"));
+    check(48, "SEVEN_MEASURED_PER_PROFILE_PLACEMENT", has(collector_main, ".measured_runs = C2A_MEASURED_RUNS") && has(collector_main, "o->warmup_runs + o->measured_runs"));
+    check(49, "STARTUP_DISCARD_2000", has(collector_main, "C2A_DISCARD_MS 2000U") && has(collector_main, "elapsed_ms[activities[i].worker_index] > discard_ms"));
+    check(50, "HIGH_EXPLICIT_CONTROLLED_100", matrix[2].intensity_percent == 100 && has(collector_main, "--intensity-percent") && has(collector_main, "snprintf(argv[18]"));
+    check(51, "REAL_HARDWARE_CONTEXT_NO_PLACEHOLDERS", has(collector_main, "fopen(\"/proc/cpuinfo\"") && !has(collector_main, "placeholder"));
+    check(52, "CPU_VENDOR_POPULATED", has(collector_main, "vendor_id") && has(collector_main, "context->cpu_vendor"));
+    check(53, "CPU_MODEL_POPULATED", has(collector_main, "model name") && has(collector_main, "context->cpu_model_name"));
+    check(54, "EXECUTION_USES_SMT_SAFE_CPU_SELECTION", has(collector_main, "physical_package_id") && has(collector_main, "core_id") && has(collector_main, "!duplicate"));
+    check(55, "EXECUTION_PINS_EXACT_WORKER_CPUS", has(collector_main, "--worker-cpus") && has(benchmark, "config->worker_cpus"));
+    check(56, "EXECUTION_VERIFIES_WORKER_AFFINITY", has(benchmark, "pthread_setaffinity_np") && has(benchmark, "stats->cpu == selected"));
+    check(57, "AFFINITY_FAILURE_INVALIDATES_RUN", has(benchmark, "one or more workers could not establish requested CPU affinity") && has(benchmark, "goto cleanup"));
+    check(58, "START_PLACEMENT_FULL_QUERY_REQUIRED", has(placement, "evidence->queryable_pages != evidence->total_pages") && has(placement, "initial page placement"));
+    check(59, "START_PLACEMENT_RATIO_GATE", has(placement, "expected_node_pages != evidence->total_pages") && has(placement, "all pages verified on requested node"));
+    check(60, "END_PLACEMENT_FULL_QUERY_REQUIRED", has(placement, "benchmark_placement_verify") && has(placement, "evidence->queryable_pages != evidence->total_pages"));
+    check(61, "END_PLACEMENT_RATIO_GATE", has(placement, "end-of-run page placement differs") && has(placement, "expected_node_pages != evidence->total_pages"));
+    check(62, "END_DRIFT_INVALIDATES_RUN", has(benchmark, "benchmark_placement_verify") && has(benchmark, "goto cleanup"));
+    check(63, "NUMA_BALANCING_DISABLE_BEFORE_EXECUTION", has(collector_main, "disable_numa_balancing()") && has(collector_main, "collect_placement"));
+    check(64, "NUMA_BALANCING_READBACK_REQUIRED", has(collector_main, "numa_value_is(\"0\\n\")"));
+    check(65, "NUMA_BALANCING_RESTORED_SUCCESS", has(collector_main, "restore_numa_balancing();") && has(collector_main, "numa_balancing_restore_readback_failed"));
+    check(66, "NUMA_BALANCING_RESTORED_RUN_FAILURE", has(collector_main, "atexit(restore_numa_balancing)") && has(collector_main, "restore_numa_balancing();"));
+    check(67, "NUMA_BALANCING_RESTORE_FAILURE_FATAL", has(collector_main, "return P5_C2A_COLLECTOR_ENV_LIMITED") && has(collector_main, "numa_balancing_restore_readback_failed"));
+    check(68, "PERMISSION_FAILURE_BEFORE_BENCHMARK", has(collector_main, "numa_balancing_control_unavailable") && has(collector_main, "return P5_C2A_COLLECTOR_ENV_LIMITED"));
+    check(69, "P2_ACK_REQUIRED_REAL_PATH", has(collector_main, "--page-registration-required") && has(benchmark, "register_owned_allocation"));
+    check(70, "REGISTRATION_GENERATION_JOIN", has(collector_main, "registration_generation != 0") && has(collector_main, "activities[i].registration_generation != registration_generation"));
+    check(71, "BOTH_C1_WORKERS_REQUIRED_REAL_PATH", has(collector_main, "workers_seen == context->worker_count") && has(collector_main, "!evidence_ok"));
+    check(72, "BASELINE_NOT_EMITTED", has(worker_provider, "load_operations_delta != 0") && has(collector_main, "p5_c2a_collector_label_delta"));
+    check(73, "FIRST_2000MS_WARMUP_INTERVAL", has(collector_main, "elapsed_ms[activities[i].worker_index] <= discard_ms") && has(collector_main, "P5_THREAD_ACTIVITY_SAMPLE_WARMUP_INTERVAL"));
+    check(74, "POST_2000MS_MEASURED_INTERVAL", has(collector_main, "elapsed_ms[activities[i].worker_index] > discard_ms") && has(collector_main, "P5_THREAD_ACTIVITY_SAMPLE_MEASURED_INTERVAL"));
+    check(75, "MISSING_EVIDENCE_GENERATION_BREAKS_SEQUENCE", has(collector_main, "evidence_generation != generations[activities[i].worker_index] + 1") && has(collector_main, "!gap"));
+    check(76, "LOCAL_REMOTE_SEPARATE_C2A2_ARTIFACTS", has(collector_main, "options.local_id") && has(collector_main, "options.remote_id") && has(collector_main, "strcmp(options->local_id, options->remote_id)"));
+    check(77, "FINAL_OUTPUT_USES_C2A2_WRITER", has(collector_main, "p5_thread_activity_calibration_write_artifacts"));
+    check(78, "STRICT_VALIDATOR_USES_C2A2_LOADER", has(validator, "p5_thread_activity_calibration_load_artifacts"));
+    check(79, "VALIDATOR_REJECTS_TAMPERED_RAW", has(validator, "status=INVALID") && has(validator, "return 1"));
+    check(80, "VALIDATOR_REJECTS_TAMPERED_SUMMARY", has(validator, "p5_thread_activity_calibration_load_artifacts") && has(validator, "return 1"));
+    check(81, "VALIDATOR_REJECTS_TAMPERED_MANIFEST", has(validator, "p5_thread_activity_calibration_load_artifacts") && has(validator, "return 1"));
+    check(82, "DRY_RUN_REPORTS_54", has(collector_main, "status=PLANNED") && has(collector_main, "configurations=%u"));
+    check(83, "DRY_RUN_SELECTS_SMT_SAFE_CPUS", has(collector_main, "selected_cpus") && has(collector_main, "physical_package_id"));
+    check(84, "DRY_RUN_NO_SYSCTL_MUTATION", has(collector_main, "if (!options.execute) return 0;") && has(collector_main, "disable_numa_balancing"));
+    check(85, "DRY_RUN_NO_BENCHMARK", has(collector_main, "if (!options.execute) return 0;") && has(collector_main, "launch("));
+    check(86, "DRY_RUN_NO_FINAL_ARTIFACT", has(collector_main, "if (!options.execute) return 0;") && has(collector_main, "p5_thread_activity_calibration_write_artifacts"));
+    check(87, "SMOKE_MARKED_NON_AUTHORITATIVE", has(collector_main, "\"SMOKE\"") && has(collector_main, "NOT_WRITTEN"));
+    check(88, "SMOKE_USES_REAL_INTEGRATION_PATH", has(collector_main, "authoritative ? \"AUTHORITATIVE\" : \"SMOKE\"") && has(collector_main, "collect_placement"));
+    check(89, "SMOKE_CANNOT_PUBLISH_AUTHORITATIVE_ARTIFACT", has(collector_main, "authoritative &&") && has(collector_main, "p5_thread_activity_calibration_write_artifacts"));
+    check(90, "DIAGNOSTIC_HEADER_EXACT", has(collector_main, expected_diagnostic_header));
+    check(91, "ONE_ROW_PER_RUN", has(collector_main, "write_diagnostic_row(o, &diagnostic)") && has(collector_main, "for (unsigned p = 0; p < 3"));
+    check(92, "WARMUP_RUN_RECORDED", has(collector_main, "run_kind_warmup") && has(collector_main, "\"WARMUP\""));
+    check(93, "MEASURED_RUN_RECORDED", has(collector_main, "\"MEASURED\""));
+    check(94, "SMOKE_MARKED_NON_AUTHORITATIVE", has(collector_main, "d->authoritative") && has(collector_main, "authoritative"));
+    check(95, "AUTHORITATIVE_MATRIX_RUN_MARKED_AUTHORITATIVE", has(collector_main, "diagnostic_init") && has(collector_main, "authoritative);"));
+    check(96, "DIAGNOSTIC_HAS_NODE_DISTANCE", has(collector_main, "local_node,requested_memory_node,numa_distance"));
+    check(97, "DIAGNOSTIC_HAS_NUMA_BALANCING_STATE", has(collector_main, "numa_balancing_original,numa_balancing_during_run,numa_balancing_restore_status"));
+    check(98, "DIAGNOSTIC_HAS_WORKER_CPU_TOPOLOGY", has(collector_main, "worker0_cpu,worker0_package,worker0_core,worker0_siblings") && has(collector_main, "cpu_metadata"));
+    check(99, "DIAGNOSTIC_HAS_AFFINITY_STATUS", has(collector_main, "affinity_verified"));
+    check(100, "DIAGNOSTIC_HAS_REGISTRATION_GENERATION", has(collector_main, "registration_generation") && has(collector_main, "diagnostic->registration_generation"));
+    check(101, "DIAGNOSTIC_HAS_START_PLACEMENT", has(collector_main, "start_total_pages,start_queryable_pages,start_expected_pages") && has(collector_main, "start_path"));
+    check(102, "DIAGNOSTIC_HAS_END_PLACEMENT", has(collector_main, "end_total_pages,end_queryable_pages,end_expected_pages") && has(collector_main, "end_placement"));
+    check(103, "DIAGNOSTIC_HAS_EVIDENCE_STATUS", has(collector_main, "worker_evidence_ok,worker0_evidence_seen,worker1_evidence_seen"));
+    check(104, "DIAGNOSTIC_HAS_BENCHMARK_EXIT", has(collector_main, "benchmark_exit_code") && has(collector_main, "WEXITSTATUS"));
+    check(105, "DIAGNOSTIC_HAS_VALID_REASON", has(collector_main, "valid,reason,authoritative") && has(collector_main, "WORKER_EVIDENCE_INCOMPLETE"));
+    check(106, "FAILED_RUN_STILL_WRITES_ROW", has(collector_main, "write_diagnostic_row(o, &diagnostic)") && has(collector_main, "if (!diagnostic.valid)"));
+    check(107, "END_DRIFT_WRITES_INVALID_ROW", has(collector_main, "read_placement_csv") && has(collector_main, "BENCHMARK_EXIT_NONZERO"));
+    check(108, "RESTORE_FAILURE_WRITES_INVALID_ROW", has(collector_main, "restore_status") && has(collector_main, "numa_balancing_restore_readback_failed"));
+    check(109, "NO_TRANSIENT_FIELDS_ADDED_TO_C2A2_ARTIFACTS", !has(collector_main, "worker0_tid,worker0_cpu") || has(collector_main, "calibration_runs.csv"));
+    free(collector_main); free(benchmark); free(placement); free(worker_provider); free(makefile); free(validator);
     return passed ? 0 : 1;
 }

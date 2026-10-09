@@ -81,21 +81,39 @@ artifact corruption.
 ## C2A-3 Collector
 
 `make p5-c2a-collector` builds the isolated `bin/p5-c2a-collector` executable.
-It defaults to Matrix A (`LOW=10`, `MID=40`, `HIGH=100`) planning. `--dry-run`
-only discovers permitted NUMA topology and prints `ENV_LIMITED` (exit status 3)
-when fewer than two permitted NUMA nodes exist; it does not alter affinity,
-NUMA policy, NUMA balancing, files, or runtime state.
+The first C2A-3 helper tests proved topology/matrix primitives only; the later
+CloudLab-preparation source audit found that the real `--execute` path still had
+non-authoritative defaults and missing lifecycle gates. The remediation wires the
+scientific and safety gates into the authoritative execution path, with
+`P5C2COL44`-`P5C2COL89` covering that wiring. Authoritative CloudLab Matrix A has
+not yet run.
+
+`--matrix-a-v1` is the authoritative design: two workers, 256 MiB, 20 seconds,
+two warmup runs, seven measured runs, and a 2000 ms initial discard. Matrix A
+uses `LOW=10`, `MID=40`, and `HIGH=100`; across local/remote placements this
+plans 54 unique runs. `--dry-run` reports that full configuration and only
+performs read-only topology discovery. It prints `ENV_LIMITED` (exit status 3)
+when fewer than two permitted NUMA nodes exist and never alters affinity, NUMA
+policy, NUMA balancing, files, or runtime state.
 
 The collector deterministically selects the lowest permitted NUMA node as local,
 then the greatest-distance permitted node (lowest node ID on a distance tie).
-It selects one lowest-numbered logical CPU per physical `(package, core)` pair,
-never SMT siblings. Evidence counters are explicitly labelled `BASELINE` then
-`DELTA`; counter regressions invalidate a run. A run plan requires verified
-source placement, observed NUMA-balancing state, worker evidence, and a completed
-restoration whenever a future controlled runner changes NUMA balancing.
+It reads `/proc/cpuinfo` into the hardware context and selects one permitted
+lowest-numbered logical CPU per physical `(package, core)` pair, never SMT
+siblings. The resulting exact CPU list is passed to the benchmark and each
+worker verifies its own pin. The benchmark records a full start/end residency
+gate. Execution owns both the worker-evidence and P2 page-registration sockets,
+requires accepted owned-page registration, and polls both while the child runs.
+Evidence counters are explicitly labelled `BASELINE` then `DELTA`; raw rows
+preserve warmup/run lifecycle labels and evidence-generation gaps. Per-run
+diagnostics are emitted to `calibration_runs.csv` separately from the frozen
+C2A-2 artifacts. That diagnostic file carries transient provenance such as TIDs,
+CPU/core/package, NUMA-balancing state, placement counts, benchmark exit status,
+and run validity; none of those fields are part of reusable classifier artifacts.
 
-`--execute` deliberately fails closed with `ENV_LIMITED` after read-only topology
-discovery. An authoritative CloudLab runner has not been approved or implemented,
-so this path performs no unsafe operation and creates no artifacts. Frozen C2A-2
-artifact paths remain owned solely by the existing artifact writer. Runtime
-classification remains off.
+`--execute` is authoritative only when every gate succeeds. It transactionally
+reads, disables, readbacks, restores, and readbacks kernel NUMA balancing; any
+failure fails closed. Local and remote C2A-2 artifacts are independently written
+by the frozen writer under their separate calibration IDs. The `p5-thread-activity-
+calibration-validate ROOT ID` CLI invokes the C2A-2 loader. Smoke runs using
+overridden counts are non-authoritative. Runtime classification remains off.

@@ -115,6 +115,7 @@ static void print_usage(const char *program)
     printf("      --page-registration-required      Require accepted owned-page registration\n");
     printf("      --page-registration-timeout-ms N  Bounded registration wait\n");
     printf("      --worker-evidence-socket PATH     Runtime-owned cooperative worker evidence socket\n");
+    printf("      --worker-cpus LIST       Exact comma-separated CPU assignment for workers\n");
     printf("      --intensity-percent P      Controlled active percentage per 100 ms period (default: 100)\n");
     printf("      --placement-mode MODE      default, local, or remote\n");
     printf("      --placement-evidence FILE  Atomic placement evidence CSV\n");
@@ -207,7 +208,8 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         OPTION_PLACEMENT_MODE,
         OPTION_PLACEMENT_EVIDENCE,
         OPTION_WORKER_EVIDENCE_SOCKET,
-        OPTION_INTENSITY_PERCENT
+        OPTION_INTENSITY_PERCENT,
+        OPTION_WORKER_CPUS
     };
     static const struct option options[] = {
         {"threads", required_argument, NULL, 't'},
@@ -231,6 +233,7 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         {"placement-evidence", required_argument, NULL, OPTION_PLACEMENT_EVIDENCE},
         {"worker-evidence-socket", required_argument, NULL, OPTION_WORKER_EVIDENCE_SOCKET},
         {"intensity-percent", required_argument, NULL, OPTION_INTENSITY_PERCENT},
+        {"worker-cpus", required_argument, NULL, OPTION_WORKER_CPUS},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -313,6 +316,9 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
                 goto invalid_argument;
             config->intensity_percent = (unsigned)integer_value;
             config->intensity_mode_requested = true;
+            break;
+        case OPTION_WORKER_CPUS:
+            config->worker_cpus = optarg;
             break;
         case OPTION_HOT_PERCENT:
             if (parse_percent(optarg, &config->hot_percent) != 0)
@@ -563,6 +569,26 @@ static int bind_worker_to_node(const benchmark_config_t *config, size_t thread_i
     cpu_set_t allowed;
     int result;
 
+    if (config->worker_cpus != NULL) {
+        const char *cursor = config->worker_cpus;
+        char *end;
+        long selected = -1;
+        for (size_t index = 0; ; ++index) {
+            long cpu = strtol(cursor, &end, 10);
+            if (end == cursor || cpu < 0 || cpu >= CPU_SETSIZE)
+                return -1;
+            if (index == thread_id) { selected = cpu; break; }
+            if (*end != ',') return -1;
+            cursor = end + 1;
+        }
+        CPU_ZERO(&affinity);
+        CPU_SET((int)selected, &affinity);
+        if (pthread_setaffinity_np(pthread_self(), sizeof(affinity), &affinity) != 0)
+            return -1;
+        stats->cpu = sched_getcpu();
+        stats->cpu_node = numa_node_of_cpu(stats->cpu);
+        return stats->cpu == selected ? 0 : -1;
+    }
     if (config->thread_node < 0)
         return 0;
     cpu_mask = numa_allocate_cpumask();
@@ -988,6 +1014,25 @@ int main(int argc, char **argv)
         fprintf(stderr, "Error: requested size overflows size_t.\n");
         return EXIT_FAILURE;
     }
+    if (config.worker_cpus != NULL) {
+        const char *cursor = config.worker_cpus;
+        size_t count = 0;
+        while (*cursor != '\0') {
+            char *end;
+            (void)strtol(cursor, &end, 10);
+            if (end == cursor || (*end != '\0' && *end != ',')) {
+                fprintf(stderr, "Error: --worker-cpus must be a comma-separated CPU list.\n");
+                return EXIT_FAILURE;
+            }
+            count++;
+            if (*end == '\0') break;
+            cursor = end + 1;
+        }
+        if (count != config.threads) {
+            fprintf(stderr, "Error: --worker-cpus must contain exactly one CPU per worker.\n");
+            return EXIT_FAILURE;
+        }
+    }
     memory_bytes = config.memory_mb * 1024U * 1024U;
     elements = memory_bytes / sizeof(uint64_t);
     if (elements < config.change_phases) {
@@ -1043,9 +1088,17 @@ int main(int argc, char **argv)
     }
     placement_result = benchmark_placement_prepare(config.placement_mode, &placement_topology, memory,
                                                     memory_bytes, &placement_evidence);
-    if ((config.placement_evidence_path != NULL &&
-         benchmark_placement_write(config.placement_evidence_path, &placement_evidence) != 0) ||
-        placement_result != 0) {
+    if (config.placement_evidence_path != NULL) {
+        char start_path[1024];
+        snprintf(start_path, sizeof(start_path), "%s.start", config.placement_evidence_path);
+        if (benchmark_placement_write(config.placement_evidence_path, &placement_evidence) != 0 ||
+            benchmark_placement_write(start_path, &placement_evidence) != 0) {
+            fprintf(stderr, "%s: %s\n", placement_evidence.verification_status,
+                    placement_evidence.verification_reason);
+            goto cleanup;
+        }
+    }
+    if (placement_result != 0) {
         fprintf(stderr, "%s: %s\n", placement_evidence.verification_status,
                 placement_evidence.verification_reason);
         if (placement_result > 0)
@@ -1122,6 +1175,13 @@ int main(int argc, char **argv)
         goto cleanup;
     if (atomic_load(&worker_error) != 0) {
         fprintf(stderr, "Error: one or more workers could not establish requested CPU affinity.\n");
+        goto cleanup;
+    }
+    if (config.placement_mode != BENCHMARK_PLACEMENT_DEFAULT &&
+        (benchmark_placement_verify(&placement_topology, memory, memory_bytes, &placement_evidence) != 0 ||
+         benchmark_placement_write(config.placement_evidence_path, &placement_evidence) != 0)) {
+        fprintf(stderr, "%s: %s\n", placement_evidence.verification_status,
+                placement_evidence.verification_reason);
         goto cleanup;
     }
 

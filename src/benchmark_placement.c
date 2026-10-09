@@ -220,6 +220,29 @@ int benchmark_placement_prepare(benchmark_placement_mode_t mode,
     return 0;
 }
 
+int benchmark_placement_verify(const benchmark_placement_topology_t *topology, void *allocation,
+                               size_t bytes, benchmark_placement_evidence_t *evidence)
+{
+    long page_size = sysconf(_SC_PAGESIZE);
+    int result;
+    if (topology == NULL || allocation == NULL || evidence == NULL || page_size <= 0 || bytes == 0 ||
+        bytes % (size_t)page_size != 0 || evidence->mode == BENCHMARK_PLACEMENT_DEFAULT) return -1;
+    evidence->queryable_pages = evidence->expected_node_pages = evidence->local_pages = 0;
+    evidence->remote_pages = evidence->other_pages = evidence->unknown_pages = 0;
+    evidence->observed_dominant_node = -1;
+    result = query_pages(allocation, bytes, (size_t)page_size, topology, evidence->requested_memory_node, evidence);
+    if (result != 0 || evidence->queryable_pages != evidence->total_pages ||
+        evidence->expected_node_pages != evidence->total_pages || evidence->other_pages != 0 ||
+        evidence->unknown_pages != 0) {
+        snprintf(evidence->verification_status, sizeof(evidence->verification_status), result > 0 ? "ENV_LIMITED" : "FAIL");
+        snprintf(evidence->verification_reason, sizeof(evidence->verification_reason), "end-of-run page placement differs from requested node");
+        return result == 0 ? -1 : result;
+    }
+    snprintf(evidence->verification_status, sizeof(evidence->verification_status), "PASS");
+    snprintf(evidence->verification_reason, sizeof(evidence->verification_reason), "start and end placement verified on requested node");
+    return 0;
+}
+
 int benchmark_placement_write(const char *path, const benchmark_placement_evidence_t *evidence)
 {
     char temporary[PATH_MAX];

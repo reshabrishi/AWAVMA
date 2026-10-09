@@ -65,6 +65,7 @@ P5_THREAD_ACTIVITY_CALIBRATION_TEST_TARGET := bin/p5-thread-activity-calibration
 P5_THREAD_ACTIVITY_CALIBRATION_IO_TEST_TARGET := bin/p5-thread-activity-calibration-io-test
 P5_C2A_COLLECTOR_TARGET := bin/p5-thread-activity-calibration-collector
 P5_C2A_COLLECTOR_TEST_TARGET := bin/p5-thread-activity-calibration-collector-test
+P5_THREAD_ACTIVITY_CALIBRATION_VALIDATE_TARGET := bin/p5-thread-activity-calibration-validate
 RUNTIME_ADMISSION_TEST_SOURCES = tests/runtime_admission_test.c $(CONTINUOUS_MONITOR_SOURCES)
 THREAD_CONFIDENCE_HISTORY_TEST_SOURCES := tests/thread_confidence_history_test.c src/thread_confidence_history.c
 MEMORY_MIGRATION_TRANSACTION_TEST_TARGET := bin/memory-migration-transaction-test
@@ -143,7 +144,7 @@ P5B_EVIDENCE_TEST_SOURCES := tests/p5b_evidence_test.c src/p5_opportunity.c src/
 WORKER_EVIDENCE_PROVIDER_TEST_SOURCES := tests/worker_evidence_provider_test.c src/worker_evidence_provider.c src/runtime_migration_metadata.c
 P5_THREAD_ACTIVITY_CALIBRATION_TEST_SOURCES := tests/p5_thread_activity_calibration_test.c src/p5_thread_activity_calibration.c
 P5_THREAD_ACTIVITY_CALIBRATION_IO_TEST_SOURCES := tests/p5_thread_activity_calibration_io_test.c src/p5_thread_activity_calibration.c src/p5_thread_activity_calibration_io.c
-P5_C2A_COLLECTOR_SOURCES := src/p5_c2a_collector_main.c src/p5_c2a_collector.c src/benchmark_placement.c src/worker_evidence_provider.c src/runtime_migration_metadata.c src/p5_thread_activity_calibration.c src/p5_thread_activity_calibration_io.c
+P5_C2A_COLLECTOR_SOURCES := src/p5_c2a_collector_main.c src/p5_c2a_collector.c src/benchmark_placement.c src/worker_evidence_provider.c src/page_candidate_provider.c src/runtime_migration_metadata.c src/p5_thread_activity_calibration.c src/p5_thread_activity_calibration_io.c
 P5_C2A_COLLECTOR_TEST_SOURCES := tests/p5_c2a_collector_test.c src/p5_c2a_collector.c src/p5_thread_activity_calibration.c
 RUNTIME_TARGET_FILTER_TEST_SOURCES := tests/runtime_target_filter_test.c src/runtime_target_filter.c
 DISCOVERY_CADENCE_TEST_SOURCES := tests/discovery_cadence_test.c $(CONTINUOUS_MONITOR_SOURCES)
@@ -283,6 +284,8 @@ test-p5-c2a-collector: $(P5_C2A_COLLECTOR_TEST_TARGET)
 
 test-p5-thread-activity-calibration-collector: $(P5_C2A_COLLECTOR_TEST_TARGET)
 	./$(P5_C2A_COLLECTOR_TEST_TARGET)
+
+p5-thread-activity-calibration-validate: $(P5_THREAD_ACTIVITY_CALIBRATION_VALIDATE_TARGET)
 
 test-runtime-benefit-evidence: test-phase5-benefit-evidence test-runtime-benefit-classifier
 
@@ -662,6 +665,9 @@ $(P5_C2A_COLLECTOR_TARGET): $(P5_C2A_COLLECTOR_SOURCES) $(HEADERS) | bin
 $(P5_C2A_COLLECTOR_TEST_TARGET): $(P5_C2A_COLLECTOR_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(P5_C2A_COLLECTOR_TEST_SOURCES) -lm
 
+$(P5_THREAD_ACTIVITY_CALIBRATION_VALIDATE_TARGET): src/p5_thread_activity_calibration_validate_main.c src/p5_thread_activity_calibration.c src/p5_thread_activity_calibration_io.c $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ src/p5_thread_activity_calibration_validate_main.c src/p5_thread_activity_calibration.c src/p5_thread_activity_calibration_io.c -lm
+
 $(RUNTIME_ADMISSION_TEST_TARGET): $(RUNTIME_ADMISSION_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_ADMISSION_TEST_SOURCES) -pthread $(NUMA_LDLIBS)
 
@@ -676,4 +682,4 @@ $(P4C_MIGRATION_COST_COLLECTOR_TARGET): $(P4C_MIGRATION_COST_COLLECTOR_SOURCES) 
 
 clean:
 	rm -f $(BENCHMARK_TARGET) $(MONITOR_TARGET) $(TEST_TARGET) $(CLASSIFIER_TARGET) $(DECISION_TARGET) $(VALIDATION_TARGET) $(VALIDATION_TEST_TARGET) $(MIGRATION_TARGET) $(MIGRATION_TEST_TARGET) $(MIGRATION_SAFETY_TEST_TARGET) $(FEEDBACK_TARGET) $(FEEDBACK_TEST_TARGET) $(RUNTIME_TARGET) $(RUNTIME_TEST_TARGET) $(APPLICATION_DISCOVERY_TARGET) $(APPLICATION_DISCOVERY_TEST_TARGET) $(APPLICATION_MANAGER_TARGET) $(APPLICATION_MANAGER_TEST_TARGET) $(WORKER_POOL_TEST_TARGET) $(APPLICATION_RUNTIME_TEST_TARGET) $(CONTINUOUS_MONITOR_TEST_TARGET) $(AWAVMA_RUNTIME_TARGET) $(AWAVMA_RUNTIME_TEST_TARGET) $(RUNTIME_TARGET_FILTER_TEST_TARGET) $(THREAD_TARGET_POLICY_TEST_TARGET) $(PAGE_CHECKPOINT_TEST_TARGET) $(RUNTIME_PAGE_CHECKPOINT_TEST_TARGET) $(RUNTIME_MIGRATION_VALIDATION_TEST_TARGET) $(DISCOVERY_CADENCE_TEST_TARGET) $(DISCOVERY_CADENCE_PROBE_TARGET) $(PAGE_REGISTRATION_IPC_TEST_TARGET) $(DELAYED_FEEDBACK_TEST_TARGET) $(LIVE_PAGE_MIGRATION_TEST_TARGET) $(P4C_MIGRATION_COST_COLLECTOR_TARGET) $(PROFILE_AWAVMA_RUNTIME_TARGET) bin/profile-monitor bin/profile-application-discovery-test bin/profile-continuous-monitor-test
-	rm -f $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET) $(THREAD_CONFIDENCE_TEST_TARGET) $(P5_OPPORTUNITY_TEST_TARGET) $(P5B_EVIDENCE_TEST_TARGET) $(WORKER_EVIDENCE_PROVIDER_TEST_TARGET) $(P5_THREAD_ACTIVITY_CALIBRATION_TEST_TARGET) $(P5_THREAD_ACTIVITY_CALIBRATION_IO_TEST_TARGET) $(P5_C2A_COLLECTOR_TARGET) $(P5_C2A_COLLECTOR_TEST_TARGET) $(RUNTIME_ADMISSION_TEST_TARGET)
+	rm -f $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET) $(THREAD_CONFIDENCE_TEST_TARGET) $(P5_OPPORTUNITY_TEST_TARGET) $(P5B_EVIDENCE_TEST_TARGET) $(WORKER_EVIDENCE_PROVIDER_TEST_TARGET) $(P5_THREAD_ACTIVITY_CALIBRATION_TEST_TARGET) $(P5_THREAD_ACTIVITY_CALIBRATION_IO_TEST_TARGET) $(P5_C2A_COLLECTOR_TARGET) $(P5_C2A_COLLECTOR_TEST_TARGET) $(P5_THREAD_ACTIVITY_CALIBRATION_VALIDATE_TARGET) $(RUNTIME_ADMISSION_TEST_TARGET)
