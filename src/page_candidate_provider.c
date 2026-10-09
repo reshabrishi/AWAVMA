@@ -112,8 +112,8 @@ static void expire_entries(page_candidate_provider_t *provider)
 }
 
 static bool store_registration(page_candidate_provider_t *provider,
-                               const PageCandidateRegistration *registration,
-                               uint64_t client_generation)
+                                const PageCandidateRegistration *registration,
+                                uint64_t client_generation, uint64_t *accepted_generation)
 {
     registration_entry_t *entry = NULL;
     size_t free_index = PAGE_CANDIDATE_MAX_REGISTRATIONS;
@@ -143,6 +143,8 @@ static bool store_registration(page_candidate_provider_t *provider,
     entry->registration.app_id = entry->app_id;
     entry->registration.provenance = entry->provenance;
     entry->generation = client_generation == 0 ? 1 : client_generation;
+    if (accepted_generation != NULL)
+        *accepted_generation = entry->generation;
     entry->expires_at_ms = monotonic_ms() + provider->ttl_ms;
     entry->used = true;
     return true;
@@ -165,12 +167,13 @@ static PageCandidateResponseReason registration_reason(page_candidate_provider_t
 }
 
 static void send_response(int client, const PageCandidateWireMessage *message, bool accepted,
-                          PageCandidateResponseReason reason)
+                           PageCandidateResponseReason reason, uint64_t registration_generation)
 {
     PageCandidateWireResponse response = {
         .version = PAGE_CANDIDATE_RESPONSE_VERSION,
         .operation = message == NULL ? 0 : message->operation,
         .client_generation = message == NULL ? 0 : message->client_generation,
+        .registration_generation = accepted ? registration_generation : 0,
         .accepted = accepted ? 1U : 0U,
         .reason = reason
     };
@@ -264,6 +267,7 @@ bool page_candidate_provider_poll(page_candidate_provider_t *provider)
         PageCandidateResponseReason reason = message.version != PAGE_CANDIDATE_WIRE_VERSION ?
             PAGE_CANDIDATE_REASON_UNSUPPORTED_VERSION : PAGE_CANDIDATE_REASON_MALFORMED;
         bool stored = false;
+        uint64_t registration_generation = 0;
         if (well_formed && getsockopt(client, SOL_SOCKET, SO_PEERCRED, &credential, &credential_size) == 0 &&
             credential.uid == geteuid() && message.pid == credential.pid && message.pid > 0) {
             PageCandidateRegistration registration = {
@@ -274,7 +278,8 @@ bool page_candidate_provider_poll(page_candidate_provider_t *provider)
                 .provenance = message.provenance
             };
             if (message.operation == PAGE_CANDIDATE_WIRE_REGISTER) {
-                stored = store_registration(provider, &registration, message.client_generation);
+                stored = store_registration(provider, &registration, message.client_generation,
+                                            &registration_generation);
                 reason = stored ? PAGE_CANDIDATE_REASON_ACCEPTED :
                     registration_reason(provider, &registration, message.client_generation);
                 accepted |= stored;
@@ -296,7 +301,7 @@ bool page_candidate_provider_poll(page_candidate_provider_t *provider)
                 reason = PAGE_CANDIDATE_REASON_IDENTITY;
         } else if (well_formed)
             reason = PAGE_CANDIDATE_REASON_PEER_CREDENTIAL;
-        send_response(client, &message, stored, reason);
+        send_response(client, &message, stored, reason, registration_generation);
         close(client);
     }
     return accepted;
@@ -304,7 +309,7 @@ bool page_candidate_provider_poll(page_candidate_provider_t *provider)
 
 PageCandidateClientStatus page_candidate_provider_send_wait(
     const char *socket_path, const PageCandidateWireMessage *message, uint64_t timeout_ms,
-    PageCandidateResponseReason *reason)
+    PageCandidateResponseReason *reason, uint64_t *accepted_generation)
 {
     struct sockaddr_un address = {0};
     struct pollfd wait_fd;
@@ -313,6 +318,7 @@ PageCandidateClientStatus page_candidate_provider_send_wait(
     ssize_t received;
 
     if (reason != NULL) *reason = PAGE_CANDIDATE_REASON_MALFORMED;
+    if (accepted_generation != NULL) *accepted_generation = 0;
     if (socket_path == NULL || message == NULL || timeout_ms == 0 ||
         strlen(socket_path) >= sizeof(address.sun_path))
         return PAGE_CANDIDATE_STATUS_PROTOCOL;
@@ -338,8 +344,12 @@ PageCandidateClientStatus page_candidate_provider_send_wait(
         response.operation != message->operation || response.client_generation != message->client_generation)
         return PAGE_CANDIDATE_STATUS_PROTOCOL;
     if (reason != NULL) *reason = (PageCandidateResponseReason)response.reason;
-    return response.accepted == 1U && response.reason == PAGE_CANDIDATE_REASON_ACCEPTED ?
-        PAGE_CANDIDATE_STATUS_ACCEPTED : PAGE_CANDIDATE_STATUS_REJECTED;
+    if (response.accepted != 1U || response.reason != PAGE_CANDIDATE_REASON_ACCEPTED ||
+        response.registration_generation == 0)
+        return PAGE_CANDIDATE_STATUS_REJECTED;
+    if (accepted_generation != NULL)
+        *accepted_generation = response.registration_generation;
+    return PAGE_CANDIDATE_STATUS_ACCEPTED;
 }
 
 bool page_candidate_provider_registration_status(page_candidate_provider_t *provider,
@@ -454,7 +464,7 @@ bool page_candidate_provider_register_owned_region(page_candidate_provider_t *pr
                                                     const PageCandidateRegistration *registration)
 {
     return provider != NULL && registration != NULL && registration->pid == getpid() &&
-           valid_registration(registration) && store_registration(provider, registration, 1);
+           valid_registration(registration) && store_registration(provider, registration, 1, NULL);
 }
 
 bool page_candidate_provider_fill_request(page_candidate_provider_t *provider, const char *app_id,

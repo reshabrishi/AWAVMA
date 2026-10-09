@@ -134,7 +134,7 @@ static void child_workload(const char *socket_path, int ready_fd, int release_fd
             goto done;
         ready.stage = CHILD_REGISTRATION_RESULT;
         ready.response_reason = reason;
-        ready.status = page_candidate_provider_send_wait(socket_path, &message, 2000, &reason) ==
+        ready.status = page_candidate_provider_send_wait(socket_path, &message, 2000, &reason, NULL) ==
                            PAGE_CANDIDATE_STATUS_ACCEPTED && reason == PAGE_CANDIDATE_REASON_ACCEPTED ? 0 : 3;
         ready.response_reason = reason;
     }

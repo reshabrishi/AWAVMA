@@ -29,6 +29,8 @@
 #define DEFAULT_CHANGE_PHASES 3U
 #define DEFAULT_SEED 12345ULL
 #define DURATION_CHECK_BATCH 1024ULL
+#define INTENSITY_CHECK_BATCH 64ULL
+#define INTENSITY_PERIOD_MS 100ULL
 
 typedef struct {
     pthread_mutex_t mutex;
@@ -59,6 +61,7 @@ typedef struct {
     pid_t tid;
     uint64_t tid_start_time_ticks;
     uint64_t process_start_time_ticks;
+    uint64_t registration_generation;
 } worker_context_t;
 
 static const char *pattern_names[] = {
@@ -112,6 +115,7 @@ static void print_usage(const char *program)
     printf("      --page-registration-required      Require accepted owned-page registration\n");
     printf("      --page-registration-timeout-ms N  Bounded registration wait\n");
     printf("      --worker-evidence-socket PATH     Runtime-owned cooperative worker evidence socket\n");
+    printf("      --intensity-percent P      Controlled active percentage per 100 ms period (default: 100)\n");
     printf("      --placement-mode MODE      default, local, or remote\n");
     printf("      --placement-evidence FILE  Atomic placement evidence CSV\n");
     printf("  -h, --help                   Show this help\n");
@@ -202,7 +206,8 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         OPTION_PAGE_REGISTRATION_TIMEOUT,
         OPTION_PLACEMENT_MODE,
         OPTION_PLACEMENT_EVIDENCE,
-        OPTION_WORKER_EVIDENCE_SOCKET
+        OPTION_WORKER_EVIDENCE_SOCKET,
+        OPTION_INTENSITY_PERCENT
     };
     static const struct option options[] = {
         {"threads", required_argument, NULL, 't'},
@@ -225,6 +230,7 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         {"placement-mode", required_argument, NULL, OPTION_PLACEMENT_MODE},
         {"placement-evidence", required_argument, NULL, OPTION_PLACEMENT_EVIDENCE},
         {"worker-evidence-socket", required_argument, NULL, OPTION_WORKER_EVIDENCE_SOCKET},
+        {"intensity-percent", required_argument, NULL, OPTION_INTENSITY_PERCENT},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -302,6 +308,12 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         case OPTION_WORKER_EVIDENCE_SOCKET:
             config->worker_evidence_socket = optarg;
             break;
+        case OPTION_INTENSITY_PERCENT:
+            if (parse_u64(optarg, &integer_value) != 0 || integer_value == 0 || integer_value > 100)
+                goto invalid_argument;
+            config->intensity_percent = (unsigned)integer_value;
+            config->intensity_mode_requested = true;
+            break;
         case OPTION_HOT_PERCENT:
             if (parse_percent(optarg, &config->hot_percent) != 0)
                 goto invalid_argument;
@@ -339,7 +351,8 @@ invalid_argument:
     return -1;
 }
 
-static int register_owned_allocation(const benchmark_config_t *config, void *memory, size_t bytes)
+static int register_owned_allocation(const benchmark_config_t *config, void *memory, size_t bytes,
+                                     uint64_t *registration_generation)
 {
     PageCandidateWireMessage message = {0};
     PageCandidateResponseReason reason;
@@ -347,6 +360,8 @@ static int register_owned_allocation(const benchmark_config_t *config, void *mem
     uint64_t waited = 0;
     long page_size = sysconf(_SC_PAGESIZE);
 
+    if (registration_generation != NULL)
+        *registration_generation = 0;
     if (!config->page_registration_required)
         return 0;
     if (config->page_registration_socket == NULL || page_size <= 0 ||
@@ -360,16 +375,22 @@ static int register_owned_allocation(const benchmark_config_t *config, void *mem
     message.region_start = (uintptr_t)memory;
     message.region_length = bytes;
     message.page_size = (uint64_t)page_size;
-    message.client_generation = 1;
+    /* A fresh process incarnation supplies a nonzero monotonic registration generation. */
+    message.client_generation = start_time_ticks;
     snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(),
              (unsigned long long)start_time_ticks);
     snprintf(message.provenance, sizeof(message.provenance), "benchmark-owned-allocation");
     while (waited < config->page_registration_timeout_ms) {
         uint64_t slice = config->page_registration_timeout_ms - waited;
         PageCandidateClientStatus status;
-        status = page_candidate_provider_send_wait(config->page_registration_socket, &message, slice, &reason);
-        if (status == PAGE_CANDIDATE_STATUS_ACCEPTED)
+        uint64_t accepted_generation = 0;
+        status = page_candidate_provider_send_wait(config->page_registration_socket, &message, slice, &reason,
+                                                   &accepted_generation);
+        if (status == PAGE_CANDIDATE_STATUS_ACCEPTED && accepted_generation != 0) {
+            if (registration_generation != NULL)
+                *registration_generation = accepted_generation;
             return 0;
+        }
         if (status != PAGE_CANDIDATE_STATUS_IO)
             return -1;
         if (slice > 100) slice = 100;
@@ -390,6 +411,48 @@ static double elapsed_since(const struct timespec *start)
 
     clock_gettime(CLOCK_MONOTONIC, &now);
     return timespec_seconds(&now) - timespec_seconds(start);
+}
+
+static struct timespec timespec_add_ms(struct timespec value, uint64_t milliseconds)
+{
+    value.tv_sec += (time_t)(milliseconds / 1000U);
+    value.tv_nsec += (long)((milliseconds % 1000U) * 1000000U);
+    if (value.tv_nsec >= 1000000000L) {
+        value.tv_sec++;
+        value.tv_nsec -= 1000000000L;
+    }
+    return value;
+}
+
+static struct timespec timespec_add_seconds(struct timespec value, double seconds)
+{
+    time_t whole = (time_t)seconds;
+    long nanoseconds = (long)((seconds - (double)whole) * 1000000000.0);
+
+    value.tv_sec += whole;
+    value.tv_nsec += nanoseconds;
+    if (value.tv_nsec >= 1000000000L) {
+        value.tv_sec++;
+        value.tv_nsec -= 1000000000L;
+    }
+    return value;
+}
+
+static int timespec_compare(const struct timespec *left, const struct timespec *right)
+{
+    if (left->tv_sec != right->tv_sec)
+        return left->tv_sec < right->tv_sec ? -1 : 1;
+    return left->tv_nsec < right->tv_nsec ? -1 : left->tv_nsec > right->tv_nsec;
+}
+
+static bool sleep_until(const struct timespec *deadline)
+{
+    int result;
+
+    do {
+        result = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, deadline, NULL);
+    } while (result == EINTR);
+    return result == 0;
 }
 
 static uint64_t next_random(uint64_t *state)
@@ -582,14 +645,16 @@ static void *worker_main(void *argument)
     if (config->worker_evidence_socket != NULL) {
         WorkerEvidenceWireMessage message = {.version = WORKER_EVIDENCE_WIRE_VERSION, .operation = 1,
             .pid = getpid(), .tid = worker->tid, .process_start_time_ticks = worker->process_start_time_ticks,
-            .worker_start_time_ticks = worker->tid_start_time_ticks, .registration_generation = 1,
+            .worker_start_time_ticks = worker->tid_start_time_ticks,
+            .registration_generation = worker->registration_generation,
             .evidence_generation = evidence_generation++, .interval_ms = 1, .worker_index = worker->thread_id};
         snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(), (unsigned long long)worker->process_start_time_ticks);
         (void)worker_evidence_provider_publish(config->worker_evidence_socket, &message);
         last_publish_ms = (uint64_t)(elapsed_since(&local_start) * 1000.0);
     }
 
-    while (true) {
+    /* Only omission of the option selects the legacy batch and publication path. */
+    if (!config->intensity_mode_requested) while (true) {
         uint64_t batch_end = operations > UINT64_MAX - DURATION_CHECK_BATCH
                                  ? UINT64_MAX
                                  : operations + DURATION_CHECK_BATCH;
@@ -604,7 +669,7 @@ static void *worker_main(void *argument)
         if (config->worker_evidence_socket != NULL) {
             uint64_t elapsed_ms = (uint64_t)(elapsed_since(&local_start) * 1000.0);
             if (elapsed_ms > last_publish_ms && elapsed_ms - last_publish_ms >= config->worker_evidence_publish_ms) {
-                WorkerEvidenceWireMessage message = {.version = WORKER_EVIDENCE_WIRE_VERSION, .operation = 1, .pid = getpid(), .tid = worker->tid, .process_start_time_ticks = worker->process_start_time_ticks, .worker_start_time_ticks = worker->tid_start_time_ticks, .registration_generation = 1, .evidence_generation = evidence_generation++, .interval_ms = elapsed_ms - last_publish_ms, .registered_memory_load_operations = operations, .worker_index = worker->thread_id};
+                WorkerEvidenceWireMessage message = {.version = WORKER_EVIDENCE_WIRE_VERSION, .operation = 1, .pid = getpid(), .tid = worker->tid, .process_start_time_ticks = worker->process_start_time_ticks, .worker_start_time_ticks = worker->tid_start_time_ticks, .registration_generation = worker->registration_generation, .evidence_generation = evidence_generation++, .interval_ms = elapsed_ms - last_publish_ms, .registered_memory_load_operations = operations, .worker_index = worker->thread_id};
                 snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(), (unsigned long long)worker->process_start_time_ticks);
                 (void)worker_evidence_provider_publish(config->worker_evidence_socket, &message);
                 last_publish_ms = elapsed_ms;
@@ -615,6 +680,79 @@ static void *worker_main(void *argument)
                 break;
         } else if (elapsed_since(&local_start) >= config->duration_sec || operations == UINT64_MAX) {
             break;
+        }
+    }
+    else {
+        struct timespec period_start = local_start;
+        struct timespec duration_deadline = timespec_add_seconds(local_start, config->duration_sec);
+
+        while (true) {
+            struct timespec active_deadline = timespec_add_ms(period_start,
+                INTENSITY_PERIOD_MS * config->intensity_percent / 100U);
+            struct timespec period_end = timespec_add_ms(period_start, INTENSITY_PERIOD_MS);
+            bool complete = false;
+
+            if (config->duration_set) {
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                if (timespec_compare(&now, &duration_deadline) >= 0)
+                    break;
+                if (timespec_compare(&duration_deadline, &active_deadline) < 0)
+                    active_deadline = duration_deadline;
+            }
+
+            while (!complete) {
+                struct timespec now;
+                uint64_t batch_end = operations > UINT64_MAX - INTENSITY_CHECK_BATCH ? UINT64_MAX :
+                    operations + INTENSITY_CHECK_BATCH;
+
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                if (timespec_compare(&now, &active_deadline) >= 0)
+                    break;
+                if (!config->duration_set && batch_end > config->iterations)
+                    batch_end = config->iterations;
+                while (operations < batch_end) {
+                    size_t index = choose_index(worker, operations, &random_state, &changing_phase);
+                    checksum ^= data[index] + (uint64_t)index;
+                    operations++;
+                }
+                if (!config->duration_set && operations >= config->iterations)
+                    complete = true;
+                else if (config->duration_set && elapsed_since(&local_start) >= config->duration_sec)
+                    complete = true;
+            }
+            if (complete)
+                break;
+            if (config->duration_set && timespec_compare(&duration_deadline, &period_end) < 0) {
+                if (config->intensity_percent < 100 && !sleep_until(&duration_deadline)) {
+                    atomic_store(worker->worker_error, 1);
+                    break;
+                }
+                break;
+            }
+            if (config->intensity_percent < 100) {
+                if (!sleep_until(&period_end)) {
+                    atomic_store(worker->worker_error, 1);
+                    break;
+                }
+            }
+            if (config->worker_evidence_socket != NULL) {
+                uint64_t elapsed_ms = (uint64_t)(elapsed_since(&local_start) * 1000.0);
+                if (elapsed_ms > last_publish_ms) {
+                    WorkerEvidenceWireMessage message = {.version = WORKER_EVIDENCE_WIRE_VERSION, .operation = 1,
+                        .pid = getpid(), .tid = worker->tid,
+                        .process_start_time_ticks = worker->process_start_time_ticks,
+                        .worker_start_time_ticks = worker->tid_start_time_ticks,
+                        .registration_generation = worker->registration_generation,
+                        .evidence_generation = evidence_generation++, .interval_ms = elapsed_ms - last_publish_ms,
+                        .registered_memory_load_operations = operations, .worker_index = worker->thread_id};
+                    snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(),
+                             (unsigned long long)worker->process_start_time_ticks);
+                    (void)worker_evidence_provider_publish(config->worker_evidence_socket, &message);
+                    last_publish_ms = elapsed_ms;
+                }
+            }
+            period_start = period_end;
         }
     }
 
@@ -805,7 +943,9 @@ int main(int argc, char **argv)
         .placement_mode = BENCHMARK_PLACEMENT_DEFAULT,
         .placement_evidence_path = NULL,
         .worker_evidence_socket = NULL,
-        .worker_evidence_publish_ms = 100
+        .worker_evidence_publish_ms = 100,
+        .intensity_percent = 100,
+        .intensity_mode_requested = false
     };
     pthread_t *threads = NULL;
     worker_context_t *workers = NULL;
@@ -830,6 +970,7 @@ int main(int argc, char **argv)
     benchmark_placement_evidence_t placement_evidence;
     int placement_result;
     uint64_t process_start_time_ticks;
+    uint64_t registration_generation = 0;
 
     parse_result = parse_options(argc, argv, &config);
     if (parse_result != 0)
@@ -960,13 +1101,15 @@ int main(int argc, char **argv)
         pthread_cond_wait(&gate.condition, &gate.mutex);
     if (atomic_load(&worker_error) != 0)
         gate.abort = true;
-    if (!gate.abort && register_owned_allocation(&config, memory, memory_bytes) != 0) {
+    if (!gate.abort && register_owned_allocation(&config, memory, memory_bytes, &registration_generation) != 0) {
         fprintf(stderr, "Error: benchmark-owned page registration was not accepted.\n");
         gate.abort = true;
     }
     clock_gettime(CLOCK_MONOTONIC, &start_time);
-    for (i = 0; i < config.threads; i++)
+    for (i = 0; i < config.threads; i++) {
         workers[i].start_time = start_time;
+        workers[i].registration_generation = registration_generation;
+    }
     gate.start = true;
     pthread_cond_broadcast(&gate.condition);
     pthread_mutex_unlock(&gate.mutex);
@@ -975,6 +1118,8 @@ int main(int argc, char **argv)
     clock_gettime(CLOCK_MONOTONIC, &end_time);
     pthread_cond_destroy(&gate.condition);
     pthread_mutex_destroy(&gate.mutex);
+    if (gate.abort)
+        goto cleanup;
     if (atomic_load(&worker_error) != 0) {
         fprintf(stderr, "Error: one or more workers could not establish requested CPU affinity.\n");
         goto cleanup;

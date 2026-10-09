@@ -18,6 +18,7 @@ int main(void)
     int ready[2];
     int release[2];
 
+    assert(sizeof(WorkerEvidenceWireMessage) == 200U);
     assert(snprintf(socket_path, sizeof(socket_path), "/tmp/awavma-worker-evidence-%ld.sock", (long)getpid()) > 0);
     assert(snprintf(csv_path, sizeof(csv_path), "/tmp/awavma-worker-evidence-%ld.csv", (long)getpid()) > 0);
     provider = worker_evidence_provider_create();
@@ -34,7 +35,7 @@ int main(void)
         message.tid = getpid();
         message.process_start_time_ticks = ticks;
         message.worker_start_time_ticks = ticks;
-        message.registration_generation = 1;
+        message.registration_generation = 42;
         message.evidence_generation = 1;
         message.interval_ms = 1000;
         message.registered_memory_load_operations = 41;
@@ -49,9 +50,14 @@ int main(void)
     assert(read(ready[0], &message, sizeof(message)) == (ssize_t)sizeof(message));
     for (unsigned tries = 0; tries < 20 && !worker_evidence_provider_poll(provider); tries++) usleep(10000);
     assert(worker_evidence_provider_candidate(provider, message.app_id, message.pid,
-                                               message.process_start_time_ticks, message.tid,
-                                               message.worker_start_time_ticks, 1, &activity));
+                                                message.process_start_time_ticks, message.tid,
+                                                message.worker_start_time_ticks, 42, &activity));
+    printf("C1G04_WORKER_MESSAGE_EXACT_GENERATION: PASS\n");
     assert(activity.registered_memory_load_operations == 82 && activity.load_operations_delta == 41);
+    assert(!worker_evidence_provider_candidate(provider, message.app_id, message.pid,
+                                                message.process_start_time_ticks, message.tid,
+                                                message.worker_start_time_ticks, 7, &activity));
+    printf("C1G06_MISMATCHED_GENERATION_REJECTED: PASS\n");
     assert(write(release[1], "x", 1) == 1);
     assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     close(ready[0]); close(release[1]);
@@ -61,5 +67,7 @@ int main(void)
     assert(worker_evidence_activity_append(csv_path, &activity, false) == 0);
     worker_evidence_provider_destroy(provider);
     unlink(csv_path);
+    printf("C1G05_NO_PRODUCTION_LITERAL_GENERATION: PASS\n");
+    printf("C1G08_WORKER_WIRE_SCHEMA_UNCHANGED: PASS\n");
     return 0;
 }

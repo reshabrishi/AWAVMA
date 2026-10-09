@@ -40,6 +40,8 @@ typedef struct {
     const char *placement_evidence_path;
     const char *worker_evidence_socket;
     uint64_t worker_evidence_publish_ms;
+    unsigned intensity_percent;
+    bool intensity_mode_requested;
 } benchmark_config_t;
 
 const char *benchmark_pattern_name(benchmark_pattern_t pattern);

@@ -16,7 +16,7 @@
 #define PAGE_CANDIDATE_APP_ID_MAX 128U
 #define PAGE_CANDIDATE_PROVENANCE_MAX 96U
 #define PAGE_CANDIDATE_WIRE_VERSION 1U
-#define PAGE_CANDIDATE_RESPONSE_VERSION 1U
+#define PAGE_CANDIDATE_RESPONSE_VERSION 2U
 
 typedef struct page_candidate_provider page_candidate_provider_t;
 
@@ -73,6 +73,7 @@ typedef struct {
     uint32_t version;
     uint32_t operation;
     uint64_t client_generation;
+    uint64_t registration_generation;
     uint32_t accepted;
     uint32_t reason;
 } PageCandidateWireResponse;
@@ -107,7 +108,7 @@ bool page_candidate_provider_poll(page_candidate_provider_t *provider);
 bool page_candidate_provider_send(const char *socket_path, const PageCandidateWireMessage *message);
 PageCandidateClientStatus page_candidate_provider_send_wait(
     const char *socket_path, const PageCandidateWireMessage *message, uint64_t timeout_ms,
-    PageCandidateResponseReason *reason);
+    PageCandidateResponseReason *reason, uint64_t *accepted_generation);
 bool page_candidate_provider_registration_status(page_candidate_provider_t *provider,
                                                  const char *app_id, pid_t pid,
                                                  uint64_t start_time_ticks,

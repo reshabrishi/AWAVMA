@@ -42,6 +42,7 @@ int main(void)
     if (child == 0) {
         PageCandidateWireMessage accepted = {0};
         PageCandidateResponseReason reason;
+        uint64_t generation = 0;
         long page_size = sysconf(_SC_PAGESIZE);
         size_t length = ((size_t)PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST + 1U) * (size_t)page_size;
         void *region = mmap(NULL, length, PROT_READ | PROT_WRITE,
@@ -57,12 +58,13 @@ int main(void)
         accepted.region_start = (uintptr_t)region;
         accepted.region_length = length;
         accepted.page_size = (uint64_t)page_size;
-        accepted.client_generation = 1;
+        accepted.client_generation = 7;
         snprintf(accepted.app_id, sizeof(accepted.app_id), "APP_%ld_%llu", (long)getpid(),
                  (unsigned long long)ticks);
         snprintf(accepted.provenance, sizeof(accepted.provenance), "ipc-test-owned");
-        _exit(page_candidate_provider_send_wait(socket_path, &accepted, 2000, &reason) ==
-                      PAGE_CANDIDATE_STATUS_ACCEPTED && reason == PAGE_CANDIDATE_REASON_ACCEPTED ? 0 : 3);
+        _exit(page_candidate_provider_send_wait(socket_path, &accepted, 2000, &reason, &generation) ==
+                      PAGE_CANDIDATE_STATUS_ACCEPTED && reason == PAGE_CANDIDATE_REASON_ACCEPTED &&
+                      generation == accepted.client_generation ? 0 : 3);
     }
     for (unsigned tries = 0; tries < 20; tries++) {
         if (page_candidate_provider_poll(provider))
@@ -71,6 +73,7 @@ int main(void)
     }
     assert(waitpid(child, &child_status, 0) == child);
     assert(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+    printf("C1G01_ACK_GENERATION_RETURNED: PASS\n");
     page_size = sysconf(_SC_PAGESIZE);
     assert(page_size > 0);
     large_bytes = 1024U * 1024U * 1024U;
