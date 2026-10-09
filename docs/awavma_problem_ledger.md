@@ -70,6 +70,6 @@
 ## P5C-002
 
 - Scope: candidate-thread calibrated classification, kept separate from C1 evidence identity and from runtime authority.
-- P5-C.2A-1: redesigned offline Matrix A foundation: LOW/MID/HIGH controlled profiles, five-interval window medians, worker-run statistical units, strict context matching (including NUMA balancing), report-only robustness metrics, and non-circular window-median classification. Status: `LOCAL_PASS` after the dedicated local test target. Current generation hardening remains uncommitted.
-- Authoritative CloudLab calibration does not exist yet. C2A-2 artifact persistence and C2A-3 controlled collection are pending.
+- P5-C.2A-1: redesigned offline Matrix A foundation: LOW/MID/HIGH controlled profiles, five-interval window medians, worker-run statistical units, strict context matching (including NUMA balancing), report-only robustness metrics, and non-circular window-median classification. Status: `LOCAL_PASS` after the dedicated local test target.
+- P5-C.2A-2: artifact persistence is `LOCAL_PASS`: canonical CSV-only `raw_intervals.csv`, `worker_run_summaries.csv`, and one-row `calibration_manifest.csv`; strict text-enum/numeric parsing; core rebuild plus exact summary/manifest verification; and staging-directory publication that refuses final-ID overwrite. Authoritative CloudLab calibration and C2A-3 controlled collection remain pending.
 - Authority boundary: runtime classification remains disabled; B1A and B1B remain unchanged.

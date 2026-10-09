@@ -60,6 +60,20 @@ typedef struct {
     char reason[P5_THREAD_ACTIVITY_REASON_MAX];
 } P5ThreadActivityRawSample;
 
+/* A derived worker/run is the only statistical replicate unit. Caller frees units. */
+typedef struct {
+    uint64_t run_index;
+    uint32_t worker_index;
+    P5ThreadActivityProfile controlled_profile;
+    uint32_t intensity_percent;
+    P5ThreadActivityPlacementMode placement_mode;
+    size_t valid_interval_count;
+    size_t valid_window_count;
+    double worker_run_median_rate_ops_per_ms;
+    bool valid;
+    char reason[P5_THREAD_ACTIVITY_REASON_MAX];
+} P5ThreadActivityWorkerRun;
+
 typedef struct { size_t count; double min, max, mean, median, stddev, p10, p90; } P5ThreadActivityStatistics;
 typedef struct {
     size_t worker_run_count, window_count;
@@ -86,6 +100,7 @@ bool p5_thread_activity_rate(uint64_t load_operations_delta, uint64_t interval_m
 bool p5_thread_activity_calibration_context_matches(const P5ThreadActivityContext *calibration_context, const P5ThreadActivityContext *requested_context, char *reason, size_t reason_size);
 /* A structurally valid but insufficient evidence set returns 0 with INSUFFICIENT_SAMPLES. */
 int p5_thread_activity_calibration_build(const P5ThreadActivityContext *context, const char *calibration_id, const P5ThreadActivityRawSample *samples, size_t sample_count, P5ThreadActivityCalibration *calibration, char *reason, size_t reason_size);
+int p5_thread_activity_calibration_derive_worker_runs(const P5ThreadActivityContext *context, const char *calibration_id, const P5ThreadActivityRawSample *samples, size_t sample_count, P5ThreadActivityWorkerRun **units, size_t *unit_count, char *reason, size_t reason_size);
 /* Input is a median of exactly five consecutive valid C1 intervals, never a raw interval. */
 P5ThreadActivityClass p5_thread_activity_classify_window_rate(const P5ThreadActivityCalibration *calibration, double window_median_rate);
 

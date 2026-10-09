@@ -1,8 +1,8 @@
 # P5-C.2A Thread-Activity Calibration
 
-P5-C.2A-1 is an isolated offline foundation. It neither persists artifacts nor
-collects CloudLab evidence, changes C1 evidence identity, or enables runtime
-classification authority.
+P5-C.2A-1/C2A-2 are isolated offline foundations. C2A-2 persists and verifies
+offline artifacts; it neither collects CloudLab evidence, changes C1 evidence
+identity, nor enables runtime classification authority.
 
 The metric is `registered_memory_load_rate` v1 in `ops_per_ms`:
 `load_operations_delta / interval_ms`. It counts registered-memory benchmark
@@ -54,5 +54,29 @@ schema/IDs/profiles/lifecycle values, non-finite or inconsistent rates, zero
 intervals, mismatched metric/workload/placement, and duplicate raw identities
 `(calibration_id, run_index, worker_index, sample_index)`.
 
-Artifact persistence is C2A-2 work. Controlled collection and authoritative
-CloudLab calibration are C2A-3/C2A-4 work. Runtime classification remains off.
+## Artifact Contract
+
+For a valid identifier, artifacts have frozen paths beneath
+`ROOT/p5_thread_activity_calibration/ID/`: `raw_intervals.csv`,
+`worker_run_summaries.csv`, and `calibration_manifest.csv`. All three are CSV
+with exact headers and unquoted single-line cells. Profiles are `LOW`, `MID`,
+and `HIGH`; sample kinds are `WARMUP_RUN`, `WARMUP_INTERVAL`, and
+`MEASURED_INTERVAL`; placement is `LOCAL` or `REMOTE`; calibration statuses are
+their named text values, never numeric enum encodings.
+
+The manifest has exactly one data row. It carries the complete context, file
+identity/counts/status, and every per-profile report field: worker/window
+counts, all statistics including p10/p90, gap-ratio availability/value,
+paired-worker agreement, and leave-one-run-out totals, in-band count, and
+fraction. The loader strictly parses all three CSVs, validates every text enum
+and numeric field, rebuilds raw evidence through the core, and requires exact
+canonical summary and manifest output. Persisted reports are verified evidence,
+not independent authority.
+
+The writer creates all three completed files in a unique staging directory and
+renames that directory only after every write succeeds. It refuses an existing
+final ID directory rather than overwriting or repairing it, preventing partial
+artifact corruption.
+
+Controlled collection and authoritative CloudLab calibration are C2A-3/C2A-4
+work. Runtime classification remains off.
