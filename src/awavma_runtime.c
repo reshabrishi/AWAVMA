@@ -17,6 +17,7 @@
 #include "p5_opportunity.h"
 #include "thread_target_policy.h"
 #include "worker_pool.h"
+#include "worker_evidence_provider.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -92,6 +93,8 @@ struct awavma_runtime {
     MigrationSafetyManager *migration_safety;
     page_candidate_provider_t *owned_page_provider;
     char page_registration_socket[4096];
+    worker_evidence_provider_t *owned_worker_evidence_provider;
+    char worker_evidence_socket[4096];
     pending_feedback_t pending_feedback[DEFAULT_MAX_APPLICATIONS];
     feedback_baseline_t feedback_baselines[DEFAULT_MAX_APPLICATIONS];
     MigrationValidationSnapshot validation_before;
@@ -1972,6 +1975,20 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         page_candidate_provider_placement_evidence(runtime->config.page_candidate_provider, record->app_id,
                                                     record->pid, record->start_time_ticks,
                                                     registration_current ? registration.generation : 0, &placement);
+    worker_evidence_activity_t activity = {0};
+    bool candidate_activity = candidate_available && candidate.start_time_ticks_available &&
+        runtime->config.worker_evidence_provider != NULL &&
+        worker_evidence_provider_candidate(runtime->config.worker_evidence_provider, record->app_id,
+                                            record->pid, record->start_time_ticks, candidate.tid,
+                                            candidate.start_time_ticks,
+                                            registration_current ? registration.generation : 0, &activity);
+    char activity_path[4096];
+    if (candidate_activity && (path_join(activity_path, sizeof(activity_path), app_dir, "p5_candidate_activity.csv") != 0 ||
+        worker_evidence_activity_append(activity_path, &activity, true) != 0)) {
+        set_status(record, AWAVMA_RUNTIME_ERROR, "cannot persist P5 candidate activity");
+        monitor_profile_scope_end(&coordinator_profile, "ERROR");
+        return -1;
+    }
     const char *observed_relation = placement_observed && candidate_source_available ?
         p5_opportunity_memory_relation(placement.total_pages, placement.queryable_pages,
                                        placement.unknown_pages, placement.dominant_pages,
@@ -2169,6 +2186,8 @@ static int process_pipeline(awavma_runtime_t *runtime)
     if (runtime->config.execution_profile.page_registration_requested &&
         runtime->config.page_candidate_provider != NULL)
         (void)page_candidate_provider_poll(runtime->config.page_candidate_provider);
+    if (runtime->config.worker_evidence_provider != NULL)
+        (void)worker_evidence_provider_poll(runtime->config.worker_evidence_provider);
 
     monitor_profile_scope_begin(&snapshot_profile, "pipeline", "pipeline_snapshot_prepare", NULL, -1, 0);
     monitor_records = calloc(runtime->config.max_applications, sizeof(*monitor_records));
@@ -2252,6 +2271,7 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     snprintf(config->execution_profile.activation_reason,
              sizeof(config->execution_profile.activation_reason), "runtime initialization pending");
     config->page_candidate_provider = NULL;
+    config->worker_evidence_provider = NULL;
     config->benefit_calibration_state = BENEFIT_CALIBRATION_UNAVAILABLE;
     config->benefit_calibration_provenance = "no_cross_numa_production_calibration";
     config->calibration_artifact_path = NULL;
@@ -2386,6 +2406,15 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
         runtime->execution_profile.page_registration_effective = true;
         runtime->execution_profile.page_registration_provider_ready = true;
     }
+    runtime->owned_worker_evidence_provider = worker_evidence_provider_create();
+    if (runtime->owned_worker_evidence_provider == NULL ||
+        snprintf(runtime->worker_evidence_socket, sizeof(runtime->worker_evidence_socket), "%s/worker-evidence.sock", config->root_dir) >= (int)sizeof(runtime->worker_evidence_socket) ||
+        !worker_evidence_provider_start(runtime->owned_worker_evidence_provider, runtime->worker_evidence_socket)) {
+        worker_evidence_provider_destroy(runtime->owned_worker_evidence_provider);
+        runtime->owned_worker_evidence_provider = NULL;
+        goto fail;
+    }
+    runtime->config.worker_evidence_provider = runtime->owned_worker_evidence_provider;
     runtime->records = calloc(config->max_applications, sizeof(*runtime->records));
     runtime->manager = application_manager_create();
     runtime->pool = worker_pool_create();
@@ -2744,10 +2773,12 @@ void awavma_runtime_shutdown(awavma_runtime_t *runtime)
     release_migration_checkpoint(runtime, runtime->rollback_attempt_id);
     release_page_rollback_checkpoint(runtime, runtime->page_rollback_checkpoint.attempt_id);
     page_candidate_provider_destroy(runtime->owned_page_provider);
+    worker_evidence_provider_destroy(runtime->owned_worker_evidence_provider);
     calibration_snapshot_release(&runtime->calibration_snapshot);
     runtime->owned_page_provider = NULL;
     if (runtime->config.execution_profile.page_registration_requested)
         runtime->config.page_candidate_provider = NULL;
+    runtime->config.worker_evidence_provider = NULL;
     migration_safety_manager_destroy(runtime->migration_safety);
     runtime->migration_safety = NULL;
     if (runtime->migration_initialized) {

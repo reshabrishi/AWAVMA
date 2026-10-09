@@ -7,6 +7,7 @@
 #include "environment_capabilities.h"
 #include "page_checkpoint.h"
 #include "page_candidate_provider.h"
+#include "worker_evidence_provider.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -65,6 +66,7 @@ typedef struct {
     awavma_runtime_execution_profile_t execution_profile;
     /* Controlled workloads may register an owned region; arbitrary processes remain unsupported. */
     page_candidate_provider_t *page_candidate_provider;
+    worker_evidence_provider_t *worker_evidence_provider;
     BenefitCalibrationState benefit_calibration_state;
     const char *benefit_calibration_provenance;
     const char *calibration_artifact_path;

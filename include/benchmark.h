@@ -38,6 +38,8 @@ typedef struct {
     bool page_registration_required;
     benchmark_placement_mode_t placement_mode;
     const char *placement_evidence_path;
+    const char *worker_evidence_socket;
+    uint64_t worker_evidence_publish_ms;
 } benchmark_config_t;
 
 const char *benchmark_pattern_name(benchmark_pattern_t pattern);

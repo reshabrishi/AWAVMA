@@ -60,6 +60,7 @@ THREAD_CANDIDATE_TEST_TARGET := bin/thread-candidate-test
 THREAD_CONFIDENCE_TEST_TARGET := bin/thread-confidence-test
 P5_OPPORTUNITY_TEST_TARGET := bin/p5-opportunity-test
 P5B_EVIDENCE_TEST_TARGET := bin/p5b-evidence-test
+WORKER_EVIDENCE_PROVIDER_TEST_TARGET := bin/worker-evidence-provider-test
 RUNTIME_ADMISSION_TEST_SOURCES = tests/runtime_admission_test.c $(CONTINUOUS_MONITOR_SOURCES)
 THREAD_CONFIDENCE_HISTORY_TEST_SOURCES := tests/thread_confidence_history_test.c src/thread_confidence_history.c
 MEMORY_MIGRATION_TRANSACTION_TEST_TARGET := bin/memory-migration-transaction-test
@@ -69,7 +70,7 @@ PROFILE_PHASE46_CLASSIFIER_TARGET := $(PROFILE_PHASE46_BIN_DIR)/classifier
 PROFILE_PHASE46_DECISION_TARGET := $(PROFILE_PHASE46_BIN_DIR)/decision
 PROFILE_PHASE46_VALIDATION_TARGET := $(PROFILE_PHASE46_BIN_DIR)/validation
 
-BENCHMARK_SOURCES := src/benchmark.c src/benchmark_placement.c src/page_candidate_provider.c src/runtime_migration_metadata.c
+BENCHMARK_SOURCES := src/benchmark.c src/benchmark_placement.c src/page_candidate_provider.c src/worker_evidence_provider.c src/runtime_migration_metadata.c
 MONITOR_SOURCES := src/monitor.c src/monitor_main.c
 TEST_SOURCES := src/monitor_test_target.c
 CLASSIFIER_SOURCES := src/classifier.c src/classifier_main.c
@@ -98,10 +99,12 @@ AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/cal
 AWAVMA_RUNTIME_SOURCES += src/thread_candidate.c
 AWAVMA_RUNTIME_SOURCES += src/thread_confidence.c
 AWAVMA_RUNTIME_SOURCES += src/p5_opportunity.c
+AWAVMA_RUNTIME_SOURCES += src/worker_evidence_provider.c
 AWAVMA_RUNTIME_TEST_SOURCES := tests/awavma_runtime_test.c src/awavma_runtime.c src/calibration.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/thread_candidate.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES)
 AWAVMA_RUNTIME_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 AWAVMA_RUNTIME_TEST_SOURCES += src/thread_confidence.c
 AWAVMA_RUNTIME_TEST_SOURCES += src/p5_opportunity.c
+AWAVMA_RUNTIME_TEST_SOURCES += src/worker_evidence_provider.c
 RUNTIME_MIGRATION_METADATA_TEST_SOURCES := tests/runtime_migration_metadata_test.c src/runtime_migration_metadata.c
 MIGRATION_TARGET_PROVIDER_TEST_SOURCES := tests/migration_target_provider_test.c src/migration_target_provider.c
 THREAD_TARGET_POLICY_TEST_SOURCES := tests/thread_target_policy_test.c src/thread_target_policy.c src/benefit_classifier.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/runtime_migration_metadata.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
@@ -118,6 +121,7 @@ PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES := tests/phase5_benefit_evidence_test.c src
 PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES += src/thread_confidence.c
 PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES += src/p5_opportunity.c
+PHASE5_BENEFIT_EVIDENCE_TEST_SOURCES += src/worker_evidence_provider.c
 DECISION_BENEFIT_EVIDENCE_TEST_SOURCES := tests/decision_benefit_evidence_test.c src/decision.c
 BENEFIT_EVIDENCE_CONTRACT_TEST_SOURCES := tests/benefit_evidence_contract_test.c src/benefit_classifier.c
 RUNTIME_MIGRATION_TARGET_INTEGRATION_TEST_SOURCES := tests/runtime_migration_target_integration_test.c src/benefit_classifier.c src/runtime_migration_metadata.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c
@@ -129,8 +133,10 @@ RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES := tests/runtime_migration_validation_
 RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES += src/environment_capabilities.c src/page_candidate_provider.c
 RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES += src/thread_confidence.c
 RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES += src/p5_opportunity.c
+RUNTIME_MIGRATION_VALIDATION_TEST_SOURCES += src/worker_evidence_provider.c
 P5_OPPORTUNITY_TEST_SOURCES := tests/p5_opportunity_test.c src/p5_opportunity.c src/calibration.c
 P5B_EVIDENCE_TEST_SOURCES := tests/p5b_evidence_test.c src/p5_opportunity.c src/calibration.c src/page_candidate_provider.c src/runtime_migration_metadata.c
+WORKER_EVIDENCE_PROVIDER_TEST_SOURCES := tests/worker_evidence_provider_test.c src/worker_evidence_provider.c src/runtime_migration_metadata.c
 RUNTIME_TARGET_FILTER_TEST_SOURCES := tests/runtime_target_filter_test.c src/runtime_target_filter.c
 DISCOVERY_CADENCE_TEST_SOURCES := tests/discovery_cadence_test.c $(CONTINUOUS_MONITOR_SOURCES)
 DISCOVERY_CADENCE_PROBE_SOURCES := tests/discovery_cadence_probe.c $(CONTINUOUS_MONITOR_SOURCES)
@@ -143,9 +149,10 @@ LIVE_PAGE_MIGRATION_TEST_SOURCES := tests/live_page_migration_test.c src/memory_
 P4C_MIGRATION_COST_COLLECTOR_SOURCES := src/p4c_migration_cost_collector.c src/benchmark_placement.c src/memory_migration_transaction.c src/page_candidate_provider.c src/runtime_migration_metadata.c src/page_checkpoint.c src/page_rollback.c src/migration_target_provider.c src/migration.c src/migration_log.c
 PROFILE_AWAVMA_RUNTIME_SOURCES := src/awavma_runtime.c src/awavma_runtime_main.c src/calibration.c src/environment_capabilities.c src/page_candidate_provider.c src/runtime_target_filter.c src/runtime_migration_metadata.c src/migration_validation_snapshot.c src/migration_target_provider.c src/page_checkpoint.c src/page_rollback.c src/thread_target_policy.c src/thread_confidence_history.c src/benefit_classifier.c src/classifier.c src/migration_safety_manager.c src/migration.c src/migration_log.c src/feedback.c src/feedback_log.c src/decision.c $(CONTINUOUS_MONITOR_SOURCES) src/monitor_profile.c
 PROFILE_AWAVMA_RUNTIME_SOURCES += src/thread_candidate.c src/thread_confidence.c src/p5_opportunity.c
-HEADERS := include/benchmark.h include/benchmark_placement.h include/calibration.h include/monitor.h include/monitor_profile.h include/classifier.h include/decision.h include/validation.h include/validation_types.h include/validation_log.h include/confidence.h include/roi.h include/safety.h include/migration.h include/migration_types.h include/migration_log.h include/migration_safety_manager.h include/migration_target_provider.h include/thread_target_policy.h include/thread_confidence_history.h include/p5_opportunity.h include/page_checkpoint.h include/page_candidate_provider.h include/environment_capabilities.h include/benefit_classifier.h include/migration_validation_snapshot.h include/feedback.h include/feedback_types.h include/feedback_log.h include/application_manager.h include/application_manager_types.h include/application_types.h include/worker_pool.h include/worker_types.h include/application_discovery.h include/application_runtime.h include/awavma_runtime.h include/runtime_target_filter.h
+PROFILE_AWAVMA_RUNTIME_SOURCES += src/worker_evidence_provider.c
+HEADERS := include/benchmark.h include/benchmark_placement.h include/calibration.h include/monitor.h include/monitor_profile.h include/classifier.h include/decision.h include/validation.h include/validation_types.h include/validation_log.h include/confidence.h include/roi.h include/safety.h include/migration.h include/migration_types.h include/migration_log.h include/migration_safety_manager.h include/migration_target_provider.h include/thread_target_policy.h include/thread_confidence_history.h include/p5_opportunity.h include/page_checkpoint.h include/page_candidate_provider.h include/worker_evidence_provider.h include/environment_capabilities.h include/benefit_classifier.h include/migration_validation_snapshot.h include/feedback.h include/feedback_types.h include/feedback_log.h include/application_manager.h include/application_manager_types.h include/application_types.h include/worker_pool.h include/worker_types.h include/application_discovery.h include/application_runtime.h include/awavma_runtime.h include/runtime_target_filter.h
 
-.PHONY: all benchmark monitor monitor-test-target classifier decision validation migration feedback runtime awavma-runtime calibration-validate test-memory-migration-transaction environment-check test-environment-capabilities test-runtime-execution-profile phase4c-check phase4c-tests test-phase4c-tooling phase4d-check phase4d-tests test-phase4d-tooling test-phase4d-aggregation test-awavma-runtime test-runtime-migration-metadata test-runtime-migration-validation test-runtime-target-filter phase5-thread-target-policy test-thread-target-policy test-phase5-target-selection test-runtime-phase5-target-selection test-page-checkpoint test-runtime-page-checkpoint test-benefit-classifier test-runtime-benefit-classifier test-phase5-benefit-evidence test-runtime-benefit-evidence test-decision-benefit-evidence test-runtime-decision-benefit-evidence test-benefit-evidence-contract test-runtime-benefit-evidence-contract test-p5-opportunity test-p5b-evidence test-discovery-cadence test-page-registration-ipc test-benchmark-placement test-benchmark-cli test-calibration test-delayed-feedback test-live-page-migration discovery-cadence-probe discovery-cadence-performance multi-application-performance test-multi-application-graphs profile-phase46-binaries phase46-pipeline-profile test-phase46-pipeline test-phase46-pipeline-graphs application-discovery test-application-discovery application-manager test-application-manager worker-pool test-worker-pool test-application-worker continuous-monitor test-continuous-monitor test-final-integration test-system-regression phase10 test-phase10 profile-monitor profile-application-discovery-test profile-continuous-monitor-test profile-awavma-runtime profile-monitoring full-system-performance test-monitoring-profile graphs test-validation test-migration test-migration-safety-manager test-feedback test-runtime test-graphs clean
+.PHONY: all benchmark monitor monitor-test-target classifier decision validation migration feedback runtime awavma-runtime calibration-validate test-memory-migration-transaction environment-check test-environment-capabilities test-runtime-execution-profile phase4c-check phase4c-tests test-phase4c-tooling phase4d-check phase4d-tests test-phase4d-tooling test-phase4d-aggregation test-awavma-runtime test-runtime-migration-metadata test-runtime-migration-validation test-runtime-target-filter phase5-thread-target-policy test-thread-target-policy test-phase5-target-selection test-runtime-phase5-target-selection test-page-checkpoint test-runtime-page-checkpoint test-benefit-classifier test-runtime-benefit-classifier test-phase5-benefit-evidence test-runtime-benefit-evidence test-decision-benefit-evidence test-runtime-decision-benefit-evidence test-benefit-evidence-contract test-runtime-benefit-evidence-contract test-p5-opportunity test-p5b-evidence test-worker-evidence-provider test-discovery-cadence test-page-registration-ipc test-benchmark-placement test-benchmark-cli test-calibration test-delayed-feedback test-live-page-migration discovery-cadence-probe discovery-cadence-performance multi-application-performance test-multi-application-graphs profile-phase46-binaries phase46-pipeline-profile test-phase46-pipeline test-phase46-pipeline-graphs application-discovery test-application-discovery application-manager test-application-manager worker-pool test-worker-pool test-application-worker continuous-monitor test-continuous-monitor test-final-integration test-system-regression phase10 test-phase10 profile-monitor profile-application-discovery-test profile-continuous-monitor-test profile-awavma-runtime profile-monitoring full-system-performance test-monitoring-profile graphs test-validation test-migration test-migration-safety-manager test-feedback test-runtime test-graphs clean
 
 all: bin results logs scripts state history benchmark monitor monitor-test-target classifier decision validation migration feedback runtime graphs
 
@@ -249,6 +256,9 @@ test-p5-opportunity: $(P5_OPPORTUNITY_TEST_TARGET)
 
 test-p5b-evidence: $(P5B_EVIDENCE_TEST_TARGET)
 	./$(P5B_EVIDENCE_TEST_TARGET)
+
+test-worker-evidence-provider: $(WORKER_EVIDENCE_PROVIDER_TEST_TARGET)
+	./$(WORKER_EVIDENCE_PROVIDER_TEST_TARGET)
 
 test-runtime-benefit-evidence: test-phase5-benefit-evidence test-runtime-benefit-classifier
 
@@ -610,6 +620,9 @@ $(P5_OPPORTUNITY_TEST_TARGET): $(P5_OPPORTUNITY_TEST_SOURCES) $(HEADERS) | bin
 $(P5B_EVIDENCE_TEST_TARGET): $(P5B_EVIDENCE_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(P5B_EVIDENCE_TEST_SOURCES) -lm
 
+$(WORKER_EVIDENCE_PROVIDER_TEST_TARGET): $(WORKER_EVIDENCE_PROVIDER_TEST_SOURCES) $(HEADERS) | bin
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(WORKER_EVIDENCE_PROVIDER_TEST_SOURCES) -pthread
+
 $(RUNTIME_ADMISSION_TEST_TARGET): $(RUNTIME_ADMISSION_TEST_SOURCES) $(HEADERS) | bin
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(RUNTIME_ADMISSION_TEST_SOURCES) -pthread $(NUMA_LDLIBS)
 
@@ -624,4 +637,4 @@ $(P4C_MIGRATION_COST_COLLECTOR_TARGET): $(P4C_MIGRATION_COST_COLLECTOR_SOURCES) 
 
 clean:
 	rm -f $(BENCHMARK_TARGET) $(MONITOR_TARGET) $(TEST_TARGET) $(CLASSIFIER_TARGET) $(DECISION_TARGET) $(VALIDATION_TARGET) $(VALIDATION_TEST_TARGET) $(MIGRATION_TARGET) $(MIGRATION_TEST_TARGET) $(MIGRATION_SAFETY_TEST_TARGET) $(FEEDBACK_TARGET) $(FEEDBACK_TEST_TARGET) $(RUNTIME_TARGET) $(RUNTIME_TEST_TARGET) $(APPLICATION_DISCOVERY_TARGET) $(APPLICATION_DISCOVERY_TEST_TARGET) $(APPLICATION_MANAGER_TARGET) $(APPLICATION_MANAGER_TEST_TARGET) $(WORKER_POOL_TEST_TARGET) $(APPLICATION_RUNTIME_TEST_TARGET) $(CONTINUOUS_MONITOR_TEST_TARGET) $(AWAVMA_RUNTIME_TARGET) $(AWAVMA_RUNTIME_TEST_TARGET) $(RUNTIME_TARGET_FILTER_TEST_TARGET) $(THREAD_TARGET_POLICY_TEST_TARGET) $(PAGE_CHECKPOINT_TEST_TARGET) $(RUNTIME_PAGE_CHECKPOINT_TEST_TARGET) $(RUNTIME_MIGRATION_VALIDATION_TEST_TARGET) $(DISCOVERY_CADENCE_TEST_TARGET) $(DISCOVERY_CADENCE_PROBE_TARGET) $(PAGE_REGISTRATION_IPC_TEST_TARGET) $(DELAYED_FEEDBACK_TEST_TARGET) $(LIVE_PAGE_MIGRATION_TEST_TARGET) $(P4C_MIGRATION_COST_COLLECTOR_TARGET) $(PROFILE_AWAVMA_RUNTIME_TARGET) bin/profile-monitor bin/profile-application-discovery-test bin/profile-continuous-monitor-test
-	rm -f $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET) $(THREAD_CONFIDENCE_TEST_TARGET) $(P5_OPPORTUNITY_TEST_TARGET) $(P5B_EVIDENCE_TEST_TARGET) $(RUNTIME_ADMISSION_TEST_TARGET)
+	rm -f $(THREAD_CONFIDENCE_HISTORY_TEST_TARGET) $(THREAD_CONFIDENCE_TEST_TARGET) $(P5_OPPORTUNITY_TEST_TARGET) $(P5B_EVIDENCE_TEST_TARGET) $(WORKER_EVIDENCE_PROVIDER_TEST_TARGET) $(RUNTIME_ADMISSION_TEST_TARGET)

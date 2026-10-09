@@ -1,6 +1,7 @@
 #include "benchmark.h"
 #include "page_candidate_provider.h"
 #include "runtime_migration_metadata.h"
+#include "worker_evidence_provider.h"
 
 #include <errno.h>
 #include <getopt.h>
@@ -17,6 +18,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
 #define DEFAULT_THREADS 1U
 #define DEFAULT_MEMORY_MB 64U
@@ -54,12 +56,29 @@ typedef struct {
     struct timespec start_time;
     atomic_int *worker_error;
     worker_stats_t *stats;
+    pid_t tid;
+    uint64_t tid_start_time_ticks;
+    uint64_t process_start_time_ticks;
 } worker_context_t;
 
 static const char *pattern_names[] = {
     "sequential", "random", "hot", "moderate", "cold", "mixed",
     "local", "remote", "changing"
 };
+
+static bool task_start_time_ticks(pid_t pid, pid_t tid, uint64_t *ticks);
+
+static bool task_start_time_ticks(pid_t pid, pid_t tid, uint64_t *ticks)
+{
+    char path[96], line[4096], *cursor, *save = NULL;
+    FILE *file;
+    if (ticks == NULL || snprintf(path, sizeof(path), "/proc/%ld/task/%ld/stat", (long)pid, (long)tid) >= (int)sizeof(path) ||
+        (file = fopen(path, "r")) == NULL || fgets(line, sizeof(line), file) == NULL) { if (file != NULL) fclose(file); return false; }
+    fclose(file); cursor = strrchr(line, ')'); if (cursor == NULL || cursor[1] != ' ') return false;
+    cursor += 2;
+    for (int field = 3; field <= 22; field++) { char *token = strtok_r(field == 3 ? cursor : NULL, " ", &save); if (token == NULL) return false; if (field == 22) { *ticks = strtoull(token, NULL, 10); return *ticks != 0; } }
+    return false;
+}
 
 const char *benchmark_pattern_name(benchmark_pattern_t pattern)
 {
@@ -533,10 +552,15 @@ static void *worker_main(void *argument)
     volatile uint64_t *data = worker->data;
     bool abort;
     struct timespec local_start;
+    uint64_t evidence_generation = 1, last_publish_ms = 0;
 
     stats->cpu = -1;
     stats->cpu_node = -1;
     if (bind_worker_to_node(config, worker->thread_id, stats) != 0)
+        atomic_store(worker->worker_error, 1);
+    worker->tid = (pid_t)syscall(SYS_gettid);
+    if (worker->tid <= 0 || !runtime_read_start_time_ticks(getpid(), &worker->process_start_time_ticks) ||
+        !task_start_time_ticks(getpid(), worker->tid, &worker->tid_start_time_ticks))
         atomic_store(worker->worker_error, 1);
 
     pthread_mutex_lock(&worker->gate->mutex);
@@ -549,6 +573,15 @@ static void *worker_main(void *argument)
     pthread_mutex_unlock(&worker->gate->mutex);
     if (abort)
         return NULL;
+    if (config->worker_evidence_socket != NULL) {
+        WorkerEvidenceWireMessage message = {.version = WORKER_EVIDENCE_WIRE_VERSION, .operation = 1,
+            .pid = getpid(), .tid = worker->tid, .process_start_time_ticks = worker->process_start_time_ticks,
+            .worker_start_time_ticks = worker->tid_start_time_ticks, .registration_generation = 1,
+            .evidence_generation = evidence_generation++, .interval_ms = 1, .worker_index = worker->thread_id};
+        snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(), (unsigned long long)worker->process_start_time_ticks);
+        (void)worker_evidence_provider_publish(config->worker_evidence_socket, &message);
+        last_publish_ms = (uint64_t)(elapsed_since(&local_start) * 1000.0);
+    }
 
     while (true) {
         uint64_t batch_end = operations > UINT64_MAX - DURATION_CHECK_BATCH
@@ -561,6 +594,15 @@ static void *worker_main(void *argument)
             size_t index = choose_index(worker, operations, &random_state, &changing_phase);
             checksum ^= data[index] + (uint64_t)index;
             operations++;
+        }
+        if (config->worker_evidence_socket != NULL) {
+            uint64_t elapsed_ms = (uint64_t)(elapsed_since(&local_start) * 1000.0);
+            if (elapsed_ms > last_publish_ms && elapsed_ms - last_publish_ms >= config->worker_evidence_publish_ms) {
+                WorkerEvidenceWireMessage message = {.version = WORKER_EVIDENCE_WIRE_VERSION, .operation = 1, .pid = getpid(), .tid = worker->tid, .process_start_time_ticks = worker->process_start_time_ticks, .worker_start_time_ticks = worker->tid_start_time_ticks, .registration_generation = 1, .evidence_generation = evidence_generation++, .interval_ms = elapsed_ms - last_publish_ms, .registered_memory_load_operations = operations, .worker_index = worker->thread_id};
+                snprintf(message.app_id, sizeof(message.app_id), "APP_%ld_%llu", (long)getpid(), (unsigned long long)worker->process_start_time_ticks);
+                (void)worker_evidence_provider_publish(config->worker_evidence_socket, &message);
+                last_publish_ms = elapsed_ms;
+            }
         }
         if (!config->duration_set) {
             if (operations >= config->iterations)
@@ -755,7 +797,9 @@ int main(int argc, char **argv)
         .page_registration_timeout_ms = 30000,
         .page_registration_required = false,
         .placement_mode = BENCHMARK_PLACEMENT_DEFAULT,
-        .placement_evidence_path = NULL
+        .placement_evidence_path = NULL,
+        .worker_evidence_socket = NULL,
+        .worker_evidence_publish_ms = 100
     };
     pthread_t *threads = NULL;
     worker_context_t *workers = NULL;
@@ -779,6 +823,7 @@ int main(int argc, char **argv)
     benchmark_placement_topology_t placement_topology;
     benchmark_placement_evidence_t placement_evidence;
     int placement_result;
+    uint64_t process_start_time_ticks;
 
     parse_result = parse_options(argc, argv, &config);
     if (parse_result != 0)
@@ -840,6 +885,15 @@ int main(int argc, char **argv)
         fprintf(stderr, "Error: page registration socket and required mode must be used together.\n");
         goto cleanup;
     }
+    if ((config.worker_evidence_socket != NULL && !config.page_registration_required) ||
+        (config.worker_evidence_socket == NULL && config.worker_evidence_publish_ms != 100)) {
+        fprintf(stderr, "Error: worker evidence requires owned page registration and a socket.\n");
+        goto cleanup;
+    }
+    if (!runtime_read_start_time_ticks(getpid(), &process_start_time_ticks)) {
+        fprintf(stderr, "Error: cannot read benchmark process identity.\n");
+        goto cleanup;
+    }
     placement_result = benchmark_placement_prepare(config.placement_mode, &placement_topology, memory,
                                                     memory_bytes, &placement_evidence);
     if ((config.placement_evidence_path != NULL &&
@@ -877,6 +931,7 @@ int main(int argc, char **argv)
         workers[i].start_time = start_time;
         workers[i].worker_error = &worker_error;
         workers[i].stats = &stats[i];
+        workers[i].process_start_time_ticks = process_start_time_ticks;
         if (pthread_create(&threads[i], NULL, worker_main, &workers[i]) != 0)
             break;
         created++;

@@ -7,6 +7,7 @@
 | B1B-001 | B1B | Candidate-bound thread-confidence streak | LOCAL_PASS | YES | pending | `apps/<app>/thread_confidence_state.csv` | LIVE_RUNTIME_PASS_CAPABILITY=NO_REAL_QUALIFYING_EVIDENCE; numeric TID incarnation protection remains partial. |
 | P5-001 | P5 | Genuine beneficial opportunity | LOCAL_PASS | YES | pending | `apps/<app>/p5_opportunity_state.csv` | Live candidate-bound classification, memory relation, and workload-equivalent gain evidence are unavailable, so live state fails closed. |
 | P5B-001 | P5-B | Real candidate-bound placement/gain/cost evidence | LOCAL_PASS | YES | pending | `apps/<app>/p5_opportunity_state.csv` | Classification and measured activity remain unavailable, so P5 remains fail-closed. |
+| P5C-001 | P5-C | Authenticated worker activity evidence | LOCAL_PASS | YES | pending | `apps/<app>/p5_candidate_activity.csv` | Activity is observational and does not yet supply candidate-bound classification or gain. |
 
 ## B1A-001
 
@@ -57,3 +58,9 @@
 - Authority boundary: no affinity changes, page moves, memory-policy changes, migration request mutation, B1B qualification changes, or P4 artifact writes occur.
 - CloudLab follow-up: P3 verifies initial benchmark placement only. P5-B independently samples live residency after execution begins, when Linux automatic NUMA balancing may have moved pages. Residency accounting now exposes strict raw `move_pages` status aggregation, initializes query buffers to an error sentinel, and binds the query to the current authenticated registration generation. CloudLab rerun is required; status remains `LOCAL_PASS`.
 - Registration-summary observability: terminal `runtime_results.csv` was rewritten during shutdown after the provider was destroyed, so its existing `registration_status` correctly meant current active authorization and became `NONE`. Additive `registration_last_*` columns now preserve the last accepted authenticated registration without retaining provider authorization, changing TTL, or weakening identity/generation checks. Status: `LOCAL_PASS`; P5-B functional evidence remains `CLOUDLAB_PASS`.
+
+## P5C-001
+
+- Implemented fix: independent runtime-owned `AF_UNIX` `SOCK_SEQPACKET` v1 worker-evidence socket. The benchmark captures each Linux worker TID and task start ticks before its start gate, then periodically publishes monotonic cumulative registered-memory load operations after owned-page registration succeeds.
+- Trust boundary: the provider requires same-effective-UID `SO_PEERCRED`, peer PID equality, exact process incarnation, and exact live task incarnation. Runtime joins activity only on `(app_id, pid, process_start_time_ticks, candidate_tid, candidate_tid_start_time_ticks)` and appends the raw joined observation.
+- Authority boundary: activity does not alter P2 registration, B1A/B1B confidence, P5 evaluator inputs, decision/migration requests, affinity, or page migration. Missing joins remain explicit `exact_candidate_match=false` observations.
