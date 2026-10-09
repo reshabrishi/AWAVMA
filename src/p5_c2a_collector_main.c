@@ -211,7 +211,8 @@ static bool disable_numa_balancing(void)
     return true;
 }
 
-static void context(P5ThreadActivityContext *context, const Options *options, P5ThreadActivityPlacementMode placement)
+static void context(P5ThreadActivityContext *context, const Options *options,
+                    const benchmark_placement_topology_t *topology, P5ThreadActivityPlacementMode placement)
 {
     struct utsname name;
     memset(context, 0, sizeof(*context)); (void)uname(&name);
@@ -230,7 +231,7 @@ static void context(P5ThreadActivityContext *context, const Options *options, P5
         }
         if (cpuinfo != NULL) fclose(cpuinfo);
     }
-    context->online_cpu_count = (uint32_t)sysconf(_SC_NPROCESSORS_ONLN); context->numa_node_count = 2;
+    context->online_cpu_count = (uint32_t)sysconf(_SC_NPROCESSORS_ONLN); context->numa_node_count = topology->permitted_node_count;
     context->page_size = (uint64_t)sysconf(_SC_PAGESIZE); context->worker_count = options->workers;
     context->memory_mb = options->memory_mb; context->placement_mode = placement; context->benchmark_seed = options->seed;
     snprintf(context->metric_name, sizeof(context->metric_name), "%s", P5_THREAD_ACTIVITY_METRIC_NAME);
@@ -247,18 +248,18 @@ static void context(P5ThreadActivityContext *context, const Options *options, P5
 static pid_t launch(const Options *o, const benchmark_placement_topology_t *t, P5ThreadActivityPlacementMode placement,
                     unsigned intensity, const char *socket, const char *page_socket, const char *cpus, unsigned run, const char *evidence)
 {
-    char workers[16], memory[16], duration[16], seed[32], thread_node[16], memory_node[16]; pid_t child = fork();
+    char workers[16], memory[16], duration[16], seed[32], thread_node[16], intensity_text[16]; pid_t child = fork();
     if (child != 0) return child;
     snprintf(workers, sizeof(workers), "%u", o->workers); snprintf(memory, sizeof(memory), "%u", o->memory_mb);
     snprintf(duration, sizeof(duration), "%.3f", (double)o->duration_ms / 1000.0); snprintf(seed, sizeof(seed), "%llu", (unsigned long long)(o->seed + run));
-    snprintf(thread_node, sizeof(thread_node), "%d", t->local_node); snprintf(memory_node, sizeof(memory_node), "%d", placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? t->local_node : t->remote_node);
+    snprintf(thread_node, sizeof(thread_node), "%d", t->local_node); snprintf(intensity_text, sizeof(intensity_text), "%u", intensity);
     char *const argv[] = {(char *)o->benchmark, "--threads", workers, "--memory", memory, "--duration", duration,
-        "--pattern", "random", "--seed", seed, "--thread-node", thread_node, "--memory-node", memory_node,
+        "--pattern", "random", "--seed", seed, "--thread-node", thread_node,
         "--placement-mode", placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? "local" : "remote",
-        "--intensity-percent", (char [16]){0}, "--worker-evidence-socket", (char *)socket,
+        "--intensity-percent", intensity_text, "--worker-evidence-socket", (char *)socket,
         "--page-registration-socket", (char *)page_socket, "--page-registration-required", "--worker-cpus", (char *)cpus,
         "--placement-evidence", (char *)evidence, NULL};
-    snprintf(argv[18], 16, "%u", intensity); execv(o->benchmark, argv); _exit(127);
+    execv(o->benchmark, argv); _exit(127);
 }
 
 static size_t collect_run(worker_evidence_provider_t *provider, page_candidate_provider_t *pages, pid_t child, P5ThreadActivityRawSample *samples, size_t count,
@@ -344,7 +345,7 @@ static int collect_placement(const Options *o, const benchmark_placement_topolog
 {
     P5ThreadActivityContext c; P5ThreadActivityRawSample *samples; P5ThreadActivityCalibration calibration; P5C2ACollectorMatrixEntry matrix[3];
     size_t count = 0; char socket[108], cpus[256], reason[P5_THREAD_ACTIVITY_REASON_MAX] = {0}; unsigned global_run = 0;
-    context(&c, o, placement); samples = calloc(MAX_SAMPLES, sizeof(*samples)); if (!samples) return -1;
+    context(&c, o, topology, placement); samples = calloc(MAX_SAMPLES, sizeof(*samples)); if (!samples) return -1;
     if (mkdir(o->root, 0700) != 0 && errno != EEXIST) { free(samples); return -1; }
     snprintf(socket, sizeof(socket), "/tmp/awavma-c2a-%ld-%c.sock", (long)getpid(), placement == P5_THREAD_ACTIVITY_PLACEMENT_LOCAL ? 'l' : 'r');
     if (!selected_cpus(topology->local_node, o->workers, cpus, sizeof(cpus))) { free(samples); return -1; }

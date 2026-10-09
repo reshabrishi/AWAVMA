@@ -92,7 +92,7 @@ int main(void)
     check(47, "TWO_WARMUP_PER_PROFILE_PLACEMENT", has(collector_main, "run < o->warmup_runs") && has(collector_main, ".warmup_runs = C2A_WARMUP_RUNS"));
     check(48, "SEVEN_MEASURED_PER_PROFILE_PLACEMENT", has(collector_main, ".measured_runs = C2A_MEASURED_RUNS") && has(collector_main, "o->warmup_runs + o->measured_runs"));
     check(49, "STARTUP_DISCARD_2000", has(collector_main, "C2A_DISCARD_MS 2000U") && has(collector_main, "elapsed_ms[activities[i].worker_index] > discard_ms"));
-    check(50, "HIGH_EXPLICIT_CONTROLLED_100", matrix[2].intensity_percent == 100 && has(collector_main, "--intensity-percent") && has(collector_main, "snprintf(argv[18]"));
+    check(50, "HIGH_EXPLICIT_CONTROLLED_100", matrix[2].intensity_percent == 100 && has(collector_main, "--intensity-percent") && has(collector_main, "intensity_text"));
     check(51, "REAL_HARDWARE_CONTEXT_NO_PLACEHOLDERS", has(collector_main, "fopen(\"/proc/cpuinfo\"") && !has(collector_main, "placeholder"));
     check(52, "CPU_VENDOR_POPULATED", has(collector_main, "vendor_id") && has(collector_main, "context->cpu_vendor"));
     check(53, "CPU_MODEL_POPULATED", has(collector_main, "model name") && has(collector_main, "context->cpu_model_name"));
@@ -152,6 +152,9 @@ int main(void)
     check(107, "END_DRIFT_WRITES_INVALID_ROW", has(collector_main, "read_placement_csv") && has(collector_main, "BENCHMARK_EXIT_NONZERO"));
     check(108, "RESTORE_FAILURE_WRITES_INVALID_ROW", has(collector_main, "restore_status") && has(collector_main, "numa_balancing_restore_readback_failed"));
     check(109, "NO_TRANSIENT_FIELDS_ADDED_TO_C2A2_ARTIFACTS", !has(collector_main, "worker0_tid,worker0_cpu") || has(collector_main, "calibration_runs.csv"));
+    check(110, "CONTROLLED_LAUNCH_OMITS_MEMORY_NODE", !has(collector_main, "\"--memory-node\"") && has(collector_main, "\"--placement-mode\"") && has(collector_main, "\"--placement-evidence\"") && has(collector_main, "\"--worker-cpus\"") && has(collector_main, "\"--intensity-percent\""));
+    check(111, "BENCHMARK_MEMORY_NODE_CONFLICT_GUARD_PRESERVED", has(benchmark, "controlled placement conflicts with --memory-node"));
+    check(112, "NUMA_NODE_COUNT_FROM_REAL_TOPOLOGY", has(collector_main, "context->numa_node_count = topology->permitted_node_count") && has(placement, "topology->permitted_node_count = permitted_node_count") && !has(collector_main, "context->numa_node_count = 2"));
     free(collector_main); free(benchmark); free(placement); free(worker_provider); free(makefile); free(validator);
     return passed ? 0 : 1;
 }

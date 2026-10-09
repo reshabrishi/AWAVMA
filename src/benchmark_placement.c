@@ -41,12 +41,15 @@ const char *benchmark_placement_mode_name(benchmark_placement_mode_t mode)
 }
 
 bool benchmark_placement_select(const benchmark_placement_node_t *nodes, size_t count,
-                                benchmark_placement_topology_t *topology)
+                                 benchmark_placement_topology_t *topology)
 {
     int local = -1, remote = -1, distance = -1;
+    unsigned permitted_node_count = 0;
     if (nodes == NULL || topology == NULL) return false;
-    for (size_t index = 0; index < count; index++)
+    for (size_t index = 0; index < count; index++) {
+        if (nodes[index].permitted_cpus > 0) permitted_node_count++;
         if (nodes[index].permitted_cpus > 0 && (local < 0 || nodes[index].node < local)) local = nodes[index].node;
+    }
     if (local < 0) return false;
     for (size_t index = 0; index < count; index++)
         if (nodes[index].permitted_cpus > 0 && nodes[index].node != local &&
@@ -59,6 +62,7 @@ bool benchmark_placement_select(const benchmark_placement_node_t *nodes, size_t 
     topology->local_node = local;
     topology->remote_node = remote;
     topology->numa_distance = distance;
+    topology->permitted_node_count = permitted_node_count;
     return remote >= 0;
 }
 

@@ -20,6 +20,7 @@ typedef struct {
     int local_node;
     int remote_node;
     int numa_distance;
+    unsigned permitted_node_count;
 } benchmark_placement_topology_t;
 
 typedef struct {
