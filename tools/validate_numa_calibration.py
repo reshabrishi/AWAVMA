@@ -3,6 +3,7 @@ import csv, json, math, os, sys
 from calibration_manifest_trust import TrustError, verify_production_pair
 
 COST_PAGE_COUNT = 4096
+WORKLOADS = {"sequential", "random", "hot", "moderate", "cold", "mixed", "changing"}
 
 
 def valid_cost(row):
@@ -35,17 +36,46 @@ def valid_cost_evidence(path, mode):
     return len(topology) == 1
 
 
-def valid_timing_evidence(path, mode):
+def timing_metrics(path):
+    try:
+        with open(path, newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if len(rows) != 1:
+            return None
+        row = rows[0]
+        operations = int(row.get("operations", ""))
+        execution = float(row.get("execution_time_sec", ""))
+        throughput = float(row.get("throughput_ops_sec", ""))
+        if operations <= 0 or not all(math.isfinite(value) and value > 0 for value in (execution, throughput)):
+            return None
+        return operations, execution, throughput
+    except (OSError, ValueError, csv.Error):
+        return None
+
+
+def valid_timing_evidence(path, mode, selected=None):
     with open(path, newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    required = (4, 2) if mode == "smoke" else (28, 98) if mode == "full" else None
+    selected = ["mixed"] if mode == "smoke" else selected
+    if mode not in ("smoke", "full") or not selected or len(selected) != len(set(selected)) or any(item not in WORKLOADS for item in selected):
+        return False
+    required = (4 * len(selected), 14 * len(selected)) if mode == "full" else (4, 2)
     if required is None:
         raise ValueError("unknown timing evidence mode")
     valid = [row for row in rows if row.get("measurement_valid") == "true"]
     warmups = [row for row in valid if row.get("warmup") == "true"]
     measured = [row for row in valid if row.get("warmup") == "false"]
-    return (len(rows) == sum(required) and len(valid) == len(rows) and
-            len(warmups) == required[0] and len(measured) == required[1])
+    if not (len(rows) == sum(required) and len(valid) == len(rows) and
+            len(warmups) == required[0] and len(measured) == required[1]):
+        return False
+    for workload in selected:
+        workload_rows = [row for row in valid if row.get("benchmark_pattern") == workload]
+        if len([row for row in workload_rows if row.get("warmup") == "true"]) != 4:
+            return False
+        if len([row for row in workload_rows if row.get("warmup") == "false"]) != 2 * (1 if mode == "smoke" else 7):
+            return False
+    return all(row.get("benchmark_pattern") in selected and timing_metrics(row.get("benchmark_artifact", ""))
+               for row in valid)
 
 
 def valid_smoke_gate(path):
@@ -76,7 +106,9 @@ def placement(path, mode):
     return row
 def raw_row(argv):
     row = placement(argv[0], argv[4]) if argv[10] == "true" else {}
-    values = [argv[1], argv[2], "LOCAL_REMOTE" if int(argv[2]) % 2 else "REMOTE_LOCAL", argv[12], "MOVE_MEMORY", argv[3], argv[4], argv[5], argv[6], str(os.sysconf("SC_PAGE_SIZE")), row.get("local_node", ""), row.get("remote_node", ""), row.get("numa_distance", ""), argv[7], argv[8], row.get("verification_status", "FAIL"), row.get("memory_policy_restored", "false"), row.get("total_pages", ""), row.get("queryable_pages", ""), row.get("other_pages", ""), row.get("unknown_pages", ""), argv[0], argv[9], argv[10], argv[11]]
+    metrics = timing_metrics(argv[13]) if argv[10] == "true" else None
+    operations, execution, throughput = (str(value) for value in metrics) if metrics else ("", "", "")
+    values = [argv[1], argv[2], "LOCAL_REMOTE" if int(argv[2]) % 2 else "REMOTE_LOCAL", argv[12], "MOVE_MEMORY", argv[3], argv[4], argv[5], argv[6], str(os.sysconf("SC_PAGE_SIZE")), row.get("local_node", ""), row.get("remote_node", ""), row.get("numa_distance", ""), argv[7], argv[8], row.get("verification_status", "FAIL"), row.get("memory_policy_restored", "false"), row.get("total_pages", ""), row.get("queryable_pages", ""), row.get("other_pages", ""), row.get("unknown_pages", ""), argv[0], argv[13], operations, execution, throughput, argv[9], argv[10], argv[11]]
     print(",".join(values))
 if __name__ == "__main__":
     if len(sys.argv) == 5 and sys.argv[1] == "--calibration-artifact" and sys.argv[3] == "--calibration-manifest":
@@ -88,12 +120,13 @@ if __name__ == "__main__":
     elif len(sys.argv) == 4 and sys.argv[1] == "placement": placement(sys.argv[2], sys.argv[3])
     elif len(sys.argv) == 4 and sys.argv[1] == "cost-valid":
         if not valid_cost_evidence(sys.argv[2], sys.argv[3]): raise SystemExit("COST_EVIDENCE_INVALID")
-    elif len(sys.argv) == 4 and sys.argv[1] == "timing-valid":
-        if not valid_timing_evidence(sys.argv[2], sys.argv[3]): raise SystemExit("TIMING_EVIDENCE_INVALID")
+    elif len(sys.argv) in (4, 5) and sys.argv[1] == "timing-valid":
+        selected = sys.argv[4].split(",") if len(sys.argv) == 5 else None
+        if not valid_timing_evidence(sys.argv[2], sys.argv[3], selected): raise SystemExit("TIMING_EVIDENCE_INVALID")
     elif len(sys.argv) == 3 and sys.argv[1] == "smoke-gate":
         if not valid_smoke_gate(sys.argv[2]): raise SystemExit("SMOKE_GATE_INVALID")
     elif len(sys.argv) == 4 and sys.argv[1] == "production":
         try: verify_production_pair(sys.argv[2], sys.argv[3])
         except TrustError as error: raise SystemExit(str(error))
-    elif len(sys.argv) == 15 and sys.argv[1] == "raw-row": raw_row(sys.argv[2:])
+    elif len(sys.argv) == 16 and sys.argv[1] == "raw-row": raw_row(sys.argv[2:])
     else: raise SystemExit(2)

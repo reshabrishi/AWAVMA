@@ -18,7 +18,7 @@ static void write_manifest(const char *path, const char *mode, unsigned schema,
             "\"timing_valid\":true,\"cost_migration_valid\":true,\"placement_validation_valid\":true,"
             "\"numa_balancing_transaction_valid\":true,\"strict_validation_valid\":true,\"overall_valid\":true,"
             "\"calibration_artifact_basename\":\"calibration.csv\",\"calibration_artifact_sha256\":\"%s\","
-            "\"calibration_record_count\":1,\"calibration_version\":\"p4c-v1\","
+             "\"calibration_record_count\":1,\"calibration_version\":\"p4c-v2\",\"timing_metric\":\"throughput_ops_sec\","
              "\"topology_fingerprints\":[\"top1-0000000000000001\"],\"raw_artifacts\":[{\"path\":\"raw_cost.csv\",\"role\":\"COST\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"size_bytes\":0}]}\n",
             schema, mode, experiment, hash);
     assert(fclose(file) == 0);
@@ -35,7 +35,7 @@ int main(void)
     snprintf(manifest, sizeof(manifest), "%s/manifest.json", directory);
     file = fopen(artifact, "w"); assert(file != NULL); fputs("fixture\n", file); assert(fclose(file) == 0);
     record.status = CALIBRATION_VALIDATED_PRODUCTION;
-    snprintf(record.calibration_version, sizeof(record.calibration_version), "p4c-v1");
+    snprintf(record.calibration_version, sizeof(record.calibration_version), "p4c-v2");
     snprintf(record.collection_experiment_id, sizeof(record.collection_experiment_id), "experiment-1");
     snprintf(record.compatibility.topology_fingerprint, sizeof(record.compatibility.topology_fingerprint),
              "top1-0000000000000001");

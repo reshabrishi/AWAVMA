@@ -69,7 +69,7 @@ static bool match(double cost, ValidatedCalibrationMatch *out)
     r.remote_mean_ms = 100.0; r.paired_penalty_mean_ms = r.paired_penalty_lower_bound_ms = 20.0;
     r.expected_recoverable_gain_pct = 20.0; r.migration_cost_mean_ms = r.migration_cost_conservative_ms = cost;
     r.estimated_cost_pct = cost; r.successful_pages = 1; r.placement_evidence_schema_version = 1;
-    snprintf(r.calibration_version, sizeof(r.calibration_version), "p4c-v1");
+    snprintf(r.calibration_version, sizeof(r.calibration_version), "p4c-v2");
     snprintf(r.collection_experiment_id, sizeof(r.collection_experiment_id), "blocker6");
     snprintf(r.created_at_utc, sizeof(r.created_at_utc), "2026-10-10T00:00:00Z");
     snprintf(r.compatibility.cpu_architecture, sizeof(r.compatibility.cpu_architecture), "test");

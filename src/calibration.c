@@ -130,7 +130,7 @@ int calibration_write_csv(const char *path, const CalibrationRecord *r)
 static bool record_valid(const CalibrationRecord *r, const CalibrationPolicy *p)
 {
     char topology[CALIBRATION_ID_MAX], id[CALIBRATION_ID_MAX]; double gain, cost;
-    if (r->schema_version != CALIBRATION_SCHEMA_VERSION || strcmp(r->calibration_version, "p4c-v1") != 0 ||
+    if (r->schema_version != CALIBRATION_SCHEMA_VERSION || strcmp(r->calibration_version, "p4c-v2") != 0 ||
         r->placement_evidence_schema_version != 1 || strcmp(r->rejection_reason, "none") != 0 ||
         !id_valid(r->calibration_id, "cal1-") ||
         !id_valid(r->compatibility.topology_fingerprint, "top1-") || !id_valid(r->local_placement_artifact_hash, "art1-") ||

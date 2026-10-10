@@ -10,7 +10,8 @@ from pathlib import Path
 SCHEMA_VERSION = 4
 COLLECTION_KIND = "AWAVMA_P4_CALIBRATION_COLLECTION"
 AUTHORITY_KIND = "AWAVMA_P4_CALIBRATION_AUTHORITY"
-CALIBRATION_VERSION = "p4c-v1"
+CALIBRATION_VERSION = "p4c-v2"
+TIMING_METRIC = "throughput_ops_sec"
 VALIDATION_FIELDS = (
     "timing_valid",
     "cost_migration_valid",
@@ -108,6 +109,10 @@ def validate_collection_manifest(manifest, experiment_id):
         raise TrustError("CALIBRATION_COLLECTION_NOT_FULL_CANDIDATE")
     if manifest.get("status") != "PRODUCTION_AUTHORITY_CANDIDATE":
         raise TrustError("CALIBRATION_COLLECTION_STATUS_INVALID")
+    if manifest.get("timing_metric") != TIMING_METRIC:
+        raise TrustError("CALIBRATION_COLLECTION_METRIC_PROVENANCE_INVALID")
+    if manifest.get("calibration_version") != CALIBRATION_VERSION:
+        raise TrustError("CALIBRATION_COLLECTION_VERSION_MISMATCH")
     if any(manifest.get(field) is not True for field in VALIDATION_FIELDS):
         raise TrustError("CALIBRATION_COLLECTION_VALIDATION_FAILED")
     if manifest.get("numa_balancing_restore_status") != "RESTORED":
@@ -124,6 +129,8 @@ def verify_production_pair(artifact_path, manifest_path):
         raise TrustError("CALIBRATION_NOT_PRODUCTION_AUTHORITY")
     if manifest.get("status") != "VALIDATED_PRODUCTION":
         raise TrustError("CALIBRATION_AUTHORITY_STATUS_INVALID")
+    if manifest.get("timing_metric") != TIMING_METRIC:
+        raise TrustError("CALIBRATION_AUTHORITY_METRIC_PROVENANCE_INVALID")
     if any(manifest.get(field) is not True for field in VALIDATION_FIELDS):
         raise TrustError("CALIBRATION_AUTHORITY_VALIDATION_FAILED")
     if manifest.get("numa_balancing_restore_status") != "RESTORED":

@@ -102,7 +102,27 @@ row = rows[0]
 required = ('placement_mode', 'verification_status', 'memory_policy_restored')
 if any(not row.get(field, '') for field in required) or row['placement_mode'] != mode:
     raise SystemExit('placement artifact is malformed or has wrong mode')
-if row['verification_status'] != 'PASS' or row['memory_policy_restored'] != 'true':
+if mode == 'default':
+    structural = ('schema_version', 'local_node', 'remote_node', 'requested_memory_node',
+                  'numa_distance', 'total_pages', 'queryable_pages', 'expected_node_pages',
+                  'local_pages', 'remote_pages', 'other_pages', 'unknown_pages',
+                  'expected_node_ratio', 'observed_dominant_node', 'verification_reason')
+    if any(not row.get(field, '') for field in structural):
+        raise SystemExit('default placement artifact is malformed')
+    try:
+        total, queryable, expected, local, remote, other, unknown = (
+            int(row[field]) for field in ('total_pages', 'queryable_pages', 'expected_node_pages',
+                                          'local_pages', 'remote_pages', 'other_pages', 'unknown_pages'))
+        float(row['expected_node_ratio'])
+    except ValueError:
+        raise SystemExit('default placement artifact has invalid page accounting')
+    if (total <= 0 or min(queryable, expected, local, remote, other, unknown) < 0 or
+            queryable + unknown != total or local + remote + other != queryable or
+            expected > queryable):
+        raise SystemExit('default placement artifact has invalid page accounting')
+    if row['verification_status'] != 'OBSERVED' or row['memory_policy_restored'] != 'true':
+        raise SystemExit('default placement was not observed or memory policy was not restored')
+elif row['verification_status'] != 'PASS' or row['memory_policy_restored'] != 'true':
     raise SystemExit('placement was not verified and memory policy was not restored')
 print(','.join(row.get(field, '') for field in ('placement_mode', 'local_node', 'requested_memory_node', 'numa_distance', 'total_pages', 'queryable_pages', 'local_pages', 'remote_pages', 'other_pages', 'unknown_pages', 'expected_node_ratio', 'verification_status', 'memory_policy_restored')))
 PY
@@ -333,10 +353,12 @@ PY
     [[ "$code" == 0 ]] && status=MEASURED
     if [[ -n "$placement_fields" ]]; then IFS=, read -r placement_mode thread_node memory_node distance total_pages queryable_pages local_pages remote_pages other_pages unknown_pages expected_ratio placement_status policy_restored <<<"$placement_fields"; fi
     initial_placement_status=$placement_status
+    [[ "$placement_mode" == default && "$initial_placement_status" == OBSERVED ]] && initial_placement_status=PASS
     if [[ -n "$final_placement_fields" ]]; then
         local final_mode final_thread final_memory final_distance final_total final_queryable final_local final_remote final_other final_unknown final_ratio final_status final_restored
         IFS=, read -r final_mode final_thread final_memory final_distance final_total final_queryable final_local final_remote final_other final_unknown final_ratio final_status final_restored <<<"$final_placement_fields"
         final_placement_status=$final_status
+        [[ "$final_mode" == default && "$final_placement_status" == OBSERVED ]] && final_placement_status=PASS
     fi
     [[ -f "$placement_path.start" ]] && mv "$placement_path.start" "${placement_path%.csv}.start.csv"
     [[ -f "$placement_path" ]] && mv "$placement_path" "$final_placement_path"

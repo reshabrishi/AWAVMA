@@ -13,7 +13,7 @@ static ValidatedCalibrationMatch match_for(void)
     match.source_node = 1; match.destination_node = 0; match.migration_page_bucket = 4096;
     match.expected_gain_pct = 8.0; match.effective_cost_pct = 7.0;
     snprintf(match.calibration_id, sizeof(match.calibration_id), "cal1-0123456789abcdef");
-    snprintf(match.calibration_version, sizeof(match.calibration_version), "p4c-v1");
+    snprintf(match.calibration_version, sizeof(match.calibration_version), "p4c-v2");
     snprintf(match.collection_experiment_id, sizeof(match.collection_experiment_id), "p4c-authoritative");
     return match;
 }

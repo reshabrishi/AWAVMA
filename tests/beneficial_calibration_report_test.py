@@ -12,16 +12,16 @@ def main() -> int:
         with source.open("w", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS); writer.writeheader()
             writer.writerows([dict(zip(FIELDS, row)) for row in (
-                ("run-1", "VALIDATED_PRODUCTION", "p4c-v1", "top1-fixture", "20", "1", "1", "2", "positive"),
-                ("run-1", "VALIDATED_PRODUCTION", "p4c-v1", "top1-fixture", "4", "1", "1", "2", "zero"),
-                ("run-1", "VALIDATED_PRODUCTION", "p4c-v1", "top1-fixture", "2", "1", "1", "2", "negative"))])
+                ("run-1", "VALIDATED_PRODUCTION", "p4c-v2", "top1-fixture", "20", "1", "1", "2", "positive"),
+                ("run-1", "VALIDATED_PRODUCTION", "p4c-v2", "top1-fixture", "4", "1", "1", "2", "zero"),
+                ("run-1", "VALIDATED_PRODUCTION", "p4c-v2", "top1-fixture", "2", "1", "1", "2", "negative"))])
         base = {"schema_version":4, "kind":"AWAVMA_P4_CALIBRATION_AUTHORITY", "mode":"full",
                 "status":"VALIDATED_PRODUCTION", "production_authority":True, "collection_experiment_id":"run-1",
                 "numa_balancing_restore_status":"RESTORED", "timing_valid":True, "cost_migration_valid":True,
                 "placement_validation_valid":True, "numa_balancing_transaction_valid":True,
                 "strict_validation_valid":True, "overall_valid":True, "calibration_artifact_basename":source.name,
                 "calibration_artifact_sha256":hashlib.sha256(source.read_bytes()).hexdigest(),
-                "calibration_record_count":3, "calibration_version":"p4c-v1", "topology_fingerprints":["top1-fixture"],
+                "calibration_record_count":3, "calibration_version":"p4c-v2", "timing_metric":"throughput_ops_sec", "topology_fingerprints":["top1-fixture"],
                 "raw_artifacts":[{"path":"raw_cost.csv","role":"COST","sha256":"0" * 64,"size_bytes":0}]}
         manifest.write_text(json.dumps(base))
         command = [sys.executable, str(TOOL), "--calibration", str(source), "--production-manifest", str(manifest), "--output", str(output)]

@@ -83,7 +83,7 @@ static bool controlled_workload_valid(const awavma_controlled_workload_t *worklo
             if (strcmp(workload->pattern, patterns[index]) == 0) pattern_valid = true;
     return workload != NULL && workload->enabled &&
         workload->schema_version == AWAVMA_CONTROLLED_WORKLOAD_SCHEMA_VERSION &&
-        workload->calibration_version != NULL && strcmp(workload->calibration_version, "p4c-v1") == 0 &&
+        workload->calibration_version != NULL && strcmp(workload->calibration_version, "p4c-v2") == 0 &&
         pattern_valid &&
         workload->threads != 0 && workload->memory_bytes != 0 && workload->memory_pages != 0 &&
         isfinite(workload->duration_seconds) && workload->duration_seconds > 0.0 && page_size > 0 &&
@@ -2530,7 +2530,7 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     config->calibration_manifest_path = NULL;
     memset(&config->controlled_workload, 0, sizeof(config->controlled_workload));
     config->controlled_workload.schema_version = AWAVMA_CONTROLLED_WORKLOAD_SCHEMA_VERSION;
-    config->controlled_workload.calibration_version = "p4c-v1";
+    config->controlled_workload.calibration_version = "p4c-v2";
     application_discovery_config_default(&config->discovery_config);
     config->discovery_admission = NULL;
     config->discovery_admission_context = NULL;

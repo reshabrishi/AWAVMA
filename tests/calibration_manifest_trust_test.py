@@ -30,7 +30,7 @@ def main():
                  "numa_balancing_restore_status":"RESTORED", "timing_valid":True,
                  "cost_migration_valid":True, "placement_validation_valid":True,
                  "numa_balancing_transaction_valid":True, "strict_validation_valid":True,
-                  "overall_valid":True,
+                   "overall_valid":True,"calibration_version":"p4c-v2","timing_metric":"throughput_ops_sec",
                   "raw_artifacts":[{"path":"raw_cost.csv","role":"COST","sha256":"0" * 64,"size_bytes":0}]}
     validate_collection_manifest(candidate, "experiment-1")
     collection_cases = [("mode", "smoke"), ("status", "NOT_PRODUCTION_CALIBRATION"),
@@ -49,7 +49,7 @@ def main():
         with artifact.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader()
             writer.writerow({"collection_experiment_id":"experiment-1", "calibration_status":"VALIDATED_PRODUCTION",
-                             "calibration_version":"p4c-v1", "topology_fingerprint":"top1-0000000000000001"})
+                              "calibration_version":"p4c-v2", "topology_fingerprint":"top1-0000000000000001"})
         base = {"schema_version":4, "kind":"AWAVMA_P4_CALIBRATION_AUTHORITY", "mode":"full",
                 "status":"VALIDATED_PRODUCTION", "production_authority":True,
                 "collection_experiment_id":"experiment-1", "numa_balancing_restore_status":"RESTORED",
@@ -57,7 +57,7 @@ def main():
                 "numa_balancing_transaction_valid":True, "strict_validation_valid":True, "overall_valid":True,
                 "calibration_artifact_basename":artifact.name,
                 "calibration_artifact_sha256":hashlib.sha256(artifact.read_bytes()).hexdigest(),
-                "calibration_record_count":1, "calibration_version":"p4c-v1",
+                 "calibration_record_count":1, "calibration_version":"p4c-v2", "timing_metric":"throughput_ops_sec",
                  "topology_fingerprints":["top1-0000000000000001"],
                  "raw_artifacts":[{"path":"raw_cost.csv","role":"COST","sha256":"0" * 64,"size_bytes":0}]}
         manifest_path.write_text(json.dumps(base), encoding="utf-8")
@@ -70,7 +70,7 @@ def main():
             ("placement_validation_valid", False), ("numa_balancing_transaction_valid", False),
             ("strict_validation_valid", False), ("overall_valid", False),
             ("calibration_artifact_basename", "other.csv"), ("calibration_artifact_sha256", "0" * 64),
-            ("calibration_record_count", 2), ("calibration_version", "p4c-v2"),
+            ("calibration_record_count", 2), ("calibration_version", "p4c-v1"), ("timing_metric", "elapsed_ms"),
             ("topology_fingerprints", ["top1-ffffffffffffffff"]),
         ]
         for key, value in cases:

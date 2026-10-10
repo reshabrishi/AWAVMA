@@ -17,7 +17,7 @@ bool empirical_memory_decision(const ValidatedCalibrationMatch *match,
 
     if (match == NULL || facts == NULL || match->status != CALIBRATION_MATCHED ||
         match->calibration_status != CALIBRATION_VALIDATED_PRODUCTION ||
-        strcmp(match->calibration_version, "p4c-v1") != 0 ||
+        strcmp(match->calibration_version, "p4c-v2") != 0 ||
         match->action != VALIDATION_ACTION_MOVE_MEMORY ||
         facts->requested_action != VALIDATION_ACTION_MOVE_MEMORY ||
         !facts->identity_authoritative || !facts->identity_current ||

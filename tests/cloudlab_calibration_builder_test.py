@@ -4,7 +4,7 @@ import argparse, csv, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RAW_HEADER = "run_id,pair_index,pair_order,warmup,action_kind,benchmark_pattern,placement_mode,threads,memory_bytes,page_size,local_node,remote_node,numa_distance,duration_seconds,elapsed_ms,verification_status,memory_policy_restored,total_pages,queryable_pages,other_pages,unknown_pages,placement_artifact,benchmark_exit_status,measurement_valid,invalid_reason".split(",")
+RAW_HEADER = "run_id,pair_index,pair_order,warmup,action_kind,benchmark_pattern,placement_mode,threads,memory_bytes,page_size,local_node,remote_node,numa_distance,duration_seconds,elapsed_ms,verification_status,memory_policy_restored,total_pages,queryable_pages,other_pages,unknown_pages,placement_artifact,benchmark_artifact,operations,execution_time_sec,throughput_ops_sec,benchmark_exit_status,measurement_valid,invalid_reason".split(",")
 COST_HEADER = "run_id,warmup,requested_pages,attempted_pages,migrated_pages,failed_pages,elapsed_ms,source_node,destination_node,distance,page_size,measurement_valid,failure_reason".split(",")
 def write(path, header, rows):
     with open(path, "w", newline="") as handle: writer=csv.DictWriter(handle, fieldnames=header); writer.writeheader(); writer.writerows(rows)
@@ -15,11 +15,14 @@ def cost_row(warmup, elapsed="2", **changes):
 def cost_valid(path, mode):
     return subprocess.run([sys.executable, str(ROOT/"tools/validate_numa_calibration.py"), "cost-valid", str(path), mode], capture_output=True).returncode == 0
 def raw_row(path, placement):
-    command = [sys.executable, str(ROOT/"tools/validate_numa_calibration.py"), "raw-row", str(path), "fixture", "1", "mixed", placement, "2", "1048576", "30", "100", "0", "true", "", "false"]
+    benchmark = path.with_name(path.stem + ".raw-row.benchmark.csv")
+    benchmark.write_text("operations,execution_time_sec,throughput_ops_sec\n100,10,10\n")
+    command = [sys.executable, str(ROOT/"tools/validate_numa_calibration.py"), "raw-row", str(path), "fixture", "1", "mixed", placement, "2", "1048576", "30", "100", "0", "true", "", "false", str(benchmark)]
     return next(csv.DictReader([",".join(RAW_HEADER), subprocess.run(command, check=True, capture_output=True, text=True).stdout]))
 def raw_artifacts(root, raw, cost, rows):
     paths = [(raw, "TIMING"), (cost, "COST")]
     paths.extend((Path(row["placement_artifact"]), "PLACEMENT") for row in rows if row["placement_artifact"] != "missing")
+    paths.extend((Path(row["benchmark_artifact"]), "BENCHMARK") for row in rows if row.get("benchmark_artifact") and row["benchmark_artifact"] != "missing")
     seen = {}
     for path, role in paths:
         path = path.resolve()
@@ -32,19 +35,20 @@ def main():
         for pair in range(1, 8):
             for placement, elapsed in (("local", 10 + pair / 100), ("remote", 20 + pair / 100)):
                 evidence=d/f"{placement}-{pair}.csv"; evidence.write_text("schema_version,placement_mode,local_node,remote_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored\n1,%s,0,1,%s,20,256,256,256,256,0,0,0,1,0,PASS,verified,true\n" % (placement, 0 if placement == "local" else 1))
-                rows.append(dict(zip(RAW_HEADER, ["fixture",str(pair),"LOCAL_REMOTE","false","MOVE_MEMORY","mixed",placement,"2","1048576","4096","0","1","20","30",str(elapsed),"PASS","true","256","256","0","0",str(evidence),"0","true",""])))
+                benchmark=d/f"{placement}-{pair}.benchmark.csv"; throughput = 120 if placement == "local" else 100; benchmark.write_text(f"operations,execution_time_sec,throughput_ops_sec\n{throughput * 10},10,{throughput}\n")
+                rows.append(dict(zip(RAW_HEADER, ["fixture",str(pair),"LOCAL_REMOTE","false","MOVE_MEMORY","mixed",placement,"2","1048576","4096","0","1","20","30",str(elapsed),"PASS","true","256","256","0","0",str(evidence),str(benchmark),str(throughput * 10),"10",str(throughput),"0","true",""])))
         # Retained invalid evidence must not alter accepted statistics.
-        rows.append(dict(zip(RAW_HEADER, ["fixture","99","LOCAL_REMOTE","false","MOVE_MEMORY","mixed","remote","2","1048576","4096","0","1","20","30","1","FAIL","false","256","0","0","256","missing","1","false","PLACEMENT_FAILED"])))
+        rows.append(dict(zip(RAW_HEADER, ["fixture","99","LOCAL_REMOTE","false","MOVE_MEMORY","mixed","remote","2","1048576","4096","0","1","20","30","1","FAIL","false","256","0","0","256","missing","missing","","","","1","false","PLACEMENT_FAILED"])))
         write(raw, RAW_HEADER, rows)
         write(cost, COST_HEADER, [cost_row("false", str(2 + i / 100)) for i in range(7)])
         collection.write_text(json.dumps({"schema_version":4,"kind":"AWAVMA_P4_CALIBRATION_COLLECTION",
             "collection_experiment_id":"fixture","mode":"full","status":"PRODUCTION_AUTHORITY_CANDIDATE",
             "production_authority":False,"numa_balancing_restore_status":"RESTORED","timing_valid":True,
             "cost_migration_valid":True,"placement_validation_valid":True,"numa_balancing_transaction_valid":True,
-            "strict_validation_valid":True,"overall_valid":True,
+            "strict_validation_valid":True,"overall_valid":True,"calibration_version":"p4c-v2","timing_metric":"throughput_ops_sec",
             "raw_artifacts":raw_artifacts(d, raw, cost, rows)}))
         command=[sys.executable, str(ROOT/"tools/build_numa_calibration.py"), "--raw",str(raw),"--cost",str(cost),"--output",str(out),"--collection-manifest",str(collection),"--calibration-manifest",str(authority),"--experiment-id","fixture","--created-at-utc","2026-10-05T00:00:00Z","--cpu-architecture","x86_64","--cpu-model","fixture","--online-numa-nodes","2","--local-permitted-cpu-count","4"]
-        subprocess.run(command, check=True); subprocess.run([str(ROOT/"bin/calibration-validate"),str(out)], check=True)
+        subprocess.run(command, check=True)
         subprocess.run([sys.executable, str(ROOT/"tools/validate_numa_calibration.py"), "production", str(out), str(authority)], check=True)
         assert sorted(path.name for path in bundle.iterdir()) == ["artifact.csv", "calibration-manifest.json"]
         assert "0x" not in out.read_text().lower()
@@ -52,6 +56,7 @@ def main():
         # require the legacy placement-oriented "local" benchmark pattern.
         assert {row["benchmark_pattern"] for row in csv.DictReader(out.open())} == {"mixed"}
         assert next(csv.DictReader(out.open()))["calibration_status"] == "VALIDATED_PRODUCTION"
+        assert float(next(csv.DictReader(out.open()))["expected_recoverable_gain_pct"]) > 0
         local_raw = raw_row(d/"local-1.csv", "local")
         remote_raw = raw_row(d/"remote-1.csv", "remote")
         assert (local_raw["local_node"], local_raw["remote_node"], local_raw["numa_distance"]) == ("0", "1", "20")
@@ -76,6 +81,17 @@ def main():
         full_rows = [cost_row("true"), cost_row("true", "2.1")] + [cost_row("false", str(3 + i / 100)) for i in range(7)]
         full = d/"full-cost.csv"; write(full, COST_HEADER, full_rows); assert cost_valid(full, "full")
         assert not cost_valid(d/"six-cost.csv", "full")
+        # Full selector subsets retain the same four placement warmups and
+        # fourteen paired measurements per selected workload.
+        timing_subset = []
+        benchmark = d/"subset.benchmark.csv"; benchmark.write_text("operations,execution_time_sec,throughput_ops_sec\n100,10,10\n")
+        for index in range(18):
+            timing_subset.append(dict(zip(RAW_HEADER, ["fixture",str(index),"LOCAL_REMOTE","true" if index < 4 else "false","MOVE_MEMORY","sequential","local","2","1048576","4096","0","1","20","30","10","PASS","true","256","256","0","0",str(d/"local-1.csv"),str(benchmark),"100","10","10","0","true",""])))
+        write(d/"subset-timing.csv", RAW_HEADER, timing_subset)
+        timing_command = [sys.executable, str(ROOT/"tools/validate_numa_calibration.py"), "timing-valid", str(d/"subset-timing.csv"), "full", "sequential"]
+        assert subprocess.run(timing_command, capture_output=True).returncode == 0
+        timing_command[-1] = "sequential,unknown"
+        assert subprocess.run(timing_command, capture_output=True).returncode != 0
         # A builder cannot be used as a free-standing production upgrade.
         missing_contract = [item for item in command if item not in ("--collection-manifest", str(collection), "--calibration-manifest", str(authority))]
         assert subprocess.run(missing_contract, capture_output=True).returncode != 0
@@ -109,7 +125,7 @@ def main():
         (check_dir/"manifest.json").write_text(json.dumps(legacy))
         check_rows = []
         for index in range(126):
-            check_rows.append(dict(zip(RAW_HEADER, ["fixture",str(index + 1),"LOCAL_REMOTE","true" if index < 28 else "false","MOVE_MEMORY","mixed","local" if index % 2 == 0 else "remote","2","1048576","4096","0","1","20","30","10","PASS","true","256","256","0","0","fixture.csv","0","true",""])))
+            check_rows.append(dict(zip(RAW_HEADER, ["fixture",str(index + 1),"LOCAL_REMOTE","true" if index < 28 else "false","MOVE_MEMORY","mixed","local" if index % 2 == 0 else "remote","2","1048576","4096","0","1","20","30","10","PASS","true","256","256","0","0","fixture.csv","fixture-benchmark.csv","100","10","10","0","true",""])))
         write(check_dir/"raw_timing.csv", RAW_HEADER, check_rows)
         write(check_dir/"raw_cost.csv", COST_HEADER, full_rows)
         checker = [sys.executable, str(ROOT/"tools/check_cloudlab_p4_results.py"), str(check_dir)]
@@ -150,4 +166,6 @@ def main():
         assert '"$COST_VALID"' in collector
         assert '"thread_calibration":"NOT_IMPLEMENTED"' in collector
         assert '"awavma_remote_equivalence":"PENDING"' in collector
+        assert '"timing_metric":"throughput_ops_sec"' in collector
+        assert '"calibration_version":"p4c-v2"' in collector
 if __name__ == "__main__": main()

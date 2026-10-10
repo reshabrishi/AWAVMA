@@ -8,7 +8,7 @@ enables normal AWAVMA production migration execution.
 2. Run `sudo --preserve-env=P4C_OUTPUT_DIR env P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --smoke` and inspect its retained
    placement CSVs and `manifest.json`.
 3. Only after a successful smoke, run the same exact privileged command with `--full`.
-4. Supply the retained raw timing, authenticated 4096-page cost CSV, and collection
+4. Supply the retained raw timing, benchmark CSV artifacts, authenticated 4096-page cost CSV, and collection
    manifest to `tools/build_numa_calibration.py`. Its CSV and production manifest
    paths must be distinct files in a new bundle directory; it stages both files as
    a sibling and atomically publishes the directory without replacing a collision.
@@ -32,16 +32,24 @@ requires the value to remain `0` throughout collection and restores and verifies
 the original value on normal exit and signals. Restoration failure overrides an
 otherwise successful run.
 
-Schema-2 manifests retain `numa_balancing_original`,
+Schema-4 manifests retain `numa_balancing_original`,
 `numa_balancing_during`, `numa_balancing_restore_status`, `timing_valid`,
 `cost_migration_valid`, `numa_balancing_transaction_valid`, and `overall_valid`.
 Smoke promotion and successful exit require every timing, cost, transaction,
-and restoration gate. Full mode requires that promoted schema-2 smoke gate;
-legacy schema-1 artifacts remain diagnostically readable but provide no claim
-of a controlled NUMA-balancing transaction.
+and restoration gate. Full mode requires that promoted smoke gate; historical
+artifacts remain diagnostically readable but are not production trust inputs.
 Smoke is always labelled `NOT_PRODUCTION_CALIBRATION`; it is not a production
 artifact. The builder requires at least seven valid pairs and seven exact,
 successful 4096-page `move_pages` cost observations for every production record.
+
+Every timing invocation passes benchmark `--output` and retains one benchmark CSV
+with `operations`, `execution_time_sec`, and `throughput_ops_sec`. These CSVs,
+the raw timing CSV, cost CSV, and placement CSVs are SHA-256 listed in the
+collection manifest; the builder re-verifies their bytes and copied timing
+metrics. The P4-C v2 gain is the one-sided 95% lower bound of paired
+`(local_tp - remote_tp) / remote_tp * 100`, where `tp` is `throughput_ops_sec`.
+Migration cost percent uses the conservative migration cost converted to seconds
+and normalized by mean remote `execution_time_sec`.
 
 The paired lower bound and migration cost upper bound use a one-sided 95% Student
 t interval. `uncertainty_pct` is zero because those bounds already represent the
@@ -58,6 +66,12 @@ and rejects unequal nodes, while its access loop is sequential. It is therefore
 a legacy placement-oriented mode, preserved for direct benchmark use but
 semantically redundant and incompatible with the single placement authority
 required by controlled P3 calibration.
+
+Full mode defaults to all seven workloads. To intentionally collect a subset, set
+`P4C_WORKLOADS` to a nonempty, comma-separated list from that matrix, for example
+`P4C_WORKLOADS=sequential,mixed`. Unknown, empty, and duplicate selectors fail
+before collection. Smoke always uses its mixed workload and ignores this selector.
+`p4c-v2` is the only Python-trusted production version; `p4c-v1` is rejected.
 
 Thread calibration is deliberately `NOT_IMPLEMENTED`: P3 memory placement alone
 does not establish a valid CPU-affinity calibration. Persistent files contain no

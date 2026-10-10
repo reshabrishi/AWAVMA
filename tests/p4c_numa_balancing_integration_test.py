@@ -35,10 +35,12 @@ def fixture(directory, original="1", benchmark_failure=False, cost_failure=False
     executable(root / "commands/numactl", "#!/bin/sh\nprintf 'available: 2 nodes (0-1)\\n'\n")
     benchmark = """#!/bin/sh
 artifact=
+output=
 mode=
 while [ $# -gt 0 ]; do
   case "$1" in
     --placement-evidence) artifact=$2; shift 2 ;;
+    --output) output=$2; shift 2 ;;
     --placement-mode) mode=$2; shift 2 ;;
     *) shift ;;
   esac
@@ -46,6 +48,7 @@ done
 %s
 requested=0; [ "$mode" = remote ] && requested=1
 printf 'schema_version,placement_mode,local_node,remote_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored\\n1,%%s,0,1,%%s,20,256,256,256,256,0,0,0,1,0,PASS,verified,true\\n' "$mode" "$requested" >"$artifact"
+printf 'operations,execution_time_sec,throughput_ops_sec\\n100,10,10\\n' >"$output"
 %s
 """ % ("sleep 30" if sleep else ":", "exit 1" if benchmark_failure else "exit 0")
     if changed_during:
@@ -96,11 +99,13 @@ def main():
             assert result.returncode == 0, result.stderr
             assert sysctl.read_text().strip() == original
             assert manifest["schema_version"] == 4
+            assert manifest["timing_metric"] == "throughput_ops_sec"
             assert manifest["numa_balancing_original"] == original
             assert manifest["numa_balancing_during"] == "0"
             assert manifest["numa_balancing_restore_status"] == "RESTORED"
             assert manifest["timing_valid"] and manifest["cost_migration_valid"]
             assert manifest["numa_balancing_transaction_valid"] and manifest["overall_valid"]
+            assert len([entry for entry in manifest["raw_artifacts"] if entry["role"] == "BENCHMARK"]) == 6
             assert (root / "output/smoke/manifest.json").is_file()
         finally:
             temporary.cleanup()
@@ -153,6 +158,16 @@ def main():
                                 capture_output=True, text=True)
         assert result.returncode != 0 and not (root / "output").exists()
 
+    # Full selectors are explicit: unknown, empty, and duplicate values cannot
+    # silently alter the seven-workload default matrix.
+    for selector in ("", "mixed,unknown", "mixed,mixed"):
+        with tempfile.TemporaryDirectory() as directory:
+            root, _, env = fixture(directory)
+            env["P4C_WORKLOADS"] = selector
+            result = subprocess.run([root / "tools/collect_numa_calibration.sh", "--full"], env=env,
+                                    capture_output=True, text=True)
+            assert result.returncode == 2 and "P4C_WORKLOADS_INVALID" in result.stderr
+
     # An environment override can never become a privileged arbitrary write.
     with tempfile.TemporaryDirectory() as directory:
         root, sysctl, env = fixture(directory)
@@ -166,6 +181,7 @@ def main():
     collector = (ROOT / "tools/collect_numa_calibration.sh").read_text()
     assert '"$NUMA_BALANCING_PATH" == "$CANONICAL_NUMA_BALANCING_PATH"' in collector
     assert 'sudo -n sh -c' in collector
+    assert '--output "$benchmark_artifact"' in collector
 
     print("p4c_numa_balancing_integration_test: PASS")
 

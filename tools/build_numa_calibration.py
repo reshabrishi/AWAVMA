@@ -6,7 +6,7 @@ from pathlib import Path
 from calibration_manifest_trust import (AUTHORITY_KIND, CALIBRATION_VERSION,
     SCHEMA_VERSION as MANIFEST_SCHEMA, VALIDATION_FIELDS, read_manifest,
     validate_collection_manifest, verify_raw_artifacts)
-from validate_numa_calibration import valid_cost
+from validate_numa_calibration import timing_metrics, valid_cost
 
 SCHEMA = 1
 MIN_SAMPLES = 7
@@ -51,6 +51,19 @@ def publish_bundle(staging, bundle):
 def valid_placement(row, mode):
     required = ("placement_mode", "verification_status", "memory_policy_restored", "total_pages", "queryable_pages", "other_pages", "unknown_pages")
     return all(row.get(k, "") for k in required) and row["placement_mode"] == mode and row["verification_status"] == "PASS" and row["memory_policy_restored"] == "true" and row["total_pages"] == row["queryable_pages"] and row["other_pages"] == "0" and row["unknown_pages"] == "0"
+def valid_timing_row(row, root):
+    try:
+        artifact = Path(row["benchmark_artifact"]).resolve()
+        artifact.relative_to(root)
+        metrics = timing_metrics(artifact)
+        if not metrics:
+            return False
+        operations, execution, throughput = metrics
+        return (int(row["operations"]) == operations and
+                math.isclose(float(row["execution_time_sec"]), execution, rel_tol=1e-12) and
+                math.isclose(float(row["throughput_ops_sec"]), throughput, rel_tol=1e-12))
+    except (KeyError, ValueError, OSError):
+        return False
 def build(args):
     collection = read_manifest(args.collection_manifest)
     validate_collection_manifest(collection, args.experiment_id)
@@ -66,6 +79,8 @@ def build(args):
         raise SystemExit("CALIBRATION_RAW_EXPERIMENT_MISMATCH")
     if not costs or any(not row.get("run_id", "").startswith(args.experiment_id + "-cost-") for row in costs):
         raise SystemExit("CALIBRATION_COST_EXPERIMENT_MISMATCH")
+    if any(row.get("measurement_valid") == "true" and not valid_timing_row(row, collection_root) for row in raw):
+        raise SystemExit("CALIBRATION_TIMING_METRICS_INVALID")
     groups = defaultdict(list)
     for row in raw:
         if row.get("warmup") != "false" or row.get("measurement_valid") != "true": continue
@@ -76,14 +91,18 @@ def build(args):
     cost_values = [float(r["elapsed_ms"]) for r in valid_costs]; cost_mean, cost_std = mean_std(cost_values); cost_upper = t_bound(cost_mean, cost_std, len(cost_values), True)
     records = []
     for key, rows in sorted(groups.items()):
+        if any(not valid_timing_row(row, collection_root) for row in rows):
+            raise SystemExit("CALIBRATION_TIMING_METRICS_INVALID")
         local = {r["pair_index"]: r for r in rows if r.get("placement_mode") == "local" and valid_placement(r, "local")}
         remote = {r["pair_index"]: r for r in rows if r.get("placement_mode") == "remote" and valid_placement(r, "remote")}
         paired = [(local[p], remote[p]) for p in sorted(set(local) & set(remote))]
         if len(paired) < args.minimum_pairs: raise SystemExit("CALIBRATION_INSUFFICIENT_PAIRS")
-        local_values = [float(a["elapsed_ms"]) for a, _ in paired]; remote_values = [float(b["elapsed_ms"]) for _, b in paired]
+        local_values = [float(a["execution_time_sec"]) * 1000 for a, _ in paired]; remote_values = [float(b["execution_time_sec"]) * 1000 for _, b in paired]
+        local_throughput = [float(a["throughput_ops_sec"]) for a, _ in paired]; remote_throughput = [float(b["throughput_ops_sec"]) for _, b in paired]
         differences = [b - a for a, b in zip(local_values, remote_values)]
-        local_mean, local_std = mean_std(local_values); remote_mean, remote_std = mean_std(remote_values); penalty, penalty_std = mean_std(differences); lower = t_bound(penalty, penalty_std, len(differences))
-        if lower <= 0: raise SystemExit("CALIBRATION_WEAK_EVIDENCE")
+        gains = [(local - remote) / remote * 100 for local, remote in zip(local_throughput, remote_throughput)]
+        local_mean, local_std = mean_std(local_values); remote_mean, remote_std = mean_std(remote_values); penalty, penalty_std = mean_std(differences); lower = t_bound(penalty, penalty_std, len(differences)); gain_mean, gain_std = mean_std(gains); gain_lower = t_bound(gain_mean, gain_std, len(gains))
+        if gain_lower <= 0: raise SystemExit("CALIBRATION_WEAK_EVIDENCE")
         pattern, threads, memory_bytes, page_size, local_node, remote_node, distance, duration = key
         if any((r["source_node"], r["destination_node"], r["distance"], r["page_size"]) !=
                (remote_node, local_node, distance, page_size) for r in valid_costs):
@@ -91,7 +110,7 @@ def build(args):
         topology_text = "|".join((args.cpu_architecture, args.cpu_model, args.online_numa_nodes, local_node, remote_node, distance, args.local_permitted_cpu_count, page_size))
         topology = token("top1", topology_text)
         record = dict(zip(HEADER, [""] * len(HEADER)))
-        record.update(schema_version="1", calibration_version=CALIBRATION_VERSION, created_at_utc=args.created_at_utc, collection_experiment_id=args.experiment_id, calibration_status="VALIDATED_PRODUCTION", cpu_architecture=args.cpu_architecture, cpu_model=args.cpu_model, online_numa_nodes=args.online_numa_nodes, topology_fingerprint=topology, local_node=local_node, remote_node=remote_node, numa_distance=distance, local_permitted_cpu_count=args.local_permitted_cpu_count, page_size_bytes=page_size, benchmark_pattern=pattern, threads=threads, memory_bytes=memory_bytes, memory_pages=str(int(memory_bytes) // int(page_size)), duration_seconds=duration, action_kind="MOVE_MEMORY", source_node=remote_node, destination_node=local_node, migration_page_bucket="4096", valid_pair_count=str(len(paired)), local_mean_ms=f"{local_mean:.9g}", local_stddev_ms=f"{local_std:.9g}", remote_mean_ms=f"{remote_mean:.9g}", remote_stddev_ms=f"{remote_std:.9g}", paired_penalty_mean_ms=f"{penalty:.9g}", paired_penalty_lower_bound_ms=f"{lower:.9g}", expected_recoverable_gain_pct=f"{lower / remote_mean * 100:.9g}", uncertainty_pct="0", safety_margin_pct=f"{args.safety_margin_pct:.9g}", cost_sample_count=str(len(cost_values)), migration_cost_mean_ms=f"{cost_mean:.9g}", migration_cost_stddev_ms=f"{cost_std:.9g}", migration_cost_conservative_ms=f"{cost_upper:.9g}", estimated_cost_pct=f"{cost_upper / remote_mean * 100:.9g}", successful_pages="4096", failed_pages="0", placement_evidence_schema_version="1", local_placement_artifact_hash=artifact_ref(paired[0][0]["placement_artifact"]), remote_placement_artifact_hash=artifact_ref(paired[0][1]["placement_artifact"]), migration_measurement_method="move_pages", rejection_reason="none")
+        record.update(schema_version="2", calibration_version=CALIBRATION_VERSION, created_at_utc=args.created_at_utc, collection_experiment_id=args.experiment_id, calibration_status="VALIDATED_PRODUCTION", cpu_architecture=args.cpu_architecture, cpu_model=args.cpu_model, online_numa_nodes=args.online_numa_nodes, topology_fingerprint=topology, local_node=local_node, remote_node=remote_node, numa_distance=distance, local_permitted_cpu_count=args.local_permitted_cpu_count, page_size_bytes=page_size, benchmark_pattern=pattern, threads=threads, memory_bytes=memory_bytes, memory_pages=str(int(memory_bytes) // int(page_size)), duration_seconds=duration, action_kind="MOVE_MEMORY", source_node=remote_node, destination_node=local_node, migration_page_bucket="4096", valid_pair_count=str(len(paired)), local_mean_ms=f"{local_mean:.9g}", local_stddev_ms=f"{local_std:.9g}", remote_mean_ms=f"{remote_mean:.9g}", remote_stddev_ms=f"{remote_std:.9g}", paired_penalty_mean_ms=f"{penalty:.9g}", paired_penalty_lower_bound_ms=f"{lower:.9g}", expected_recoverable_gain_pct=f"{gain_lower:.9g}", uncertainty_pct="0", safety_margin_pct=f"{args.safety_margin_pct:.9g}", cost_sample_count=str(len(cost_values)), migration_cost_mean_ms=f"{cost_mean:.9g}", migration_cost_stddev_ms=f"{cost_std:.9g}", migration_cost_conservative_ms=f"{cost_upper:.9g}", estimated_cost_pct=f"{cost_upper / 1000 / (remote_mean / 1000) * 100:.9g}", successful_pages="4096", failed_pages="0", placement_evidence_schema_version="1", local_placement_artifact_hash=artifact_ref(paired[0][0]["placement_artifact"]), remote_placement_artifact_hash=artifact_ref(paired[0][1]["placement_artifact"]), migration_measurement_method="move_pages", rejection_reason="none")
         canonical = "|".join((record["schema_version"], record["calibration_version"], record["created_at_utc"], record["collection_experiment_id"], topology, record["benchmark_pattern"], record["action_kind"], record["threads"], record["memory_bytes"], record["memory_pages"], record["duration_seconds"], record["source_node"], record["destination_node"], record["migration_page_bucket"], record["valid_pair_count"], record["local_mean_ms"], record["local_stddev_ms"], record["remote_mean_ms"], record["remote_stddev_ms"], record["paired_penalty_mean_ms"], record["paired_penalty_lower_bound_ms"], record["expected_recoverable_gain_pct"], record["uncertainty_pct"], record["safety_margin_pct"], record["cost_sample_count"], record["migration_cost_mean_ms"], record["migration_cost_stddev_ms"], record["migration_cost_conservative_ms"], record["estimated_cost_pct"], record["successful_pages"], record["failed_pages"], record["local_placement_artifact_hash"], record["remote_placement_artifact_hash"], record["migration_measurement_method"]))
         record["calibration_id"] = f"cal1-{fnv(canonical, 'AWAVMA:calibration:record:v1'):016x}"
         records.append(record)
@@ -105,6 +124,11 @@ def build(args):
                 except ValueError as error:
                     raise SystemExit("CALIBRATION_PLACEMENT_OUTSIDE_COLLECTION") from error
                 required_raw[relative] = "PLACEMENT"
+                try:
+                    relative = Path(row["benchmark_artifact"]).resolve().relative_to(collection_root).as_posix()
+                except (KeyError, ValueError) as error:
+                    raise SystemExit("CALIBRATION_BENCHMARK_OUTSIDE_COLLECTION") from error
+                required_raw[relative] = "BENCHMARK"
     try:
         verify_raw_artifacts(collection, collection_root, required_raw)
     except Exception as error:
@@ -127,7 +151,7 @@ def build(args):
             status="VALIDATED_PRODUCTION", production_authority=True,
             collection_experiment_id=args.experiment_id,
             numa_balancing_restore_status=collection["numa_balancing_restore_status"],
-            calibration_artifact_basename=os.path.basename(output_path),
+            timing_metric="throughput_ops_sec", calibration_artifact_basename=os.path.basename(output_path),
             calibration_artifact_sha256=hashlib.sha256(content).hexdigest(),
             calibration_record_count=len(records), calibration_version=CALIBRATION_VERSION,
             topology_fingerprints=sorted({row["topology_fingerprint"] for row in records}),

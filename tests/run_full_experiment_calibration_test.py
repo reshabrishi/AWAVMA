@@ -52,8 +52,15 @@ import pathlib, sys
 args = sys.argv[1:]
 path = pathlib.Path(args[args.index('--placement-evidence') + 1])
 mode = args[args.index('--placement-mode') + 1]
-header = 'placement_mode,local_node,requested_memory_node,numa_distance,total_pages,queryable_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_pages,expected_node_ratio,verification_status,memory_policy_restored\\n'
-row = f'{mode},0,2,21,10,10,0,10,0,0,10,1.0,PASS,true\\n'
+header = 'schema_version,placement_mode,local_node,remote_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored\\n'
+default = mode == 'default'
+status = __import__('os').environ.get('FIXTURE_DEFAULT_STATUS', 'OBSERVED') if default else __import__('os').environ.get('FIXTURE_EXPLICIT_STATUS', 'PASS')
+if default and __import__('os').environ.get('FIXTURE_DEFAULT_MALFORMED'):
+    header = 'placement_mode,verification_status,memory_policy_restored\\n'
+    row = f'{mode},{status},true\\n'
+else:
+    requested, expected, local, remote, ratio = (-1, 0, 10, 0, '0.0') if default else (2, 10, 0, 10, '1.0')
+    row = f'1,{mode},0,2,{requested},21,10,10,{expected},{local},{remote},0,0,{ratio},0,{status},fixture,true\\n'
 path.write_text(header + row)
 (pathlib.Path(str(path) + '.start')).write_text(header + row)
 output = pathlib.Path(args[args.index('--output') + 1])
@@ -107,6 +114,14 @@ def only_run(output: Path) -> Path:
     runs = list((output / "raw").iterdir())
     assert len(runs) == 1, runs
     return runs[0]
+
+
+def validate_placement(root: Path, artifact: Path, mode: str) -> subprocess.CompletedProcess[str]:
+    command = (
+        f"source <(sed '/^validate_remote_equivalence()/,$d' {shlex.quote(str(root / 'scripts/run_full_experiment.sh'))}); "
+        f"validate_placement {shlex.quote(str(artifact))} {shlex.quote(mode)}"
+    )
+    return subprocess.run(["bash", "-c", command], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def reference_run(base: Path, workload: str = "mixed") -> Path:
@@ -214,6 +229,28 @@ def main() -> int:
         assert all("--calibration-artifact" not in args and "--production-real-migration" not in args for args in invocations)
         assert not (run_dir / "metadata/calibration.csv").exists()
         assert not (run_dir / "runtime-args.txt").exists()
+
+        root, _ = make_root(base / "placement-validation")
+        header = "schema_version,placement_mode,local_node,remote_node,requested_memory_node,numa_distance,total_pages,queryable_pages,expected_node_pages,local_pages,remote_pages,other_pages,unknown_pages,expected_node_ratio,observed_dominant_node,verification_status,verification_reason,memory_policy_restored\n"
+        default = base / "default-observed.csv"
+        default.write_text(header + "1,default,0,2,-1,21,10,7,0,4,3,0,3,0.0,0,OBSERVED,fixture,true\n", encoding="utf-8")
+        assert validate_placement(root, default, "default").returncode == 0
+
+        malformed = base / "default-malformed.csv"
+        malformed.write_text("placement_mode,verification_status,memory_policy_restored\ndefault,OBSERVED,true\n", encoding="utf-8")
+        assert validate_placement(root, malformed, "default").returncode != 0
+
+        wrong_status = base / "default-wrong-status.csv"
+        wrong_status.write_text(header + "1,default,0,2,-1,21,10,10,0,10,0,0,0,0.0,0,PASS,fixture,true\n", encoding="utf-8")
+        assert validate_placement(root, wrong_status, "default").returncode != 0
+
+        explicit_observed = base / "explicit-observed.csv"
+        explicit_observed.write_text(header + "1,remote,0,2,2,21,10,10,10,0,10,0,0,1.0,2,OBSERVED,fixture,true\n", encoding="utf-8")
+        assert validate_placement(root, explicit_observed, "remote").returncode != 0
+
+        explicit_pass = base / "explicit-pass.csv"
+        explicit_pass.write_text(header + "1,remote,0,2,2,21,10,10,10,0,10,0,0,1.0,2,PASS,fixture,true\n", encoding="utf-8")
+        assert validate_placement(root, explicit_pass, "remote").returncode == 0
 
     print("run_full_experiment_calibration_test: PASS")
     return 0

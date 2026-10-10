@@ -19,7 +19,7 @@ typedef struct {
     bool production_authority;
     bool validations[6];
     char kind[64], mode[16], status[32], experiment[CALIBRATION_TEXT_MAX];
-    char restore[16], basename[256], hash[65], version[CALIBRATION_TEXT_MAX];
+    char restore[16], metric[CALIBRATION_TEXT_MAX], basename[256], hash[65], version[CALIBRATION_TEXT_MAX];
     char topologies[MANIFEST_MAX_TOPOLOGIES][CALIBRATION_ID_MAX];
     size_t topology_count;
 } authority_manifest_t;
@@ -84,8 +84,8 @@ static bool topology_array(json_reader_t *r, authority_manifest_t *m)
 }
 static int field_index(const char *key)
 {
-    static const char *fields[]={"schema_version","kind","mode","status","production_authority","collection_experiment_id","numa_balancing_restore_status","timing_valid","cost_migration_valid","placement_validation_valid","numa_balancing_transaction_valid","strict_validation_valid","overall_valid","calibration_artifact_basename","calibration_artifact_sha256","calibration_record_count","calibration_version","topology_fingerprints","raw_artifacts"};
-    for (int i=0;i<19;i++) if (!strcmp(key,fields[i])) return i;
+    static const char *fields[]={"schema_version","kind","mode","status","production_authority","collection_experiment_id","numa_balancing_restore_status","timing_valid","cost_migration_valid","placement_validation_valid","numa_balancing_transaction_valid","strict_validation_valid","overall_valid","timing_metric","calibration_artifact_basename","calibration_artifact_sha256","calibration_record_count","calibration_version","topology_fingerprints","raw_artifacts"};
+    for (int i=0;i<20;i++) if (!strcmp(key,fields[i])) return i;
     return -1;
 }
 static bool parse_manifest(const char *text, size_t length, authority_manifest_t *m)
@@ -104,13 +104,14 @@ static bool parse_manifest(const char *text, size_t length, authority_manifest_t
         case 3: if(!string_value(&r,m->status,sizeof(m->status)))return false; break; case 4: if(!boolean(&r,&m->production_authority))return false; break;
         case 5: if(!string_value(&r,m->experiment,sizeof(m->experiment)))return false; break; case 6: if(!string_value(&r,m->restore,sizeof(m->restore)))return false; break;
         case 7: case 8: case 9: case 10: case 11: case 12: if(!boolean(&r,&m->validations[field-7]))return false; break;
-        case 13: if(!string_value(&r,m->basename,sizeof(m->basename)))return false; break; case 14: if(!string_value(&r,m->hash,sizeof(m->hash)))return false; break;
-        case 15: if(!unsigned_value(&r,&m->record_count))return false; break; case 16: if(!string_value(&r,m->version,sizeof(m->version)))return false; break;
-        case 17: if(!topology_array(&r,m))return false; break; default: if(!skip_value(&r,0))return false;
+        case 13: if(!string_value(&r,m->metric,sizeof(m->metric)))return false; break;
+        case 14: if(!string_value(&r,m->basename,sizeof(m->basename)))return false; break; case 15: if(!string_value(&r,m->hash,sizeof(m->hash)))return false; break;
+        case 16: if(!unsigned_value(&r,&m->record_count))return false; break; case 17: if(!string_value(&r,m->version,sizeof(m->version)))return false; break;
+        case 18: if(!topology_array(&r,m))return false; break; default: if(!skip_value(&r,0))return false;
         }
         whitespace(&r); if(r.cursor<r.end&&*r.cursor=='}'){r.cursor++;break;} if(!character(&r,','))return false;
     }
-    whitespace(&r); return r.cursor==r.end && m->seen==((1U<<19)-1U);
+    whitespace(&r); return r.cursor==r.end && m->seen==((1U<<20)-1U);
 }
 static bool file_sha256(const char *path, char output[65])
 {
@@ -131,18 +132,19 @@ bool calibration_manifest_verify(const char *artifact, const char *manifest_path
     if(m.schema_version!=4||strcmp(m.kind,"AWAVMA_P4_CALIBRATION_AUTHORITY")){reason_set(reason,"CALIBRATION_AUTHORITY_SCHEMA_INVALID");goto done;}
     if(strcmp(m.mode,"full")||!m.production_authority){reason_set(reason,"CALIBRATION_NOT_PRODUCTION_AUTHORITY");goto done;}
     if(strcmp(m.status,"VALIDATED_PRODUCTION")){reason_set(reason,"CALIBRATION_AUTHORITY_STATUS_INVALID");goto done;}
+    if(strcmp(m.metric,"throughput_ops_sec")){reason_set(reason,"CALIBRATION_AUTHORITY_METRIC_PROVENANCE_INVALID");goto done;}
     for(size_t i=0;i<6;i++)if(!m.validations[i]){reason_set(reason,"CALIBRATION_AUTHORITY_VALIDATION_FAILED");goto done;}
     if(strcmp(m.restore,"RESTORED")){reason_set(reason,"CALIBRATION_AUTHORITY_RESTORE_FAILED");goto done;}
     base=strrchr(artifact,'/'); base=base?base+1:artifact;
     if(strcmp(base,m.basename)){reason_set(reason,"CALIBRATION_ARTIFACT_IDENTITY_MISMATCH");goto done;}
     if(strlen(m.hash)!=64||!file_sha256(artifact,hash)||strcmp(hash,m.hash)){reason_set(reason,"CALIBRATION_ARTIFACT_HASH_MISMATCH");goto done;}
     if(snapshot->count==0||m.record_count!=snapshot->count){reason_set(reason,"CALIBRATION_RECORD_COUNT_MISMATCH");goto done;}
-    if(strcmp(m.version,"p4c-v1")){reason_set(reason,"CALIBRATION_VERSION_MISMATCH");goto done;}
+    if(strcmp(m.version,"p4c-v2")){reason_set(reason,"CALIBRATION_VERSION_MISMATCH");goto done;}
     for(size_t j=0;j<m.topology_count;j++) for(size_t k=j+1;k<m.topology_count;k++)
         if(!strcmp(m.topologies[j],m.topologies[k])) goto topology_bad;
     for(size_t i=0;i<snapshot->count;i++){
         const CalibrationRecord *record=&snapshot->records[i]; bool topology=false;
-        if(record->status!=CALIBRATION_VALIDATED_PRODUCTION||strcmp(record->calibration_version,"p4c-v1")||strcmp(record->collection_experiment_id,m.experiment)){reason_set(reason,"CALIBRATION_ARTIFACT_PROVENANCE_MISMATCH");goto done;}
+        if(record->status!=CALIBRATION_VALIDATED_PRODUCTION||strcmp(record->calibration_version,"p4c-v2")||strcmp(record->collection_experiment_id,m.experiment)){reason_set(reason,"CALIBRATION_ARTIFACT_PROVENANCE_MISMATCH");goto done;}
         for(size_t j=0;j<m.topology_count;j++)if(!strcmp(record->compatibility.topology_fingerprint,m.topologies[j]))topology=true;
         if(!topology){reason_set(reason,"CALIBRATION_TOPOLOGY_IDENTITY_MISMATCH");goto done;}
         bool first=true; for(size_t k=0;k<i;k++) if(!strcmp(record->compatibility.topology_fingerprint,snapshot->records[k].compatibility.topology_fingerprint)) first=false;

@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define CALIBRATION_SCHEMA_VERSION 1U
+#define CALIBRATION_SCHEMA_VERSION 2U
 #define CALIBRATION_TEXT_MAX 128U
 #define CALIBRATION_ID_MAX 32U
 #define CALIBRATION_REASON_MAX 160U
