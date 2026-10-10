@@ -9,6 +9,8 @@
 | P5B-001 | P5-B | Real candidate-bound placement/gain/cost evidence | LOCAL_PASS | YES | pending | `apps/<app>/p5_opportunity_state.csv` | Classification and measured activity remain unavailable, so P5 remains fail-closed. |
 | P5C-001 | P5-C | Authenticated worker activity evidence | CLOUDLAB_PASS / COMPLETE | YES | 0be8544 | `apps/<app>/p5_candidate_activity.csv` | Activity remains observational; calibrated classification is tracked separately. |
 | P5C-002 | P5-C | Candidate-thread calibrated classification | IN_PROGRESS | YES | pending | C2A calibration artifacts (C2A-2 pending) | Authoritative CloudLab calibration and runtime classification do not exist. |
+| P4P5-001 | P4/P5 | Exact empirical gain/cost authorization | LOCAL_PASS / LIVE_UNAVAILABLE | YES | pending | `results/cloudlab_calibration/full/p4c-20261010T081928Z-3122/` | Checked records have negative conservative ROI and contradictory production provenance; the live bridge is unavailable. |
+| P7R-001 | P7 | Recovery-aware memory benefit authorization | LOCAL_PASS / LIVE_UNAVAILABLE | YES | pending | safety-manager and benefit-classifier tests | Authorization requires an attempt-bound complete checkpoint and retained rollback; no end-to-end live production migration is established. |
 
 ## B1A-001
 
@@ -74,3 +76,11 @@
 - P5-C.2A-2: artifact persistence is `LOCAL_PASS`: canonical CSV-only `raw_intervals.csv`, `worker_run_summaries.csv`, and one-row `calibration_manifest.csv`; strict text-enum/numeric parsing; core rebuild plus exact summary/manifest verification; and staging-directory publication that refuses final-ID overwrite.
 - P5-C.2A-3: authoritative Matrix A execution design is `LOCAL_PASS` (COL44-89). Defaults are 2 workers/256 MiB/20 s/two warmups/seven measured/2 s discard, producing 54 planned configurations. It records `/proc/cpuinfo` context, uses permitted physical-core-only exact worker pins, collector-owned P2 registration plus worker evidence, start/end placement gates, transactional NUMA-balancing readback/restoration, raw lifecycle/gap labels, and separate diagnostics. The frozen C2A-2 writer publishes separate local/remote artifacts; its loader is exposed by `p5-thread-activity-calibration-validate`. Dry runs are read-only and smoke overrides are non-authoritative. CloudLab execution remains required; no runtime authority was added.
 - Authority boundary: runtime classification remains disabled; B1A and B1B remain unchanged.
+
+## Current Authorization Boundaries
+
+- Empirical `MOVE_MEMORY` classification is not required. The empirical decision contract instead requires current authoritative identity, registration, activity, remote placement, a local destination, and an exact P4 match; ROI is `expected_gain_pct - effective_cost_pct`, where effective cost includes base cost, uncertainty, and safety margin.
+- The checked exact P4 artifact at `results/cloudlab_calibration/full/p4c-20261010T081928Z-3122/numa_calibration.csv` cannot authorize live production migration. Its records have negative conservative ROI after the 1% safety margin, and adjacent `manifest.json` says `NOT_PRODUCTION_CALIBRATION` despite the CSV `VALIDATED_PRODUCTION` labels. The contradiction fails closed; historical files are not altered.
+- The empirical decision helper is not wired into the live runtime. Recovery-aware benefit evaluation now requires a complete attempt-bound page checkpoint, known original placement for every candidate, matching source/target nodes, and a retained rollback provider, but this does not establish an end-to-end live migration path.
+- Production `MOVE_THREAD` remains unavailable without action-matching thread calibration. Matrix A is historical only, and Matrix B is descriptive only; neither authorizes production migration.
+- The Phase 4D runner is current-run-only except for an explicit baseline reference and manages automatic NUMA balancing transactionally. Feedback events remain audit/safety inputs; learning is unavailable until a comparable post-migration observation exists.

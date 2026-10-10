@@ -130,7 +130,9 @@ int calibration_write_csv(const char *path, const CalibrationRecord *r)
 static bool record_valid(const CalibrationRecord *r, const CalibrationPolicy *p)
 {
     char topology[CALIBRATION_ID_MAX], id[CALIBRATION_ID_MAX]; double gain, cost;
-    if (r->schema_version != CALIBRATION_SCHEMA_VERSION || !id_valid(r->calibration_id, "cal1-") ||
+    if (r->schema_version != CALIBRATION_SCHEMA_VERSION || strcmp(r->calibration_version, "p4c-v1") != 0 ||
+        r->placement_evidence_schema_version != 1 || strcmp(r->rejection_reason, "none") != 0 ||
+        !id_valid(r->calibration_id, "cal1-") ||
         !id_valid(r->compatibility.topology_fingerprint, "top1-") || !id_valid(r->local_placement_artifact_hash, "art1-") ||
         !id_valid(r->remote_placement_artifact_hash, "art1-") || !calibration_topology_fingerprint(&r->compatibility, topology) ||
         strcmp(topology, r->compatibility.topology_fingerprint) != 0 || !calibration_record_id(r, id) || strcmp(id, r->calibration_id) != 0 ||
@@ -144,11 +146,15 @@ static bool record_valid(const CalibrationRecord *r, const CalibrationPolicy *p)
         r->paired_penalty_lower_bound_ms <= 0 || r->expected_recoverable_gain_pct <= 0 || r->expected_recoverable_gain_pct > 100 ||
         r->estimated_cost_pct < 0 || r->estimated_cost_pct > 100 || r->uncertainty_pct < 0 || r->uncertainty_pct > 100 || r->safety_margin_pct < 0 || r->safety_margin_pct > 100 ||
         r->estimated_cost_pct + r->uncertainty_pct + r->safety_margin_pct > 100 ||
+        r->paired_penalty_mean_ms < r->paired_penalty_lower_bound_ms ||
+        r->migration_cost_conservative_ms < r->migration_cost_mean_ms ||
         r->migration_cost_conservative_ms < 0 || r->local_stddev_ms < 0 || r->remote_stddev_ms < 0 || r->migration_cost_mean_ms < 0 || r->migration_cost_stddev_ms < 0)
         return false;
     if (r->action == VALIDATION_ACTION_MOVE_MEMORY) {
-        if (r->migration_page_bucket == 0 || r->migration_page_bucket > PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST ||
+        if (r->source_node != r->compatibility.remote_node || r->destination_node != r->compatibility.local_node ||
+            r->migration_page_bucket == 0 || r->migration_page_bucket > PAGE_CANDIDATE_MAX_PAGES_PER_REQUEST ||
             r->successful_pages + r->failed_pages != r->migration_page_bucket ||
+            r->successful_pages != r->migration_page_bucket || r->failed_pages != 0 ||
             strcmp(r->migration_measurement_method, "move_pages") != 0) return false;
     } else if (r->action == VALIDATION_ACTION_MOVE_THREAD) {
         if (r->migration_page_bucket != 0 || r->successful_pages != 0 || r->failed_pages != 0 ||
@@ -220,22 +226,48 @@ malformed: *status = CALIBRATION_MALFORMED; snprintf(reason, CALIBRATION_REASON_
 fail: fclose(file); calibration_snapshot_release(snapshot); return -1;
 malformed_no_file: *status = CALIBRATION_MALFORMED; snprintf(reason, CALIBRATION_REASON_MAX, "CALIBRATION_EMPTY"); calibration_snapshot_release(snapshot); return -1;
 }
+int calibration_load_csv_buffer(const char *bytes, size_t length, const CalibrationPolicy *policy,
+                                CalibrationSnapshot *snapshot, calibration_match_status_t *status,
+                                char reason[CALIBRATION_REASON_MAX])
+{
+    FILE *file; char path[64]; int descriptor;
+    if (bytes == NULL || length == 0 || (file = tmpfile()) == NULL) {
+        if (snapshot != NULL) memset(snapshot, 0, sizeof(*snapshot));
+        if (status != NULL) *status = CALIBRATION_MALFORMED;
+        if (reason != NULL) snprintf(reason, CALIBRATION_REASON_MAX, "CALIBRATION_BUFFER_INVALID");
+        return -1;
+    }
+    if (fwrite(bytes, 1, length, file) != length || fflush(file) != 0 ||
+        (descriptor = fileno(file)) < 0 ||
+        snprintf(path, sizeof(path), "/proc/self/fd/%d", descriptor) >= (int)sizeof(path)) {
+        fclose(file); return -1;
+    }
+    int result = calibration_load_csv(path, policy, snapshot, status, reason);
+    fclose(file);
+    return result;
+}
 void calibration_snapshot_release(CalibrationSnapshot *snapshot) { if (snapshot != NULL) { free(snapshot->records); memset(snapshot, 0, sizeof(*snapshot)); } }
 static bool same_workload(const calibration_workload_t *a, const calibration_workload_t *b) { return strcmp(a->benchmark_pattern, b->benchmark_pattern) == 0 && a->threads == b->threads && a->memory_bytes == b->memory_bytes && a->memory_pages == b->memory_pages && fabs(a->duration_seconds - b->duration_seconds) <= TOLERANCE; }
 calibration_match_status_t calibration_match(const CalibrationSnapshot *snapshot, const CalibrationMatchRequest *request, ValidatedCalibrationMatch *result)
 {
+    calibration_match_status_t best = CALIBRATION_ACTION_MISMATCH;
+    unsigned best_rank = 0;
     if (result == NULL) return CALIBRATION_MALFORMED;
     memset(result, 0, sizeof(*result)); result->status = CALIBRATION_UNAVAILABLE; snprintf(result->reason, sizeof(result->reason), "CALIBRATION_UNAVAILABLE");
     if (snapshot == NULL || request == NULL || snapshot->count == 0) return result->status;
     for (size_t i = 0; i < snapshot->count; i++) {
         const CalibrationRecord *r = &snapshot->records[i];
-        if (r->action != request->action) { result->status = CALIBRATION_ACTION_MISMATCH; continue; }
-        if (strcmp(r->compatibility.cpu_architecture, request->compatibility.cpu_architecture) || strcmp(r->compatibility.cpu_model, request->compatibility.cpu_model) || r->compatibility.online_numa_nodes != request->compatibility.online_numa_nodes || strcmp(r->compatibility.topology_fingerprint, request->compatibility.topology_fingerprint) || r->compatibility.local_node != request->compatibility.local_node || r->compatibility.remote_node != request->compatibility.remote_node || r->compatibility.numa_distance != request->compatibility.numa_distance || r->compatibility.local_permitted_cpu_count != request->compatibility.local_permitted_cpu_count) { result->status = CALIBRATION_TOPOLOGY_MISMATCH; continue; }
-        if (r->compatibility.page_size_bytes != request->compatibility.page_size_bytes) { result->status = CALIBRATION_PAGE_SIZE_MISMATCH; continue; }
-        if (!same_workload(&r->workload, &request->workload)) { result->status = CALIBRATION_WORKLOAD_MISMATCH; continue; }
-        if (r->source_node != request->source_node || r->destination_node != request->destination_node) { result->status = CALIBRATION_MISMATCH; continue; }
-        if (r->action == VALIDATION_ACTION_MOVE_MEMORY && r->migration_page_bucket != request->migration_page_bucket) { result->status = CALIBRATION_BUCKET_MISMATCH; continue; }
-        result->status = CALIBRATION_MATCHED; snprintf(result->reason, sizeof(result->reason), "CALIBRATION_MATCHED"); snprintf(result->calibration_id, sizeof(result->calibration_id), "%s", r->calibration_id); snprintf(result->calibration_version, sizeof(result->calibration_version), "%s", r->calibration_version); snprintf(result->topology_fingerprint, sizeof(result->topology_fingerprint), "%s", r->compatibility.topology_fingerprint); result->action = r->action; result->expected_gain_pct = r->expected_recoverable_gain_pct; result->base_cost_pct = r->estimated_cost_pct; result->uncertainty_pct = r->uncertainty_pct; result->safety_margin_pct = r->safety_margin_pct; result->effective_cost_pct = r->estimated_cost_pct + r->uncertainty_pct + r->safety_margin_pct; result->migration_cost_conservative_ms = r->migration_cost_conservative_ms; result->valid_pair_count = r->valid_pair_count; result->cost_sample_count = r->cost_sample_count; result->source_node = r->source_node; result->destination_node = r->destination_node; result->migration_page_bucket = r->migration_page_bucket; return result->status;
+        calibration_match_status_t mismatch; unsigned rank;
+        if (r->action != request->action) { mismatch = CALIBRATION_ACTION_MISMATCH; rank = 1; }
+        else if (strcmp(r->compatibility.cpu_architecture, request->compatibility.cpu_architecture) || strcmp(r->compatibility.cpu_model, request->compatibility.cpu_model) || r->compatibility.online_numa_nodes != request->compatibility.online_numa_nodes || strcmp(r->compatibility.topology_fingerprint, request->compatibility.topology_fingerprint) || r->compatibility.local_node != request->compatibility.local_node || r->compatibility.remote_node != request->compatibility.remote_node || r->compatibility.numa_distance != request->compatibility.numa_distance || r->compatibility.local_permitted_cpu_count != request->compatibility.local_permitted_cpu_count) { mismatch = CALIBRATION_TOPOLOGY_MISMATCH; rank = 2; }
+        else if (r->compatibility.page_size_bytes != request->compatibility.page_size_bytes) { mismatch = CALIBRATION_PAGE_SIZE_MISMATCH; rank = 3; }
+        else if (!same_workload(&r->workload, &request->workload)) { mismatch = CALIBRATION_WORKLOAD_MISMATCH; rank = 4; }
+        else if (r->source_node != request->source_node || r->destination_node != request->destination_node) { mismatch = CALIBRATION_MISMATCH; rank = 5; }
+        else if (r->action == VALIDATION_ACTION_MOVE_MEMORY && r->migration_page_bucket != request->migration_page_bucket) { mismatch = CALIBRATION_BUCKET_MISMATCH; rank = 6; }
+        else {
+            result->status = CALIBRATION_MATCHED; snprintf(result->reason, sizeof(result->reason), "CALIBRATION_MATCHED"); snprintf(result->calibration_id, sizeof(result->calibration_id), "%s", r->calibration_id); snprintf(result->calibration_version, sizeof(result->calibration_version), "%s", r->calibration_version); result->calibration_status = r->status; snprintf(result->created_at_utc, sizeof(result->created_at_utc), "%s", r->created_at_utc); snprintf(result->collection_experiment_id, sizeof(result->collection_experiment_id), "%s", r->collection_experiment_id); snprintf(result->topology_fingerprint, sizeof(result->topology_fingerprint), "%s", r->compatibility.topology_fingerprint); result->action = r->action; result->expected_gain_pct = r->expected_recoverable_gain_pct; result->base_cost_pct = r->estimated_cost_pct; result->uncertainty_pct = r->uncertainty_pct; result->safety_margin_pct = r->safety_margin_pct; result->effective_cost_pct = r->estimated_cost_pct + r->uncertainty_pct + r->safety_margin_pct; result->migration_cost_conservative_ms = r->migration_cost_conservative_ms; result->valid_pair_count = r->valid_pair_count; result->cost_sample_count = r->cost_sample_count; result->source_node = r->source_node; result->destination_node = r->destination_node; result->migration_page_bucket = r->migration_page_bucket; result->placement_evidence_schema_version = r->placement_evidence_schema_version; snprintf(result->local_placement_artifact_hash, sizeof(result->local_placement_artifact_hash), "%s", r->local_placement_artifact_hash); snprintf(result->remote_placement_artifact_hash, sizeof(result->remote_placement_artifact_hash), "%s", r->remote_placement_artifact_hash); snprintf(result->migration_measurement_method, sizeof(result->migration_measurement_method), "%s", r->migration_measurement_method); return result->status;
+        }
+        if (rank > best_rank) { best = mismatch; best_rank = rank; }
     }
-    snprintf(result->reason, sizeof(result->reason), "%s", calibration_match_status_name(result->status)); return result->status;
+    result->status = best; snprintf(result->reason, sizeof(result->reason), "%s", calibration_match_status_name(result->status)); return result->status;
 }

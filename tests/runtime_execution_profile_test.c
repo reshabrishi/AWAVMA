@@ -118,9 +118,8 @@ static int production_case(void)
     runtime = awavma_runtime_create();
     passed = runtime != NULL;
     if (capabilities.production_real_migration_ready) {
-        passed = passed && awavma_runtime_init(runtime, &config) == 0 &&
-                 contains(profile, "PRODUCTION_REAL_MIGRATION,PRODUCTION_REAL_MIGRATION,true,true,true,true,true,true") &&
-                 contains(profile, ",ACTIVE,validated production real-migration profile is active");
+        passed = passed && awavma_runtime_init(runtime, &config) != 0 &&
+                 contains(profile, ",CALIBRATION_UNTRUSTED,");
     } else {
         passed = passed && awavma_runtime_init(runtime, &config) != 0 &&
                  contains(profile, ",ENV_LIMITED,production real-migration capability profile is unavailable");
@@ -158,8 +157,7 @@ static int long_root_socket_case(void)
 int main(void)
 {
     int passed = invalid_execution_case() && invalid_registration_case() &&
-                  incomplete_production_case() && production_case() && long_root_socket_case();
-
+                 incomplete_production_case() && production_case() && long_root_socket_case();
     printf("runtime_execution_profile_test: %s\n", passed ? "PASS" : "FAIL");
     return passed ? 0 : 1;
 }

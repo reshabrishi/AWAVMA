@@ -26,11 +26,31 @@ fi
 (( NUMA_NODE_COUNT >= 2 )) || { printf 'ENV_LIMITED: fewer than two NUMA nodes\n' >&2; exit 3; }
 
 ORIGINAL_NUMA_BALANCING=; NUMA_BALANCING_DURING=; NUMA_BALANCING_RESTORE_STATUS=NOT_ATTEMPTED
-TIMING_VALID=false; COST_VALID=false; TRANSACTION_VALID=false; TRANSACTION_BROKEN=false; OVERALL_VALID=false; RUN=
+TIMING_VALID=false; COST_VALID=false; PLACEMENT_VALID=false; TRANSACTION_VALID=false; TRANSACTION_BROKEN=false; STRICT_VALID=false; OVERALL_VALID=false; RUN=; EXPERIMENT=
 write_manifest() {
   [[ -n "$RUN" ]] || return 0
-  printf '{"schema_version":2,"mode":"%s","status":"NOT_PRODUCTION_CALIBRATION","numa_balancing_original":"%s","numa_balancing_during":"%s","numa_balancing_restore_status":"%s","timing_valid":%s,"cost_migration_valid":%s,"numa_balancing_transaction_valid":%s,"overall_valid":%s,"git_dirty":%s,"raw_timing":"raw_timing.csv","raw_cost":"raw_cost.csv","thread_calibration":"NOT_IMPLEMENTED","awavma_remote_equivalence":"PENDING"}\n' \
-    "${MODE#--}" "$ORIGINAL_NUMA_BALANCING" "$NUMA_BALANCING_DURING" "$NUMA_BALANCING_RESTORE_STATUS" "$TIMING_VALID" "$COST_VALID" "$TRANSACTION_VALID" "$OVERALL_VALID" "$(git -C "$ROOT" diff --quiet && printf false || printf true)" >"$RUN/manifest.json"
+  local status=NOT_PRODUCTION_CALIBRATION raw_artifacts='[]'
+  [[ "$MODE" == --full && "$OVERALL_VALID" == true ]] && status=PRODUCTION_AUTHORITY_CANDIDATE
+  # The collector only records regular files below its run directory; builder re-verifies these bytes.
+  raw_artifacts=$(python3 - "$RUN" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+entries = []
+for path, role in [(root / "raw_timing.csv", "TIMING"), (root / "raw_cost.csv", "COST")]:
+    if path.is_file() and not path.is_symlink():
+        data = path.read_bytes()
+        entries.append({"path": path.relative_to(root).as_posix(), "role": role,
+                        "sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)})
+for path in sorted((root / "placement").glob("*.csv")):
+    if path.is_file() and not path.is_symlink():
+        data = path.read_bytes()
+        entries.append({"path": path.relative_to(root).as_posix(), "role": "PLACEMENT",
+                        "sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)})
+print(json.dumps(sorted(entries, key=lambda item: item["path"]), separators=(",", ":")))
+PY
+)
+  printf '{"schema_version":4,"kind":"AWAVMA_P4_CALIBRATION_COLLECTION","collection_experiment_id":"%s","mode":"%s","status":"%s","production_authority":false,"numa_balancing_original":"%s","numa_balancing_during":"%s","numa_balancing_restore_status":"%s","timing_valid":%s,"cost_migration_valid":%s,"placement_validation_valid":%s,"numa_balancing_transaction_valid":%s,"strict_validation_valid":%s,"overall_valid":%s,"git_dirty":%s,"raw_timing":"raw_timing.csv","raw_cost":"raw_cost.csv","raw_artifacts":%s,"thread_calibration":"NOT_IMPLEMENTED","awavma_remote_equivalence":"PENDING"}\n' \
+    "$EXPERIMENT" "${MODE#--}" "$status" "$ORIGINAL_NUMA_BALANCING" "$NUMA_BALANCING_DURING" "$NUMA_BALANCING_RESTORE_STATUS" "$TIMING_VALID" "$COST_VALID" "$PLACEMENT_VALID" "$TRANSACTION_VALID" "$STRICT_VALID" "$OVERALL_VALID" "$(git -C "$ROOT" diff --quiet && printf false || printf true)" "$raw_artifacts" >"$RUN/manifest.json"
 }
 finish() {
   local code=$? restored=
@@ -45,7 +65,9 @@ finish() {
       printf 'NUMA_BALANCING_RESTORE_FAILED\n' >&2
     fi
   fi
-  if [[ "$code" == 0 && "$TIMING_VALID" == true && "$COST_VALID" == true && "$TRANSACTION_VALID" == true ]]; then OVERALL_VALID=true; else OVERALL_VALID=false; code=1; fi
+  [[ "$TIMING_VALID" == true ]] && PLACEMENT_VALID=true
+  if [[ "$TIMING_VALID" == true && "$COST_VALID" == true && "$PLACEMENT_VALID" == true && "$TRANSACTION_VALID" == true ]]; then STRICT_VALID=true; else STRICT_VALID=false; fi
+  if [[ "$code" == 0 && "$STRICT_VALID" == true ]]; then OVERALL_VALID=true; else OVERALL_VALID=false; code=1; fi
   write_manifest
   if [[ "$MODE" == --smoke && "$OVERALL_VALID" == true ]]; then
     local temporary="$OUT/smoke/.manifest.$$"; cp "$RUN/manifest.json" "$temporary" && mv -f "$temporary" "$OUT/smoke/manifest.json" || code=1
@@ -66,7 +88,10 @@ require_numa_balancing_disabled() {
   local current=; current=$(<"$NUMA_BALANCING_PATH") || current=
   [[ "$current" == 0 ]] || { TRANSACTION_BROKEN=true; printf 'NUMA_BALANCING_CHANGED_DURING_COLLECTION\n' >&2; return 1; }
 }
-EXPERIMENT="p4c-$(date -u +%Y%m%dT%H%M%SZ)-$$"; RUN="$OUT/${MODE#--}/$EXPERIMENT"; mkdir -p "$RUN/placement" "$RUN/logs"
+EXPERIMENT="p4c-$(date -u +%Y%m%dT%H%M%SZ)-$$"; RUN="$OUT/${MODE#--}/$EXPERIMENT"
+mkdir -p "$OUT/${MODE#--}"
+mkdir "$RUN" || { printf 'COLLECTION_DIRECTORY_EXISTS: %s\n' "$RUN" >&2; exit 2; }
+mkdir "$RUN/placement" "$RUN/logs"
 printf '%s\n' 'run_id,pair_index,pair_order,warmup,action_kind,benchmark_pattern,placement_mode,threads,memory_bytes,page_size,local_node,remote_node,numa_distance,duration_seconds,elapsed_ms,verification_status,memory_policy_restored,total_pages,queryable_pages,other_pages,unknown_pages,placement_artifact,benchmark_exit_status,measurement_valid,invalid_reason' >"$RUN/raw_timing.csv"
 printf '%s\n' 'run_id,warmup,requested_pages,attempted_pages,migrated_pages,failed_pages,elapsed_ms,source_node,destination_node,distance,page_size,measurement_valid,failure_reason' >"$RUN/raw_cost.csv"
 printf 'NOT_PRODUCTION_CALIBRATION\n' >"$RUN/status.txt"

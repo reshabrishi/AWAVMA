@@ -102,13 +102,16 @@ bool p5_opportunity_select_destination(int source_cpu, int target_node,
                                        const int cpu_nodes[CPU_SETSIZE],
                                        int *proposed_cpu, int *proposed_node);
 int p5_opportunity_evaluate(const p5_opportunity_input_t *input,
-                            p5_opportunity_result_t *result);
+                             p5_opportunity_result_t *result);
+bool p5_opportunity_calibration_match(const CalibrationSnapshot *snapshot,
+                                      const CalibrationMatchRequest *request,
+                                      ValidatedCalibrationMatch *match);
 /* Reads a validated P4 match only; it never writes or recalibrates the artifact. */
 bool p5_opportunity_calibration_evidence(const CalibrationSnapshot *snapshot,
-                                         const CalibrationMatchRequest *request,
-                                         double *expected_gain_pct,
-                                          double *migration_cost_ms,
-                                         calibration_match_status_t *status);
+                                          const CalibrationMatchRequest *request,
+                                          double *expected_gain_pct,
+                                          double *effective_cost_pct,
+                                          calibration_match_status_t *status);
 int p5_opportunity_write_state(const char *path, const p5_opportunity_result_t *result);
 
 #endif

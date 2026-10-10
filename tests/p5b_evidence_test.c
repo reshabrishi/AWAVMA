@@ -51,7 +51,7 @@ int main(void)
     value = input(); value.expected_gain_available = false; passed &= status(value, P5_OPPORTUNITY_GAIN_UNAVAILABLE); printf("P5B12_GAIN_UNAVAILABLE: %s\n", passed ? "PASS" : "FAIL");
     value = input(); value.migration_cost_ms = -1; passed &= status(value, P5_OPPORTUNITY_COST_UNAVAILABLE); printf("P5B13_UNIT_CORRECT_COST: %s\n", passed ? "PASS" : "FAIL");
     record.action = VALIDATION_ACTION_MOVE_MEMORY; record.source_node = 0; record.destination_node = 1;
-    record.migration_page_bucket = 8; record.migration_cost_conservative_ms = 3;
+    record.migration_page_bucket = 8; record.estimated_cost_pct = 3;
     record.expected_recoverable_gain_pct = 10; request.action = VALIDATION_ACTION_MOVE_MEMORY;
     request.source_node = 0; request.destination_node = 1; request.migration_page_bucket = 8;
     passed &= p5_opportunity_calibration_evidence(&snapshot, &request, &gain, &cost, NULL) && cost == 3;

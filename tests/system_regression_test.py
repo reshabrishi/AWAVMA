@@ -270,8 +270,12 @@ def static_audit(run: SystemRun) -> None:
     source_texts = {path.name: path.read_text(encoding="utf-8")
                     for path in (ROOT / "src").glob("*.c")}
     migration_sources = sorted(name for name, text in source_texts.items() if operation.search(text))
+    mutation = re.compile(r"\bsched_setaffinity\s*\(|"
+                          r"syscall\s*\(\s*SYS_move_pages\s*,(?:(?!\)\s*;).)*MPOL_MF_MOVE", re.DOTALL)
+    mutation_sources = sorted(name for name, text in source_texts.items() if mutation.search(text))
     expected_migration_sources = sorted(("migration.c", "page_checkpoint.c", "page_rollback.c",
-                                         "runtime_migration_metadata.c", "awavma_runtime.c"))
+                                          "runtime_migration_metadata.c", "awavma_runtime.c"))
+    expected_mutation_sources = sorted(("migration.c", "page_rollback.c", "runtime_migration_metadata.c", "awavma_runtime.c"))
     checkpoint_query = re.compile(r"syscall\s*\(\s*SYS_move_pages\s*,\s*pid\s*,\s*page_count\s*,"
                                   r"\s*pages\s*,\s*NULL\s*,\s*status\s*,\s*0\s*\)")
     rollback_move = re.compile(r"syscall\s*\(\s*SYS_move_pages\s*,.*?MPOL_MF_MOVE", re.DOTALL)
@@ -298,7 +302,7 @@ def static_audit(run: SystemRun) -> None:
     worker_text = (ROOT / "src/worker_pool.c").read_text(encoding="utf-8")
     graph_text = (ROOT / "scripts/generate_graphs.py").read_text(encoding="utf-8")
     checks = (("Y-MIGRATION-OWNER", "Phase 7, checkpoint, rollback, and test hooks own migration syscalls",
-               migration_sources == expected_migration_sources and checkpoint_query_only and rollback_recovery and
+                set(expected_migration_sources) <= set(migration_sources) and mutation_sources == expected_mutation_sources and checkpoint_query_only and rollback_recovery and
                metadata_restore_only and runtime_test_only),
               ("Y-RUNTIME-BOUNDARY", "runtime monitor excludes migration/feedback/validation", not any(token in runtime_text for token in ("move_pages", "sched_setaffinity", "Feedback_", "Validation_"))),
               ("Y-DISCOVERY-READONLY", "discovery excludes migration operations", not any(token in discovery_text for token in ("move_pages", "sched_setaffinity", "Migration_"))),

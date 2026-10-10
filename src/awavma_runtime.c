@@ -4,7 +4,9 @@
 
 #include "application_manager.h"
 #include "classifier.h"
+#include "calibration_manifest.h"
 #include "environment_capabilities.h"
+#include "empirical_memory_decision.h"
 #include "migration_safety_manager.h"
 #include "migration_validation_snapshot.h"
 #include "monitor_profile.h"
@@ -31,8 +33,24 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
+
+#define RUNTIME_CALIBRATION_MAX_BYTES (4U * 1024U * 1024U)
+
+static char *read_runtime_artifact(const char *path, size_t *length)
+{
+    FILE *file = NULL; long size; char *bytes;
+    if (path == NULL || length == NULL || (file = fopen(path, "rb")) == NULL ||
+        fseek(file, 0, SEEK_END) != 0 || (size = ftell(file)) <= 0 ||
+        size > (long)RUNTIME_CALIBRATION_MAX_BYTES || fseek(file, 0, SEEK_SET) != 0 ||
+        (bytes = malloc((size_t)size)) == NULL || fread(bytes, 1, (size_t)size, file) != (size_t)size) {
+        if (file != NULL) fclose(file);
+        return NULL;
+    }
+    fclose(file); *length = (size_t)size; return bytes;
+}
 
 #define DEFAULT_ROOT_DIR "results/runtime"
 #define DEFAULT_BIN_DIR "bin"
@@ -52,6 +70,94 @@ static size_t csv_row_count(const char *path);
 static size_t monitor_metrics(const char *path, pid_t pid, size_t first_row,
                               double metrics[FEEDBACK_METRIC_COUNT]);
 static bool queue_feedback_observation(awavma_runtime_t *runtime, const FeedbackEvent *event);
+
+static bool controlled_workload_valid(const awavma_controlled_workload_t *workload)
+{
+    static const char *const patterns[] = {
+        "sequential", "random", "hot", "moderate", "cold", "mixed", "changing"
+    };
+    long page_size = sysconf(_SC_PAGESIZE);
+    bool pattern_valid = false;
+    if (workload != NULL && workload->pattern != NULL)
+        for (size_t index = 0; index < sizeof(patterns) / sizeof(patterns[0]); index++)
+            if (strcmp(workload->pattern, patterns[index]) == 0) pattern_valid = true;
+    return workload != NULL && workload->enabled &&
+        workload->schema_version == AWAVMA_CONTROLLED_WORKLOAD_SCHEMA_VERSION &&
+        workload->calibration_version != NULL && strcmp(workload->calibration_version, "p4c-v1") == 0 &&
+        pattern_valid &&
+        workload->threads != 0 && workload->memory_bytes != 0 && workload->memory_pages != 0 &&
+        isfinite(workload->duration_seconds) && workload->duration_seconds > 0.0 && page_size > 0 &&
+        workload->memory_pages <= SIZE_MAX / (size_t)page_size &&
+        workload->memory_bytes == workload->memory_pages * (size_t)page_size;
+}
+
+static bool runtime_calibration_compatibility(const EnvironmentCapabilities *capabilities, int source_node,
+                                               int destination_node, const cpu_set_t *permitted,
+                                               const int cpu_nodes[CPU_SETSIZE],
+                                               calibration_compatibility_t *compatibility)
+{
+    struct utsname name;
+    FILE *file;
+    char line[512], path[128];
+    long page_size;
+    int distance = -1;
+
+    if (capabilities == NULL || source_node < 0 || destination_node < 0 || permitted == NULL ||
+        cpu_nodes == NULL || compatibility == NULL || uname(&name) != 0 ||
+        (page_size = sysconf(_SC_PAGESIZE)) <= 0)
+        return false;
+    memset(compatibility, 0, sizeof(*compatibility));
+    snprintf(compatibility->cpu_architecture, sizeof(compatibility->cpu_architecture), "%s", name.machine);
+    file = fopen("/proc/cpuinfo", "r");
+    if (file == NULL) return false;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *colon;
+        if (strncmp(line, "model name", 10) != 0 || (colon = strchr(line, ':')) == NULL) continue;
+        colon++; while (*colon == ' ' || *colon == '\t') colon++;
+        colon[strcspn(colon, "\r\n")] = '\0';
+        snprintf(compatibility->cpu_model, sizeof(compatibility->cpu_model), "%s", colon);
+        break;
+    }
+    fclose(file);
+    if (compatibility->cpu_model[0] == '\0' ||
+        snprintf(path, sizeof(path), "/sys/devices/system/node/node%d/distance", source_node) >= (int)sizeof(path) ||
+        (file = fopen(path, "r")) == NULL)
+        return false;
+    for (int node = 0; node <= destination_node; node++)
+        if (fscanf(file, "%d", &distance) != 1) { fclose(file); return false; }
+    fclose(file);
+    compatibility->online_numa_nodes = (unsigned)capabilities->online_numa_nodes;
+    compatibility->local_node = destination_node;
+    compatibility->remote_node = source_node;
+    compatibility->numa_distance = distance;
+    compatibility->page_size_bytes = (size_t)page_size;
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
+        if (CPU_ISSET(cpu, permitted) && cpu_nodes[cpu] == destination_node)
+            compatibility->local_permitted_cpu_count++;
+    return compatibility->local_permitted_cpu_count != 0 &&
+        calibration_topology_fingerprint(compatibility, compatibility->topology_fingerprint);
+}
+
+static int write_empirical_state(const char *path, const DecisionData *decision,
+                                 calibration_match_status_t match_status, size_t page_count)
+{
+    char temporary[4096];
+    FILE *file;
+    if (path == NULL || decision == NULL ||
+        snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary) ||
+        (file = fopen(temporary, "w")) == NULL)
+        return -1;
+    fprintf(file, "schema_version,action,status,calibration_match,calibration_id,calibration_version,calibration_provenance,gain_pct,gain_available,cost_pct,cost_available,roi_pct,roi_available,decision_available,page_count\n");
+    fprintf(file, "1,%s,%s,%s,%s,%s,%s,%.9g,%s,%.9g,%s,%.9g,%s,%s,%zu\n", decision->action_text,
+            decision->status_text, calibration_match_status_name(match_status), decision->calibration_id,
+            decision->calibration_version, decision->calibration_provenance, decision->predicted_gain,
+            decision->gain_available ? "true" : "false", decision->estimated_cost,
+            decision->cost_available ? "true" : "false", decision->empirical_roi,
+            decision->empirical_roi_available ? "true" : "false",
+            decision->empirical_roi_available ? "true" : "false", page_count);
+    if (fclose(file) != 0 || rename(temporary, path) != 0) { unlink(temporary); return -1; }
+    return 0;
+}
 
 typedef struct {
     bool used;
@@ -450,6 +556,23 @@ static MigrationTargetResult runtime_get_migration_target(void *context,
         return result;
     }
 #endif
+    if (request->action == VALIDATION_ACTION_MOVE_MEMORY) {
+        MigrationTargetInput input = {0};
+
+        /* Page placement, not thread affinity, defines a memory migration target. */
+        input.pid = request->pid;
+        input.start_time_ticks = request->start_time_ticks;
+        input.attempt_id = attempt_id;
+        input.action = request->action;
+        input.source_node_available = request->placement_available &&
+                                      request->source_numa_node >= 0;
+        input.source_numa_node = request->source_numa_node;
+        input.requires_cross_node = true;
+        input.has_authoritative_numa_node = request->destination_numa_node >= 0;
+        input.authoritative_numa_node = request->destination_numa_node;
+        input.source = MIGRATION_TARGET_SOURCE_PHASE5;
+        return migration_target_provider_get(&input, NULL, target);
+    }
     if (!runtime_get_migration_metadata(request->pid, request->start_time_ticks, &metadata))
         return MIGRATION_TARGET_INTERNAL_ERROR;
     memset(&policy_input, 0, sizeof(policy_input));
@@ -478,6 +601,7 @@ static BenefitClassification runtime_classify_benefit(void *context,
                                                       const MigrationSafetyRequest *request,
                                                       const MigrationTarget *target,
                                                       const char *attempt_id,
+                                                      const MemoryRecoveryEvidence *recovery,
                                                       BenefitDecision *decision)
 {
     RuntimeMigrationMetadata metadata;
@@ -492,13 +616,15 @@ static BenefitClassification runtime_classify_benefit(void *context,
         return benefit_classifier_evaluate(NULL, decision);
     if (!migration_target_topology_read(&topology))
         target_online = false;
-    for (int cpu = 0; target_online && cpu < CPU_SETSIZE; cpu++)
+    for (int cpu = 0; request->action == VALIDATION_ACTION_MOVE_THREAD && target_online &&
+         cpu < CPU_SETSIZE; cpu++)
         if (CPU_ISSET(cpu, &target->target_cpu_mask) &&
             (!CPU_ISSET(cpu, &topology.online_cpus) || topology.cpu_node[cpu] != target->target_numa_node))
             target_online = false;
-    if (!metadata.affinity_available)
+    if (request->action == VALIDATION_ACTION_MOVE_THREAD && !metadata.affinity_available)
         target_permitted = false;
-    for (int cpu = 0; target_permitted && cpu < CPU_SETSIZE; cpu++)
+    for (int cpu = 0; request->action == VALIDATION_ACTION_MOVE_THREAD && target_permitted &&
+         cpu < CPU_SETSIZE; cpu++)
         if (CPU_ISSET(cpu, &target->target_cpu_mask) && !CPU_ISSET(cpu, &metadata.affinity))
             target_permitted = false;
     source_target_valid = target->source_node_known && target->has_target_numa_node &&
@@ -527,6 +653,8 @@ static BenefitClassification runtime_classify_benefit(void *context,
     input.decision = &request->migration_request.phase5_decision;
     input.validation = &request->migration_request.phase6_validation;
     input.target = target;
+    input.memory_recovery = recovery;
+    input.memory_candidate_count = request->migration_request.page_count;
     input.target_provider_validated = request->target_valid;
     input.target_online = target_online;
     input.target_permitted = target_permitted;
@@ -1807,6 +1935,7 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     char temporal_history_path[4096];
     char confidence_state_path[4096];
     char opportunity_state_path[4096];
+    char empirical_state_path[4096];
     char log_path[4096];
     char classifier[4096];
     char decision[4096];
@@ -1874,7 +2003,9 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
          path_join(confidence_state_path, sizeof(confidence_state_path), app_dir,
                    "thread_confidence_state.csv") != 0 ||
          path_join(opportunity_state_path, sizeof(opportunity_state_path), app_dir,
-                   "p5_opportunity_state.csv") != 0 ||
+                    "p5_opportunity_state.csv") != 0 ||
+         path_join(empirical_state_path, sizeof(empirical_state_path), app_dir,
+                   "empirical_memory_state.csv") != 0 ||
         path_join(classifier, sizeof(classifier), runtime->config.bin_dir, "classifier") != 0 ||
         path_join(decision, sizeof(decision), runtime->config.bin_dir, "decision") != 0 ||
         path_join(validation, sizeof(validation), runtime->config.bin_dir, "validation") != 0) {
@@ -2058,6 +2189,115 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
                                        record->start_time_ticks, candidate.tid, &confidence) == 0)
             (void)thread_confidence_write_state(confidence_state_path, &confidence);
     }
+    ValidationAction approved_action = VALIDATION_ACTION_INSUFFICIENT;
+    DecisionData approved_phase5 = {0};
+    ValidationResult approved_phase6 = {0};
+    bool approved = false;
+    bool insufficient = false;
+    int approved_action_result = 1;
+    if (runtime->config.controlled_workload.enabled) {
+        const awavma_controlled_workload_t *workload = &runtime->config.controlled_workload;
+        CalibrationMatchRequest match_request = {0};
+        ValidatedCalibrationMatch match = {0};
+        EmpiricalMemoryDecisionFacts facts = {0};
+        calibration_match_status_t match_status = CALIBRATION_UNAVAILABLE;
+        bool exact_registration = registration_current &&
+            registration.registered_bytes == workload->memory_bytes &&
+            registration.registered_pages == workload->memory_pages &&
+            registration.candidate_pages_per_request != 0;
+        bool exact_placement = placement_observed && placement.identity_match &&
+            placement.registration_generation == registration.generation &&
+            placement.total_pages == workload->memory_pages &&
+            placement.queryable_pages == workload->memory_pages && placement.unknown_pages == 0 &&
+            placement.dominant_pages == workload->memory_pages && placement.dominant_node >= 0;
+        int destination_node = candidate_source_available ?
+            candidate_topology.cpu_node[candidate.current_cpu] : -1;
+
+        if (controlled_workload_valid(workload) && exact_registration && candidate_activity &&
+            exact_placement && destination_node >= 0 && placement.dominant_node != destination_node &&
+            candidate_affinity_valid && runtime_calibration_compatibility(&runtime->capabilities,
+                placement.dominant_node, destination_node, &candidate_affinity,
+                candidate_topology.cpu_node, &match_request.compatibility)) {
+            snprintf(match_request.workload.benchmark_pattern,
+                     sizeof(match_request.workload.benchmark_pattern), "%s", workload->pattern);
+            match_request.workload.threads = workload->threads;
+            match_request.workload.memory_bytes = workload->memory_bytes;
+            match_request.workload.memory_pages = workload->memory_pages;
+            match_request.workload.duration_seconds = workload->duration_seconds;
+            match_request.action = VALIDATION_ACTION_MOVE_MEMORY;
+            match_request.source_node = placement.dominant_node;
+            match_request.destination_node = destination_node;
+            match_request.migration_page_bucket = registration.candidate_pages_per_request;
+            if (p5_opportunity_calibration_match(&runtime->calibration_snapshot, &match_request, &match))
+                match_status = CALIBRATION_MATCHED;
+            else
+                match_status = match.status;
+        } else if (controlled_workload_valid(workload)) {
+            match_status = !exact_registration ? CALIBRATION_WORKLOAD_MISMATCH : CALIBRATION_MISMATCH;
+        } else {
+            match_status = CALIBRATION_WORKLOAD_MISMATCH;
+        }
+        facts.requested_action = VALIDATION_ACTION_MOVE_MEMORY;
+        facts.identity_authoritative = candidate_available && candidate.verified;
+        facts.identity_current = candidate_available && candidate.verified;
+        facts.registration_authoritative = exact_registration;
+        facts.registration_current = exact_registration;
+        facts.activity_authoritative = candidate_activity;
+        facts.activity_current = candidate_activity;
+        facts.placement_authoritative = exact_placement;
+        facts.memory_is_remote = exact_placement && placement.dominant_node != destination_node;
+        facts.destination_is_local = destination_node >= 0;
+        facts.source_node = placement.dominant_node;
+        facts.destination_node = destination_node;
+        facts.migration_page_bucket = registration.candidate_pages_per_request;
+        record->generation++;
+        record->phase5_committed_rows = samples;
+        approved = empirical_memory_decision(&match, &facts, &approved_phase5);
+        snprintf(approved_phase5.app_id, sizeof(approved_phase5.app_id), "%s", record->app_id);
+        approved_phase5.pid = record->pid;
+        snprintf(approved_phase5.entity_id, sizeof(approved_phase5.entity_id), "%ld",
+                  (long)(candidate_available ? candidate.tid : -1));
+        snprintf(approved_phase5.migration_id, sizeof(approved_phase5.migration_id),
+                 "empirical-%ld-%llu", (long)record->pid,
+                 (unsigned long long)record->generation);
+        snprintf(approved_phase5.phase5_timestamp, sizeof(approved_phase5.phase5_timestamp),
+                 "EMPIRICAL_CURRENT");
+        approved_phase5.phase5_evidence_available = approved;
+        approved_phase5.phase5_runtime_generation = record->generation;
+        approved_phase5.phase5_runtime_generation_available = approved;
+        snprintf(approved_phase5.phase5_evidence_provenance,
+                 sizeof(approved_phase5.phase5_evidence_provenance), "P4_EMPIRICAL");
+        if (write_empirical_state(empirical_state_path, &approved_phase5, match_status,
+                                  registration.candidate_pages_per_request) != 0) {
+            set_status(record, AWAVMA_RUNTIME_ERROR, "cannot persist empirical memory state");
+            monitor_profile_scope_end(&coordinator_profile, "ERROR");
+            return -1;
+        }
+        if (!approved) {
+            set_status(record, AWAVMA_RUNTIME_REJECTED,
+                       approved_phase5.empirical_roi_available ? "NOT_BENEFICIAL" :
+                                                                 calibration_match_status_name(match_status));
+            monitor_profile_scope_end(&coordinator_profile, "OK");
+            return 0;
+        }
+        approved_action = VALIDATION_ACTION_MOVE_MEMORY;
+        approved_phase6.action = VALIDATION_ACTION_MOVE_MEMORY;
+        approved_phase6.pid = record->pid;
+        snprintf(approved_phase6.app_id, sizeof(approved_phase6.app_id), "%s", record->app_id);
+        snprintf(approved_phase6.entity_id, sizeof(approved_phase6.entity_id), "%s",
+                 approved_phase5.entity_id);
+        snprintf(approved_phase6.migration_id, sizeof(approved_phase6.migration_id), "%s",
+                 approved_phase5.migration_id);
+        approved_phase6.confidence_status = GATE_PASS;
+        approved_phase6.roi_status = GATE_PASS;
+        approved_phase6.safety_status = GATE_NOT_APPLICABLE;
+        approved_phase6.confidence_score = 1.0;
+        approved_phase6.roi_score = approved_phase5.empirical_roi;
+        snprintf(approved_phase6.validation_status, sizeof(approved_phase6.validation_status),
+                 "EMPIRICAL_GAIN_COST_AUTHORIZED");
+        snprintf(approved_phase6.final_decision, sizeof(approved_phase6.final_decision), "APPROVED");
+        goto phase7_decision;
+    }
     char *decision_args[] = {decision, "--input", classification_delta_path, "--output", decision_path,
                              "--app-id", record->app_id, "--state-dir", state_dir,
                              "--history-dir", history_dir, "--log", log_path, NULL};
@@ -2107,15 +2347,13 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
     }
     monitor_profile_scope_begin(&result_profile, "pipeline", "pipeline_result_parse_io", record->app_id,
                                 record->pid, record->generation);
-    ValidationAction approved_action = VALIDATION_ACTION_INSUFFICIENT;
-    DecisionData approved_phase5 = {0};
-    ValidationResult approved_phase6 = {0};
-    bool insufficient = csv_has_value(decision_path, "decision", "INSUFFICIENT_DECISION_SIGNAL");
-    int approved_action_result = insufficient ? 0 :
+    insufficient = csv_has_value(decision_path, "decision", "INSUFFICIENT_DECISION_SIGNAL");
+    approved_action_result = insufficient ? 0 :
         approved_migration_evidence(validation_input_path, validation_path, record, &approved_action,
                                     &approved_phase5, &approved_phase6);
-    bool approved = approved_action_result == 1;
+    approved = approved_action_result == 1;
     monitor_profile_scope_end(&result_profile, "OK");
+phase7_decision:
     if (insufficient)
         set_status(record, AWAVMA_RUNTIME_INSUFFICIENT, "unavailable decision evidence");
     else if (approved_action_result < 0)
@@ -2129,8 +2367,12 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             request.pid = record->pid;
             request.start_time_ticks = record->start_time_ticks;
             request.action = approved_action;
-            request.source_numa_node = -1;
-            request.destination_numa_node = -1;
+            request.source_numa_node = approved_phase5.nodes_available ?
+                approved_phase5.source_node : -1;
+            request.destination_numa_node = approved_phase5.nodes_available ?
+                approved_phase5.destination_node : -1;
+            request.placement_available = approved_phase5.nodes_available;
+            request.target_valid = approved_phase5.nodes_available;
             request.target_requires_cross_node = true;
             request.system_safe = runtime->capabilities.state == ENVIRONMENT_READY &&
                 (approved_action == VALIDATION_ACTION_MOVE_THREAD ?
@@ -2142,14 +2384,23 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             request.migration_request.tid = record->pid;
             request.migration_request.phase5_decision = approved_phase5;
             request.migration_request.phase6_validation = approved_phase6;
+            request.migration_request.source_numa_node = request.source_numa_node;
+            request.migration_request.destination_numa_node = request.destination_numa_node;
+            request.migration_request.numa_nodes_available = approved_phase5.nodes_available;
             request.migration_request.benefit_evidence_runtime_generation = record->generation;
             if (approved_action == VALIDATION_ACTION_MOVE_MEMORY) {
                 /* No registration means no pages: the safety manager rejects before execution. */
                 if (runtime->config.page_candidate_provider == NULL ||
                     !page_candidate_provider_fill_request(runtime->config.page_candidate_provider,
                                                           record->app_id, record->pid,
-                                                          record->start_time_ticks, -1,
-                                                          &request.migration_request))
+                                                          record->start_time_ticks,
+                                                          approved_phase5.nodes_available ?
+                                                              approved_phase5.destination_node : -1,
+                                                           &request.migration_request))
+                    request.system_safe = false;
+                if (runtime->config.controlled_workload.enabled &&
+                    request.migration_request.page_count !=
+                    registration.candidate_pages_per_request)
                     request.system_safe = false;
             }
             if (migration_safety_manager_attempt(runtime->migration_safety, &request, &safety_result))
@@ -2276,6 +2527,10 @@ void awavma_runtime_config_default(awavma_runtime_config_t *config)
     config->benefit_calibration_state = BENEFIT_CALIBRATION_UNAVAILABLE;
     config->benefit_calibration_provenance = "no_cross_numa_production_calibration";
     config->calibration_artifact_path = NULL;
+    config->calibration_manifest_path = NULL;
+    memset(&config->controlled_workload, 0, sizeof(config->controlled_workload));
+    config->controlled_workload.schema_version = AWAVMA_CONTROLLED_WORKLOAD_SCHEMA_VERSION;
+    config->controlled_workload.calibration_version = "p4c-v1";
     application_discovery_config_default(&config->discovery_config);
     config->discovery_admission = NULL;
     config->discovery_admission_context = NULL;
@@ -2321,7 +2576,10 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
         config->max_applications == 0 || config->worker_count == 0 || config->queue_capacity == 0 ||
         (config->phase4_mode != AWAVMA_PHASE4_SUBPROCESS &&
          config->phase4_mode != AWAVMA_PHASE4_IN_PROCESS) ||
-        config->root_dir == NULL || config->bin_dir == NULL || config->phase_config_path == NULL ||
+         config->root_dir == NULL || config->bin_dir == NULL || config->phase_config_path == NULL ||
+        (config->controlled_workload.enabled &&
+         (!controlled_workload_valid(&config->controlled_workload) ||
+          config->calibration_artifact_path == NULL)) ||
         (config->execution_profile.requested_mode != AWAVMA_RUNTIME_EXECUTION_MONITORING &&
          config->execution_profile.requested_mode != AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION))
         return EINVAL;
@@ -2356,11 +2614,18 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     runtime->calibration_load_status = CALIBRATION_UNAVAILABLE;
     snprintf(runtime->calibration_load_reason, sizeof(runtime->calibration_load_reason), "CALIBRATION_UNAVAILABLE");
     if (config->calibration_artifact_path != NULL) {
-        CalibrationPolicy policy;
+        CalibrationPolicy policy; char *calibration_bytes; size_t calibration_length;
         calibration_policy_default(&policy);
-        (void)calibration_load_csv(config->calibration_artifact_path, &policy,
-                                   &runtime->calibration_snapshot, &runtime->calibration_load_status,
-                                   runtime->calibration_load_reason);
+        calibration_bytes = read_runtime_artifact(config->calibration_artifact_path, &calibration_length);
+        if (calibration_bytes == NULL) {
+            runtime->calibration_load_status = CALIBRATION_MALFORMED;
+            snprintf(runtime->calibration_load_reason, sizeof(runtime->calibration_load_reason), "CALIBRATION_ARTIFACT_READ_FAILED");
+        } else {
+        (void)calibration_load_csv_buffer(calibration_bytes, calibration_length, &policy,
+                                    &runtime->calibration_snapshot, &runtime->calibration_load_status,
+                                    runtime->calibration_load_reason);
+        free(calibration_bytes);
+        }
         if (write_calibration_load_report(runtime) != 0)
             goto fail;
     }
@@ -2391,6 +2656,37 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
                                     "production real-migration capability profile is unavailable");
         (void)write_execution_profile(runtime);
         return EOPNOTSUPP;
+    }
+    if (config->execution_profile.requested_mode == AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION) {
+        char trust_reason[CALIBRATION_MANIFEST_REASON_MAX], *artifact_bytes, *manifest_bytes; size_t artifact_length, manifest_length;
+        CalibrationPolicy trust_policy;
+        artifact_bytes = read_runtime_artifact(config->calibration_artifact_path, &artifact_length);
+        manifest_bytes = read_runtime_artifact(config->calibration_manifest_path, &manifest_length);
+        if (artifact_bytes != NULL) {
+            calibration_policy_default(&trust_policy);
+            calibration_snapshot_release(&runtime->calibration_snapshot);
+            (void)calibration_load_csv_buffer(artifact_bytes, artifact_length, &trust_policy,
+                                              &runtime->calibration_snapshot, &runtime->calibration_load_status,
+                                              runtime->calibration_load_reason);
+        }
+        if (runtime->calibration_load_status != CALIBRATION_MATCHED ||
+            artifact_bytes == NULL || manifest_bytes == NULL ||
+            !calibration_manifest_verify_buffers(artifact_bytes, artifact_length, manifest_bytes, manifest_length,
+                                          strrchr(config->calibration_artifact_path, '/') ? strrchr(config->calibration_artifact_path, '/') + 1 : config->calibration_artifact_path,
+                                          &runtime->calibration_snapshot, trust_reason)) {
+            free(artifact_bytes); free(manifest_bytes);
+            set_execution_profile_state(runtime, "CALIBRATION_UNTRUSTED",
+                                        runtime->calibration_load_status == CALIBRATION_MATCHED ?
+                                            trust_reason : runtime->calibration_load_reason);
+            (void)write_execution_profile(runtime);
+            return EACCES;
+        }
+        free(artifact_bytes); free(manifest_bytes);
+        runtime->config.benefit_calibration_state = BENEFIT_CALIBRATION_VALIDATED_PRODUCTION;
+        runtime->config.benefit_calibration_provenance =
+            runtime->calibration_snapshot.count == 1 ?
+            runtime->calibration_snapshot.records[0].collection_experiment_id :
+            "verified_production_calibration_manifest";
     }
     if (!runtime_socket_directory_create(&runtime->socket_directory)) {
         set_execution_profile_state(runtime, "INITIALIZATION_FAILED", "runtime socket directory initialization failed");

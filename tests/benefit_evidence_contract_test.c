@@ -89,6 +89,7 @@ static bool expect(const char *name, BenefitClassifierInput *input, BenefitClass
 int main(void)
 {
     BenefitClassifierInput input;
+    MemoryRecoveryEvidence recovery;
     bool passed = true;
 
     input = input_for();
@@ -132,5 +133,29 @@ int main(void)
     passed = expect("BEC17_INVALID_TARGET_REJECTED", &input, TARGET_NOT_VALIDATED) && passed;
     input = input_for(); input.action = VALIDATION_ACTION_MOVE_MEMORY;
     passed = expect("BEC18_PAGE_RECOVERY_REQUIRED", &input, PAGE_RECOVERY_REQUIRED) && passed;
+    input = input_for();
+    memset(&recovery, 0, sizeof(recovery));
+    input.action = VALIDATION_ACTION_MOVE_MEMORY;
+    ((DecisionData *)input.decision)->action = VALIDATION_ACTION_MOVE_MEMORY;
+    ((DecisionData *)input.decision)->phase5_memory_score_final = 0.24;
+    ((DecisionData *)input.decision)->phase5_thread_score_final = 0.0;
+    ((DecisionData *)input.decision)->phase5_decision_margin = 0.24;
+    ((ValidationResult *)input.validation)->action = VALIDATION_ACTION_MOVE_MEMORY;
+    ((MigrationTarget *)input.target)->action = VALIDATION_ACTION_MOVE_MEMORY;
+    ((MigrationTarget *)input.target)->has_target_cpu_mask = false;
+    recovery.pid = input.pid;
+    recovery.start_time_ticks = input.start_time_ticks;
+    snprintf(recovery.attempt_id, sizeof(recovery.attempt_id), "%s", input.attempt_id);
+    recovery.candidate_count = 2;
+    recovery.checkpoint_complete = true;
+    recovery.original_placement_known = true;
+    recovery.rollback_provider_retained = true;
+    recovery.source_numa_node = 0;
+    recovery.target_numa_node = 1;
+    input.memory_recovery = &recovery;
+    input.memory_candidate_count = 2;
+    passed = expect("BEC19_COMPLETE_MEMORY_RECOVERY_SUPPORTED", &input, BENEFIT_SUPPORTED) && passed;
+    recovery.candidate_count = 1;
+    passed = expect("BEC20_MEMORY_RECOVERY_COUNT_MISMATCH", &input, PAGE_RECOVERY_REQUIRED) && passed;
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -6,11 +6,11 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 GRAPHS = (
-    ("elapsed_time_comparison", "elapsed_seconds", "Elapsed Time by Scenario", "Seconds"),
-    ("throughput_comparison", "throughput", "Throughput by Scenario", "Operations per second"),
-    ("latency_comparison", "latency_ms", "Latency by Scenario", "Milliseconds"),
+    ("execution_time_comparison", "execution_time_seconds", "Execution Time", "Seconds"),
+    ("throughput_comparison", "throughput_ops_per_second", "Throughput", "Operations per second"),
+    ("operation_comparison", "operations", "Operations", "Operations"),
+    ("wall_time_per_operation", "mean_wall_time_per_operation_seconds", "Mean Wall Time per Operation", "Seconds per operation"),
 )
-SCENARIOS = (("baseline_default_mean", "baseline-default"), ("baseline_local_mean", "baseline-local"), ("baseline_remote_mean", "baseline-remote"), ("awavma_mean", "awavma"))
 
 def number(value):
     try:
@@ -35,30 +35,35 @@ def main():
     parser.add_argument("--summary-dir", type=Path, default=root / "results/cloudlab/unified/summaries")
     parser.add_argument("--output-dir", type=Path, default=root / "results/cloudlab/graphs")
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--allow-staging", action="store_true")
     args=parser.parse_args()
     comparator=rows(args.input)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     reports=[]
     for graph_name, metric, title, unit in GRAPHS:
         output=args.output_dir / f"{graph_name}.svg"
-        metric_rows=[row for row in comparator if row.get("metric") == metric and row.get("data_source") == "REAL" and row.get("collection_status") == "PASS" and row.get("comparable") == "true"]
+        accepted_statuses={"PASS", "IN_PROGRESS"} if args.allow_staging else {"PASS"}
+        metric_rows=[row for row in comparator if row.get("metric") == metric and row.get("data_source") == "REAL" and row.get("collection_status") in accepted_statuses and row.get("comparable") == "true"]
         summary_rows=rows(args.summary_dir / f"{metric}_summary.csv")
-        if len(metric_rows) != 1:
+        primary=[row for row in metric_rows if row.get("comparison") == "primary_awavma_vs_remote"]
+        if len(primary) != 1:
             reason="required real comparable fields unavailable" if not metric_rows else "multiple comparison sets require filtering"
             reports.append({"graph":graph_name,"metric":metric,"status":"SKIPPED","reason":reason,"summary_input":str(args.summary_dir / f"{metric}_summary.csv"),"output_file":str(output),"records_used":"0"})
             continue
-        if not summary_rows or {row.get("scenario") for row in summary_rows} < {label for _, label in SCENARIOS}:
+        binding=(primary[0].get("experiment_id"), primary[0].get("comparison_key"), primary[0].get("records_per_scenario"))
+        bound=[row for row in summary_rows if (row.get("experiment_id"), row.get("comparison_key"), row.get("records")) == binding]
+        if {row.get("scenario") for row in bound} < {"baseline-remote", "awavma"}:
             reports.append({"graph":graph_name,"metric":metric,"status":"SKIPPED","reason":"required metric summary is unavailable or incomplete","summary_input":str(args.summary_dir / f"{metric}_summary.csv"),"output_file":str(output),"records_used":"0"})
             continue
-        values={label:number(metric_rows[0].get(field)) for field, label in SCENARIOS}
+        values={"baseline-remote":number(primary[0].get("baseline_mean")), "awavma":number(primary[0].get("awavma_mean"))}
         if any(value is None for value in values.values()):
             reports.append({"graph":graph_name,"metric":metric,"status":"SKIPPED","reason":"comparator contains non-finite scenario value","summary_input":str(args.summary_dir / f"{metric}_summary.csv"),"output_file":str(output),"records_used":"0"})
             continue
         chart(output, title, unit, values)
-        reports.append({"graph":graph_name,"metric":metric,"status":"GENERATED","reason":"","summary_input":str(args.summary_dir / f"{metric}_summary.csv"),"output_file":str(output),"records_used":str(sum(1 for row in summary_rows if row.get("scenario") in values))})
+        reports.append({"graph":graph_name,"metric":metric,"status":"GENERATED","reason":"","summary_input":str(args.summary_dir / f"{metric}_summary.csv"),"output_file":str(output),"records_used":str(sum(int(row["records"]) for row in bound if row.get("scenario") in values)),"experiment_id":binding[0],"comparison_key":binding[1],"records_per_scenario":binding[2]})
     summary=args.summary or args.output_dir / "graph_summary.csv"
     summary.parent.mkdir(parents=True, exist_ok=True)
     with summary.open("w", newline="", encoding="utf-8") as handle:
-        writer=csv.DictWriter(handle, fieldnames=("graph","metric","status","reason","summary_input","output_file","records_used")); writer.writeheader(); writer.writerows(reports)
+        writer=csv.DictWriter(handle, fieldnames=("graph","metric","status","reason","summary_input","output_file","records_used","experiment_id","comparison_key","records_per_scenario")); writer.writeheader(); writer.writerows(reports)
     if not any(row["status"] == "GENERATED" for row in reports): raise SystemExit("zero graphs generated; see graph summary")
 if __name__ == "__main__": main()

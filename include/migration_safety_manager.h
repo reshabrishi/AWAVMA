@@ -142,6 +142,7 @@ typedef BenefitClassification (*migration_safety_benefit_fn)(void *context,
                                                                const MigrationSafetyRequest *request,
                                                                const MigrationTarget *target,
                                                                const char *attempt_id,
+                                                               const MemoryRecoveryEvidence *recovery,
                                                                BenefitDecision *decision);
 typedef bool (*migration_safety_feedback_fn)(void *context, const FeedbackEvent *event,
                                               FeedbackResult *result);

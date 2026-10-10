@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Build strict P4-B calibration CSVs from safe, retained CloudLab raw rows."""
-import argparse, csv, hashlib, math, os, statistics, sys, tempfile
+import argparse, csv, ctypes, errno, hashlib, json, math, os, shutil, statistics, sys, tempfile
 from collections import defaultdict
+from pathlib import Path
+from calibration_manifest_trust import (AUTHORITY_KIND, CALIBRATION_VERSION,
+    SCHEMA_VERSION as MANIFEST_SCHEMA, VALIDATION_FIELDS, read_manifest,
+    validate_collection_manifest, verify_raw_artifacts)
 from validate_numa_calibration import valid_cost
 
 SCHEMA = 1
@@ -28,18 +32,40 @@ def t_bound(mean, std, count, upper=False):
     return mean + (1 if upper else -1) * T95_ONE_SIDED.get(count, 1.645) * std / math.sqrt(count)
 def artifact_ref(path):
     with open(path, "rb") as handle: return "art1-" + hashlib.sha256(handle.read()).hexdigest()[:16]
-def atomic_csv(path, rows):
-    directory = os.path.dirname(os.path.abspath(path)); os.makedirs(directory, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".calibration-", dir=directory, text=True)
-    with os.fdopen(fd, "w", newline="", encoding="utf-8") as handle:
+def write_csv(path, rows):
+    with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=HEADER, lineterminator="\n"); writer.writeheader(); writer.writerows(rows); handle.flush(); os.fsync(handle.fileno())
-    os.replace(temporary, path)
+def publish_bundle(staging, bundle):
+    # renameat2's NOREPLACE flag makes the directory publication atomic without replacing a collision.
+    renameat2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+    if renameat2 is None: raise SystemExit("CALIBRATION_BUNDLE_ATOMIC_PUBLISH_UNAVAILABLE")
+    renameat2.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    renameat2.restype = ctypes.c_int
+    if renameat2(-100, os.fsencode(staging), -100, os.fsencode(bundle), 1):
+        error = ctypes.get_errno()
+        if error == errno.EEXIST: raise SystemExit("CALIBRATION_BUNDLE_DESTINATION_NOT_NEW")
+        raise OSError(error, os.strerror(error), bundle)
+    directory = os.open(os.path.dirname(bundle), os.O_RDONLY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
 def valid_placement(row, mode):
     required = ("placement_mode", "verification_status", "memory_policy_restored", "total_pages", "queryable_pages", "other_pages", "unknown_pages")
     return all(row.get(k, "") for k in required) and row["placement_mode"] == mode and row["verification_status"] == "PASS" and row["memory_policy_restored"] == "true" and row["total_pages"] == row["queryable_pages"] and row["other_pages"] == "0" and row["unknown_pages"] == "0"
 def build(args):
+    collection = read_manifest(args.collection_manifest)
+    validate_collection_manifest(collection, args.experiment_id)
+    collection_root = Path(args.collection_manifest).resolve().parent
+    try:
+        raw_relative = Path(args.raw).resolve().relative_to(collection_root).as_posix()
+        cost_relative = Path(args.cost).resolve().relative_to(collection_root).as_posix()
+    except ValueError as error:
+        raise SystemExit("CALIBRATION_RAW_INPUT_OUTSIDE_COLLECTION") from error
     with open(args.raw, newline="", encoding="utf-8") as handle: raw = list(csv.DictReader(handle))
     with open(args.cost, newline="", encoding="utf-8") as handle: costs = list(csv.DictReader(handle))
+    if not raw or any(row.get("run_id") != args.experiment_id for row in raw):
+        raise SystemExit("CALIBRATION_RAW_EXPERIMENT_MISMATCH")
+    if not costs or any(not row.get("run_id", "").startswith(args.experiment_id + "-cost-") for row in costs):
+        raise SystemExit("CALIBRATION_COST_EXPERIMENT_MISMATCH")
     groups = defaultdict(list)
     for row in raw:
         if row.get("warmup") != "false" or row.get("measurement_valid") != "true": continue
@@ -59,17 +85,64 @@ def build(args):
         local_mean, local_std = mean_std(local_values); remote_mean, remote_std = mean_std(remote_values); penalty, penalty_std = mean_std(differences); lower = t_bound(penalty, penalty_std, len(differences))
         if lower <= 0: raise SystemExit("CALIBRATION_WEAK_EVIDENCE")
         pattern, threads, memory_bytes, page_size, local_node, remote_node, distance, duration = key
+        if any((r["source_node"], r["destination_node"], r["distance"], r["page_size"]) !=
+               (remote_node, local_node, distance, page_size) for r in valid_costs):
+            raise SystemExit("CALIBRATION_COST_DIRECTION_MISMATCH")
         topology_text = "|".join((args.cpu_architecture, args.cpu_model, args.online_numa_nodes, local_node, remote_node, distance, args.local_permitted_cpu_count, page_size))
         topology = token("top1", topology_text)
         record = dict(zip(HEADER, [""] * len(HEADER)))
-        record.update(schema_version="1", calibration_version="p4c-v1", created_at_utc=args.created_at_utc, collection_experiment_id=args.experiment_id, calibration_status="VALIDATED_PRODUCTION" if args.production else "VALIDATED_TEST_ONLY", cpu_architecture=args.cpu_architecture, cpu_model=args.cpu_model, online_numa_nodes=args.online_numa_nodes, topology_fingerprint=topology, local_node=local_node, remote_node=remote_node, numa_distance=distance, local_permitted_cpu_count=args.local_permitted_cpu_count, page_size_bytes=page_size, benchmark_pattern=pattern, threads=threads, memory_bytes=memory_bytes, memory_pages=str(int(memory_bytes) // int(page_size)), duration_seconds=duration, action_kind="MOVE_MEMORY", source_node=remote_node, destination_node=local_node, migration_page_bucket="4096", valid_pair_count=str(len(paired)), local_mean_ms=f"{local_mean:.9g}", local_stddev_ms=f"{local_std:.9g}", remote_mean_ms=f"{remote_mean:.9g}", remote_stddev_ms=f"{remote_std:.9g}", paired_penalty_mean_ms=f"{penalty:.9g}", paired_penalty_lower_bound_ms=f"{lower:.9g}", expected_recoverable_gain_pct=f"{lower / remote_mean * 100:.9g}", uncertainty_pct="0", safety_margin_pct=f"{args.safety_margin_pct:.9g}", cost_sample_count=str(len(cost_values)), migration_cost_mean_ms=f"{cost_mean:.9g}", migration_cost_stddev_ms=f"{cost_std:.9g}", migration_cost_conservative_ms=f"{cost_upper:.9g}", estimated_cost_pct=f"{cost_upper / remote_mean * 100:.9g}", successful_pages="4096", failed_pages="0", placement_evidence_schema_version="1", local_placement_artifact_hash=artifact_ref(paired[0][0]["placement_artifact"]), remote_placement_artifact_hash=artifact_ref(paired[0][1]["placement_artifact"]), migration_measurement_method="move_pages", rejection_reason="none")
+        record.update(schema_version="1", calibration_version=CALIBRATION_VERSION, created_at_utc=args.created_at_utc, collection_experiment_id=args.experiment_id, calibration_status="VALIDATED_PRODUCTION", cpu_architecture=args.cpu_architecture, cpu_model=args.cpu_model, online_numa_nodes=args.online_numa_nodes, topology_fingerprint=topology, local_node=local_node, remote_node=remote_node, numa_distance=distance, local_permitted_cpu_count=args.local_permitted_cpu_count, page_size_bytes=page_size, benchmark_pattern=pattern, threads=threads, memory_bytes=memory_bytes, memory_pages=str(int(memory_bytes) // int(page_size)), duration_seconds=duration, action_kind="MOVE_MEMORY", source_node=remote_node, destination_node=local_node, migration_page_bucket="4096", valid_pair_count=str(len(paired)), local_mean_ms=f"{local_mean:.9g}", local_stddev_ms=f"{local_std:.9g}", remote_mean_ms=f"{remote_mean:.9g}", remote_stddev_ms=f"{remote_std:.9g}", paired_penalty_mean_ms=f"{penalty:.9g}", paired_penalty_lower_bound_ms=f"{lower:.9g}", expected_recoverable_gain_pct=f"{lower / remote_mean * 100:.9g}", uncertainty_pct="0", safety_margin_pct=f"{args.safety_margin_pct:.9g}", cost_sample_count=str(len(cost_values)), migration_cost_mean_ms=f"{cost_mean:.9g}", migration_cost_stddev_ms=f"{cost_std:.9g}", migration_cost_conservative_ms=f"{cost_upper:.9g}", estimated_cost_pct=f"{cost_upper / remote_mean * 100:.9g}", successful_pages="4096", failed_pages="0", placement_evidence_schema_version="1", local_placement_artifact_hash=artifact_ref(paired[0][0]["placement_artifact"]), remote_placement_artifact_hash=artifact_ref(paired[0][1]["placement_artifact"]), migration_measurement_method="move_pages", rejection_reason="none")
         canonical = "|".join((record["schema_version"], record["calibration_version"], record["created_at_utc"], record["collection_experiment_id"], topology, record["benchmark_pattern"], record["action_kind"], record["threads"], record["memory_bytes"], record["memory_pages"], record["duration_seconds"], record["source_node"], record["destination_node"], record["migration_page_bucket"], record["valid_pair_count"], record["local_mean_ms"], record["local_stddev_ms"], record["remote_mean_ms"], record["remote_stddev_ms"], record["paired_penalty_mean_ms"], record["paired_penalty_lower_bound_ms"], record["expected_recoverable_gain_pct"], record["uncertainty_pct"], record["safety_margin_pct"], record["cost_sample_count"], record["migration_cost_mean_ms"], record["migration_cost_stddev_ms"], record["migration_cost_conservative_ms"], record["estimated_cost_pct"], record["successful_pages"], record["failed_pages"], record["local_placement_artifact_hash"], record["remote_placement_artifact_hash"], record["migration_measurement_method"]))
         record["calibration_id"] = f"cal1-{fnv(canonical, 'AWAVMA:calibration:record:v1'):016x}"
         records.append(record)
-    atomic_csv(args.output, records)
-    print(args.output)
+    if not records: raise SystemExit("CALIBRATION_EMPTY")
+    required_raw = {raw_relative: "TIMING", cost_relative: "COST"}
+    for rows in groups.values():
+        for row in rows:
+            if row.get("warmup") == "false" and row.get("measurement_valid") == "true" and row.get("placement_artifact"):
+                try:
+                    relative = Path(row["placement_artifact"]).resolve().relative_to(collection_root).as_posix()
+                except ValueError as error:
+                    raise SystemExit("CALIBRATION_PLACEMENT_OUTSIDE_COLLECTION") from error
+                required_raw[relative] = "PLACEMENT"
+    try:
+        verify_raw_artifacts(collection, collection_root, required_raw)
+    except Exception as error:
+        raise SystemExit(str(error)) from error
+    output_path = os.path.abspath(args.output)
+    manifest_path = os.path.abspath(args.calibration_manifest)
+    bundle = os.path.dirname(output_path)
+    if bundle != os.path.dirname(manifest_path) or os.path.basename(output_path) == os.path.basename(manifest_path):
+        raise SystemExit("CALIBRATION_MANIFEST_DESTINATION_NOT_COLOCATED")
+    parent = os.path.dirname(bundle)
+    if not os.path.isdir(parent): raise SystemExit("CALIBRATION_BUNDLE_PARENT_MISSING")
+    staging = tempfile.mkdtemp(prefix=f".{os.path.basename(bundle)}.staging-", dir=parent)
+    try:
+        staged_csv = os.path.join(staging, os.path.basename(output_path))
+        staged_manifest = os.path.join(staging, os.path.basename(manifest_path))
+        write_csv(staged_csv, records)
+        content = Path(staged_csv).read_bytes()
+        authority = {key: collection[key] for key in VALIDATION_FIELDS}
+        authority.update(schema_version=MANIFEST_SCHEMA, kind=AUTHORITY_KIND, mode="full",
+            status="VALIDATED_PRODUCTION", production_authority=True,
+            collection_experiment_id=args.experiment_id,
+            numa_balancing_restore_status=collection["numa_balancing_restore_status"],
+            calibration_artifact_basename=os.path.basename(output_path),
+            calibration_artifact_sha256=hashlib.sha256(content).hexdigest(),
+            calibration_record_count=len(records), calibration_version=CALIBRATION_VERSION,
+            topology_fingerprints=sorted({row["topology_fingerprint"] for row in records}),
+            raw_artifacts=collection["raw_artifacts"])
+        with open(staged_manifest, "w", encoding="utf-8") as handle:
+            json.dump(authority, handle, sort_keys=True, separators=(",", ":")); handle.write("\n"); handle.flush(); os.fsync(handle.fileno())
+        directory = os.open(staging, os.O_RDONLY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+        publish_bundle(staging, bundle)
+    finally:
+        if os.path.exists(staging): shutil.rmtree(staging)
+    print(output_path)
 def main():
-    parser = argparse.ArgumentParser(); parser.add_argument("--raw", required=True); parser.add_argument("--cost", required=True); parser.add_argument("--output", required=True); parser.add_argument("--experiment-id", required=True); parser.add_argument("--created-at-utc", required=True); parser.add_argument("--cpu-architecture", required=True); parser.add_argument("--cpu-model", required=True); parser.add_argument("--online-numa-nodes", required=True); parser.add_argument("--local-permitted-cpu-count", required=True); parser.add_argument("--minimum-pairs", type=int, default=MIN_SAMPLES); parser.add_argument("--minimum-cost-samples", type=int, default=MIN_SAMPLES); parser.add_argument("--safety-margin-pct", type=float, default=1.0); parser.add_argument("--production", action="store_true"); args = parser.parse_args();
+    parser = argparse.ArgumentParser(); parser.add_argument("--raw", required=True); parser.add_argument("--cost", required=True); parser.add_argument("--output", required=True); parser.add_argument("--collection-manifest", required=True); parser.add_argument("--calibration-manifest", required=True); parser.add_argument("--experiment-id", required=True); parser.add_argument("--created-at-utc", required=True); parser.add_argument("--cpu-architecture", required=True); parser.add_argument("--cpu-model", required=True); parser.add_argument("--online-numa-nodes", required=True); parser.add_argument("--local-permitted-cpu-count", required=True); parser.add_argument("--minimum-pairs", type=int, default=MIN_SAMPLES); parser.add_argument("--minimum-cost-samples", type=int, default=MIN_SAMPLES); parser.add_argument("--safety-margin-pct", type=float, default=1.0); args = parser.parse_args();
     if args.minimum_pairs < MIN_SAMPLES or args.minimum_cost_samples < MIN_SAMPLES or not 0 <= args.safety_margin_pct <= 100: raise SystemExit("invalid calibration policy")
     build(args)
 if __name__ == "__main__": main()

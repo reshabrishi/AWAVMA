@@ -275,6 +275,10 @@ The primary multi-application study used the mixed pattern, one thread and 8 MiB
 - Phase 4/5/6 use subprocesses in the accepted runtime. The experimental Phase 4 in-process mode was rejected after whole-pipeline throughput regressions.
 - Cache-reference and cache-miss monitoring depends on permitted `perf_event_open()` access; this was unavailable in the recorded environment.
 - The runtime is Linux-specific and depends on `/proc` and Linux scheduling/NUMA interfaces. It is a foreground executable, not a deployed system daemon.
+- Empirical `MOVE_MEMORY` authorization does not require a Matrix A activity class. It requires an exact P4 record match and compares expected gain percent with effective cost percent (base cost, uncertainty, and safety margin). The checked P4 artifact cannot authorize production: every exact record has negative conservative ROI after the safety margin, and its adjacent manifest says `NOT_PRODUCTION_CALIBRATION` while the CSV rows say `VALIDATED_PRODUCTION`.
+- The empirical memory decision helper is not connected to the live runtime, so there is no end-to-end live migration claim. Production `MOVE_THREAD` is also unavailable without a matching thread calibration.
+- Matrix A is historical calibration evidence only; Matrix B is descriptive only. Neither supplies production migration authority.
+- The Phase 4D experiment runner consumes only the current run (or an explicit baseline reference), transactionally disables and restores automatic NUMA balancing, and publishes a passing manifest only after restoration. Feedback learning remains unavailable without a comparable post-migration observation.
 
 ## Migration Safety And Recovery
 
@@ -309,7 +313,7 @@ Benchmark page registration authenticates one complete owned region, while each 
 
 The manager revalidates `(pid, start_time_ticks)` before an attempt and before any state update. Unknown placement stays unavailable, never becoming node 0 or a valid request. It tracks failures per application identity, suppresses a recent equivalent failed action, enters cooldown after the configured limit, and quarantines only the affected application after further failures. Monitoring continues while an application is cooling down or quarantined.
 
-Thread-affinity rollback is only available when a trustworthy prior affinity has been captured and identity still matches. Memory rollback is best-effort only when verified prior placement remains available; AWAVMA never claims transactional restoration of pages that may have changed concurrently. Runtime structural verification does not classify CPU-time progress, benefit, degradation, or application-level stalls. A safety, persistence, rollback, or feedback failure fails closed for future migrations and never intentionally terminates the monitored application.
+Thread-affinity rollback is only available when a trustworthy prior affinity has been captured and identity still matches. Memory benefit authorization additionally requires a complete attempt-bound page checkpoint with original placement and a retained rollback provider. Memory rollback is best-effort only when that verified prior placement remains available; AWAVMA never claims transactional restoration of pages that may have changed concurrently. Runtime structural verification does not classify CPU-time progress, benefit, degradation, or application-level stalls. A safety, persistence, rollback, or feedback failure fails closed for future migrations and never intentionally terminates the monitored application.
 
 Every terminal state is finalized exactly once into a typed Phase 8 terminal event. These events are retained for audit and the manager's per-application safety policy, but do not update Phase 5 weights without a real, comparable successful migration observation.
 

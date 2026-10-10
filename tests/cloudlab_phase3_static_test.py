@@ -27,7 +27,7 @@ def main() -> int:
     require(runner, "--check-only", "--tests-only", "manifest.json", "RUN_DIR=", "discover_nodes", "run_required_tests")
     if "LOCAL_NODE=0" in runner or "REMOTE_NODE=1" in runner:
         raise AssertionError("runner must not hardcode NUMA node IDs")
-    require(aggregate, "WIDE_SCHEMA", "COMPARATOR_SCHEMA", "ADDRESS_FIELD", "read_run", '"REAL"')
+    require(aggregate, "COMPARATOR_FIELDS", "SUMMARY_FIELDS", "--run-dir", "passing_reference", '"REAL"')
     require(graphs, "graph_summary.csv", '"SKIPPED"', "summary_input", "data_source")
     require(docs, "--check-only", "--tests-only", "cloudlab_comparator.csv", "graph_summary.csv")
     print("cloudlab_phase3_static_test: PASS")

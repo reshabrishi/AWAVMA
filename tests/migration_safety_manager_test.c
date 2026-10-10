@@ -3,6 +3,7 @@
 #include "migration_safety_manager.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -16,6 +17,10 @@ typedef struct {
     bool sleep_for_timeout;
     unsigned identity_calls;
     unsigned identity_fail_after;
+    bool mutation_attempted;
+    bool mutation_observed;
+    bool mutation_indeterminate;
+    unsigned rollback_calls;
 } test_context_t;
 
 static bool identity(void *opaque, pid_t pid, uint64_t ticks)
@@ -37,6 +42,9 @@ static MigrationResultCode execute(void *opaque, const MigrationRequest *request
     }
     memset(report, 0, sizeof(*report));
     report->result = context->execution;
+    report->mutation_attempted = context->mutation_attempted;
+    report->mutation_observed = context->mutation_observed;
+    report->mutation_indeterminate = context->mutation_indeterminate;
     return context->execution;
 }
 
@@ -59,7 +67,25 @@ static MigrationSafetyRecovery rollback(void *opaque, const MigrationSafetyReque
 
     (void)request;
     (void)report;
+    context->rollback_calls++;
     return context->recovery;
+}
+
+static PageCheckpointResult checkpoint(void *opaque, const MigrationSafetyRequest *request,
+                                       const char *attempt_id, MigrationPageCheckpoint *value)
+{
+    (void)opaque;
+    memset(value, 0, sizeof(*value));
+    value->entries = calloc(1, sizeof(*value->entries));
+    if (value->entries == NULL)
+        return PAGE_CHECKPOINT_ALLOCATION_FAILED;
+    value->pid = request->pid;
+    value->start_time_ticks = request->start_time_ticks;
+    snprintf(value->attempt_id, sizeof(value->attempt_id), "%s", attempt_id);
+    value->requested_count = value->known_count = 1;
+    value->complete = true;
+    value->result = PAGE_CHECKPOINT_COMPLETE;
+    return value->result;
 }
 
 static bool feedback(void *opaque, const FeedbackEvent *event, FeedbackResult *result)
@@ -96,6 +122,85 @@ static MigrationSafetyRequest valid_request(const char *app_id)
     snprintf(request.migration_request.phase6_validation.final_decision,
              sizeof(request.migration_request.phase6_validation.final_decision), "APPROVED");
     return request;
+}
+
+static MigrationSafetyRequest valid_memory_request(const char *app_id)
+{
+    static void *page = (void *)4096;
+    MigrationSafetyRequest request = valid_request(app_id);
+
+    request.action = VALIDATION_ACTION_MOVE_MEMORY;
+    request.migration_request.phase5_decision.action = request.action;
+    request.migration_request.pages = &page;
+    request.migration_request.page_count = 1;
+    request.migration_request.page_metadata_available = true;
+    request.migration_request.page_addresses_authoritative = true;
+    request.migration_request.memory_region_verified = true;
+    return request;
+}
+
+static bool memory_recovery_cases(MigrationSafetyConfig *config)
+{
+    test_context_t context = {.identity_ok = true, .execution = MIGRATION_SUCCESS,
+                              .validation = MIGRATION_SAFETY_STRUCTURAL_MISMATCH,
+                              .recovery = MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT,
+                              .mutation_attempted = true, .mutation_observed = true};
+    MigrationSafetyManager *manager;
+    MigrationSafetyRequest request;
+    MigrationSafetyResult result;
+    bool passed = true;
+
+    config->page_checkpoint_fn = checkpoint;
+    config->callback_context = &context;
+    request = valid_memory_request("MS12_POST_EXEC_IDENTITY");
+    context.identity_fail_after = 2;
+    manager = migration_safety_manager_create();
+    passed = manager != NULL && migration_safety_manager_init(manager, config) &&
+             migration_safety_manager_attempt(manager, &request, &result) &&
+             result.state == MIGRATION_SAFETY_QUARANTINED && result.quarantined &&
+             context.rollback_calls == 0;
+    migration_safety_manager_destroy(manager);
+    printf("MS12_POST_EXEC_IDENTITY_NO_ROLLBACK | %s\n", passed ? "PASS" : "FAIL");
+
+    memset(&context, 0, sizeof(context));
+    context.identity_ok = true;
+    context.execution = MIGRATION_SUCCESS;
+    context.validation = MIGRATION_SAFETY_STRUCTURAL_MISMATCH;
+    context.recovery = MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT;
+    context.mutation_attempted = context.mutation_observed = true;
+    config->callback_context = &context;
+    request = valid_memory_request("MS13_VERIFICATION_ROLLBACK");
+    manager = migration_safety_manager_create();
+    passed = manager != NULL && migration_safety_manager_init(manager, config) &&
+             migration_safety_manager_attempt(manager, &request, &result) &&
+             result.state == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED && context.rollback_calls == 1 && passed;
+    migration_safety_manager_destroy(manager);
+    printf("MS13_VERIFICATION_FAILURE_ROLLBACK | %s\n", context.rollback_calls == 1 ? "PASS" : "FAIL");
+
+    context.execution = MIGRATION_SYSTEM_ERROR;
+    context.validation = MIGRATION_SAFETY_HEALTHY;
+    context.mutation_observed = true;
+    context.mutation_indeterminate = false;
+    context.rollback_calls = 0;
+    request = valid_memory_request("MS14_PARTIAL_MUTATION");
+    manager = migration_safety_manager_create();
+    passed = manager != NULL && migration_safety_manager_init(manager, config) &&
+             migration_safety_manager_attempt(manager, &request, &result) &&
+             result.state == MIGRATION_SAFETY_EXECUTION_FAILED && context.rollback_calls == 1 && passed;
+    migration_safety_manager_destroy(manager);
+    printf("MS14_PARTIAL_MUTATION_ROLLBACK | %s\n", context.rollback_calls == 1 ? "PASS" : "FAIL");
+
+    context.mutation_observed = false;
+    context.rollback_calls = 0;
+    request = valid_memory_request("MS15_PROVEN_NO_MUTATION");
+    manager = migration_safety_manager_create();
+    passed = manager != NULL && migration_safety_manager_init(manager, config) &&
+             migration_safety_manager_attempt(manager, &request, &result) &&
+             result.state == MIGRATION_SAFETY_EXECUTION_FAILED && context.rollback_calls == 0 && passed;
+    migration_safety_manager_destroy(manager);
+    printf("MS15_PROVEN_NO_MUTATION_NO_ROLLBACK | %s\n", context.rollback_calls == 0 ? "PASS" : "FAIL");
+    config->page_checkpoint_fn = NULL;
+    return passed;
 }
 
 static bool run_case(const char *name, test_context_t *context, MigrationSafetyRequest *request,
@@ -193,6 +298,7 @@ int main(void)
     config.feedback_fn = feedback;
     passed = circuit_breaker_cases(&config) && passed;
     passed = suppression_case(&config) && passed;
+    passed = memory_recovery_cases(&config) && passed;
 
 #define CASE(id, setup, expected_state, expected_outcome) do { \
         memset(&context, 0, sizeof(context)); \

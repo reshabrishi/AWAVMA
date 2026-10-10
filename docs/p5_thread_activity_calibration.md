@@ -10,6 +10,9 @@ load operations, not bytes, cache misses, bandwidth, latency, or CPU use.
 
 ## Controlled Matrix A
 
+Matrix A is retained as historical calibration evidence only. It is not current
+runtime classification, gain, or production migration authority.
+
 Calibration profiles are controlled load intensities `LOW`, `MID`, and `HIGH`.
 They are not runtime classes: only a valid calibration maps their bands to
 `COLD`, `MODERATE`, and `HOT`. Matrix A v1 uses the declared 10/40/100
@@ -117,3 +120,13 @@ failure fails closed. Local and remote C2A-2 artifacts are independently written
 by the frozen writer under their separate calibration IDs. The `p5-thread-activity-
 calibration-validate ROOT ID` CLI invokes the C2A-2 loader. Smoke runs using
 overridden counts are non-authoritative. Runtime classification remains off.
+
+## Matrix B And Migration Authority
+
+Matrix B locality results are descriptive only: their manifest explicitly marks
+classification, runtime, expected-gain, and production-migration authority as
+unavailable or disabled. Empirical `MOVE_MEMORY` authorization does not require
+a Matrix A or Matrix B class; it uses an exact P4 calibration match and compares
+expected gain percent against effective cost percent. Production `MOVE_THREAD`
+remains unavailable without a matching thread calibration. No activity matrix
+or classifier currently provides an end-to-end live migration bridge.

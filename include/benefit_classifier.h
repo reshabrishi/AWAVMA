@@ -2,6 +2,7 @@
 #define AWAVMA_BENEFIT_CLASSIFIER_H
 
 #include "migration_target_provider.h"
+#include "page_checkpoint.h"
 
 #include <stdbool.h>
 
@@ -42,6 +43,8 @@ typedef struct {
     const DecisionData *decision;
     const ValidationResult *validation;
     const MigrationTarget *target;
+    const MemoryRecoveryEvidence *memory_recovery;
+    size_t memory_candidate_count;
     bool target_provider_validated;
     bool target_online;
     bool target_permitted;

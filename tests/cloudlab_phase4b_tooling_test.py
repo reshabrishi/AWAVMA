@@ -23,7 +23,7 @@ def main() -> int:
     require(runner, "collection_status", "ENV_LIMITED=3", "--baseline-only", "--awavma-only", "run_required_tests")
     if "LOCAL_NODE=0" in runner or "REMOTE_NODE=1" in runner:
         raise AssertionError("NUMA IDs must not be hardcoded")
-    require(aggregate, "rglob(\"*.csv\")", "WIDE_SCHEMA", "comparison_key", "COMPARATOR_SCHEMA", "ADDRESS_FIELD", "collection_status")
+    require(aggregate, "--run-dir", "--reference-run", "comparison_key", "COMPARATOR_FIELDS", "collection_status")
     require(graphs, "required real comparable fields unavailable", "multiple comparison sets require filtering", "summary_input", '"SKIPPED"')
     require(docs, "cloudlab_comparator.csv", "--output-dir", "baseline -> AWAVMA")
     print("cloudlab_phase4d_compatibility_test: PASS")

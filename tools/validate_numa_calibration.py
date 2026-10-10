@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import csv, json, math, os, sys
+from calibration_manifest_trust import TrustError, verify_production_pair
 
 COST_PAGE_COUNT = 4096
 
@@ -50,8 +51,14 @@ def valid_timing_evidence(path, mode):
 def valid_smoke_gate(path):
     with open(path, encoding="utf-8") as handle:
         manifest = json.load(handle)
-    return (manifest.get("schema_version") == 2 and manifest.get("mode") == "smoke" and
-            manifest.get("timing_valid") is True and
+    schema = manifest.get("schema_version")
+    canonical = (schema == 3 and manifest.get("kind") == "AWAVMA_P4_CALIBRATION_COLLECTION" and
+                 manifest.get("status") == "NOT_PRODUCTION_CALIBRATION" and
+                 manifest.get("production_authority") is False and
+                 manifest.get("placement_validation_valid") is True and
+                 manifest.get("strict_validation_valid") is True)
+    return ((schema == 2 or canonical) and manifest.get("mode") == "smoke" and
+             manifest.get("timing_valid") is True and
             manifest.get("cost_migration_valid") is True and
             manifest.get("numa_balancing_transaction_valid") is True and
             manifest.get("numa_balancing_restore_status") == "RESTORED" and
@@ -72,12 +79,21 @@ def raw_row(argv):
     values = [argv[1], argv[2], "LOCAL_REMOTE" if int(argv[2]) % 2 else "REMOTE_LOCAL", argv[12], "MOVE_MEMORY", argv[3], argv[4], argv[5], argv[6], str(os.sysconf("SC_PAGE_SIZE")), row.get("local_node", ""), row.get("remote_node", ""), row.get("numa_distance", ""), argv[7], argv[8], row.get("verification_status", "FAIL"), row.get("memory_policy_restored", "false"), row.get("total_pages", ""), row.get("queryable_pages", ""), row.get("other_pages", ""), row.get("unknown_pages", ""), argv[0], argv[9], argv[10], argv[11]]
     print(",".join(values))
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "placement": placement(sys.argv[2], sys.argv[3])
+    if len(sys.argv) == 5 and sys.argv[1] == "--calibration-artifact" and sys.argv[3] == "--calibration-manifest":
+        try: verify_production_pair(sys.argv[2], sys.argv[4])
+        except TrustError as error: raise SystemExit(str(error))
+    elif len(sys.argv) == 5 and sys.argv[1] == "--calibration-manifest" and sys.argv[3] == "--calibration-artifact":
+        try: verify_production_pair(sys.argv[4], sys.argv[2])
+        except TrustError as error: raise SystemExit(str(error))
+    elif len(sys.argv) == 4 and sys.argv[1] == "placement": placement(sys.argv[2], sys.argv[3])
     elif len(sys.argv) == 4 and sys.argv[1] == "cost-valid":
         if not valid_cost_evidence(sys.argv[2], sys.argv[3]): raise SystemExit("COST_EVIDENCE_INVALID")
     elif len(sys.argv) == 4 and sys.argv[1] == "timing-valid":
         if not valid_timing_evidence(sys.argv[2], sys.argv[3]): raise SystemExit("TIMING_EVIDENCE_INVALID")
     elif len(sys.argv) == 3 and sys.argv[1] == "smoke-gate":
         if not valid_smoke_gate(sys.argv[2]): raise SystemExit("SMOKE_GATE_INVALID")
+    elif len(sys.argv) == 4 and sys.argv[1] == "production":
+        try: verify_production_pair(sys.argv[2], sys.argv[3])
+        except TrustError as error: raise SystemExit(str(error))
     elif len(sys.argv) == 15 and sys.argv[1] == "raw-row": raw_row(sys.argv[2:])
     else: raise SystemExit(2)

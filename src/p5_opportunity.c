@@ -130,24 +130,31 @@ int p5_opportunity_evaluate(const p5_opportunity_input_t *input,
     return 0;
 }
 
+bool p5_opportunity_calibration_match(const CalibrationSnapshot *snapshot,
+                                      const CalibrationMatchRequest *request,
+                                      ValidatedCalibrationMatch *match)
+{
+    return match != NULL && calibration_match(snapshot, request, match) == CALIBRATION_MATCHED;
+}
+
 bool p5_opportunity_calibration_evidence(const CalibrationSnapshot *snapshot,
                                          const CalibrationMatchRequest *request,
                                          double *expected_gain_pct,
-                                          double *migration_cost_ms,
+                                          double *effective_cost_pct,
                                          calibration_match_status_t *status)
 {
     ValidatedCalibrationMatch match;
     calibration_match_status_t matched;
 
     if (expected_gain_pct != NULL) *expected_gain_pct = 0.0;
-    if (migration_cost_ms != NULL) *migration_cost_ms = 0.0;
+    if (effective_cost_pct != NULL) *effective_cost_pct = 0.0;
     matched = calibration_match(snapshot, request, &match);
     if (status != NULL) *status = matched;
-    if (matched != CALIBRATION_MATCHED || expected_gain_pct == NULL || migration_cost_ms == NULL ||
-        !isfinite(match.expected_gain_pct) || !isfinite(match.migration_cost_conservative_ms))
+    if (matched != CALIBRATION_MATCHED || expected_gain_pct == NULL || effective_cost_pct == NULL ||
+        !isfinite(match.expected_gain_pct) || !isfinite(match.effective_cost_pct))
         return false;
     *expected_gain_pct = match.expected_gain_pct;
-    *migration_cost_ms = match.migration_cost_conservative_ms;
+    *effective_cost_pct = match.effective_cost_pct;
     return true;
 }
 

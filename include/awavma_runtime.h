@@ -35,6 +35,19 @@ typedef enum {
     AWAVMA_RUNTIME_EXECUTION_PRODUCTION_REAL_MIGRATION
 } awavma_runtime_execution_mode_t;
 
+#define AWAVMA_CONTROLLED_WORKLOAD_SCHEMA_VERSION 1U
+
+typedef struct {
+    bool enabled;
+    unsigned schema_version;
+    const char *calibration_version;
+    const char *pattern;
+    unsigned threads;
+    size_t memory_bytes;
+    size_t memory_pages;
+    double duration_seconds;
+} awavma_controlled_workload_t;
+
 /* The runtime owns requested-to-effective activation; callers never infer it. */
 typedef struct {
     awavma_runtime_execution_mode_t requested_mode;
@@ -73,6 +86,8 @@ typedef struct {
     BenefitCalibrationState benefit_calibration_state;
     const char *benefit_calibration_provenance;
     const char *calibration_artifact_path;
+    const char *calibration_manifest_path;
+    awavma_controlled_workload_t controlled_workload;
     application_discovery_config_t discovery_config;
     runtime_monitor_discovery_admission_fn discovery_admission;
     void *discovery_admission_context;

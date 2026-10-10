@@ -100,6 +100,9 @@ typedef struct {
     char reason[CALIBRATION_REASON_MAX];
     char calibration_id[CALIBRATION_ID_MAX];
     char calibration_version[CALIBRATION_TEXT_MAX];
+    calibration_status_t calibration_status;
+    char created_at_utc[CALIBRATION_TEXT_MAX];
+    char collection_experiment_id[CALIBRATION_TEXT_MAX];
     ValidationAction action;
     double expected_gain_pct;
     double base_cost_pct;
@@ -111,6 +114,10 @@ typedef struct {
     int source_node, destination_node;
     size_t migration_page_bucket;
     char topology_fingerprint[CALIBRATION_ID_MAX];
+    unsigned placement_evidence_schema_version;
+    char local_placement_artifact_hash[CALIBRATION_ID_MAX];
+    char remote_placement_artifact_hash[CALIBRATION_ID_MAX];
+    char migration_measurement_method[CALIBRATION_TEXT_MAX];
 } ValidatedCalibrationMatch;
 
 typedef struct { size_t minimum_pairs, minimum_cost_samples; } CalibrationPolicy;
@@ -122,7 +129,10 @@ bool calibration_topology_fingerprint(const calibration_compatibility_t *compati
 bool calibration_record_id(const CalibrationRecord *record, char output[CALIBRATION_ID_MAX]);
 int calibration_write_csv(const char *path, const CalibrationRecord *record);
 int calibration_load_csv(const char *path, const CalibrationPolicy *policy, CalibrationSnapshot *snapshot,
-                         calibration_match_status_t *status, char reason[CALIBRATION_REASON_MAX]);
+                          calibration_match_status_t *status, char reason[CALIBRATION_REASON_MAX]);
+int calibration_load_csv_buffer(const char *bytes, size_t length, const CalibrationPolicy *policy,
+                                 CalibrationSnapshot *snapshot, calibration_match_status_t *status,
+                                 char reason[CALIBRATION_REASON_MAX]);
 void calibration_snapshot_release(CalibrationSnapshot *snapshot);
 calibration_match_status_t calibration_match(const CalibrationSnapshot *snapshot,
                                              const CalibrationMatchRequest *request,

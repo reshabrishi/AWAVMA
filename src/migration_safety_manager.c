@@ -209,15 +209,18 @@ static void finish(MigrationSafetyManager *manager, app_safety_state_t *state,
         state->failures++;
         state->consecutive_failures++;
         state->last_failure_ms = current;
+        state->quarantined = true;
+        state->quarantines++;
+        result->quarantined = true;
     }
     if (terminal == MIGRATION_SAFETY_TIMEOUT)
         state->timeouts++;
-    if (state->consecutive_failures > manager->config.failure_limit) {
+    if (!state->quarantined && state->consecutive_failures > manager->config.failure_limit) {
         state->quarantined = true;
         state->quarantines++;
         result->state = MIGRATION_SAFETY_QUARANTINED;
         result->quarantined = true;
-    } else if (state->consecutive_failures == manager->config.failure_limit) {
+    } else if (!state->quarantined && state->consecutive_failures == manager->config.failure_limit) {
         state->cooldown_until_ms = current + manager->config.cooldown_ms;
         result->state = MIGRATION_SAFETY_COOLDOWN;
         result->cooldown_entered = true;
@@ -294,6 +297,45 @@ static void finish(MigrationSafetyManager *manager, app_safety_state_t *state,
                             state->sequence, 1, migration_safety_state_name(result->state));
 }
 
+static bool recover_memory_mutation(MigrationSafetyManager *manager,
+                                    const MigrationSafetyRequest *request,
+                                    const MigrationReport *report,
+                                    MigrationSafetyResult *result)
+{
+    MigrationSafetyRequest rollback_request = *request;
+
+    if (request->action != VALIDATION_ACTION_MOVE_MEMORY || !report->mutation_attempted ||
+        (!report->mutation_observed && !report->mutation_indeterminate))
+        return true;
+    if (!identity_matches(manager, request->pid, request->start_time_ticks))
+        return false;
+    memset(&result->page_rollback_summary, 0, sizeof(result->page_rollback_summary));
+    result->page_rollback_summary.result = PAGE_ROLLBACK_UNAVAILABLE;
+    result->page_rollback_known = true;
+    rollback_request.page_rollback_summary = &result->page_rollback_summary;
+    result->recovery = manager->config.rollback_fn == NULL ?
+        MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE :
+        manager->config.rollback_fn(manager->config.callback_context, &rollback_request, report);
+    return result->recovery == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT;
+}
+
+static void quarantine_identity_loss(MigrationSafetyManager *manager, app_safety_state_t *state,
+                                     const MigrationSafetyRequest *request,
+                                     MigrationSafetyResult *result, const MigrationReport *report)
+{
+    if (request->action == VALIDATION_ACTION_MOVE_MEMORY && report->mutation_attempted &&
+        (report->mutation_observed || report->mutation_indeterminate)) {
+        state->quarantined = true;
+        state->quarantines++;
+        result->quarantined = true;
+        finish(manager, state, request, result, MIGRATION_SAFETY_QUARANTINED,
+               "PID identity changed after possible memory mutation; rollback prohibited");
+        return;
+    }
+    finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_GONE,
+           "PID identity changed after migration execution");
+}
+
 void migration_safety_config_default(MigrationSafetyConfig *config)
 {
     if (config == NULL)
@@ -348,9 +390,14 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
     MigrationTarget target;
     MigrationPageCheckpoint page_checkpoint;
     PageRollbackSummary page_rollback_summary;
+    MemoryRecoveryEvidence recovery_evidence;
+
+#define RETURN_ATTEMPT() do { page_checkpoint_release(&page_checkpoint); return true; } while (0)
 
     if (result == NULL)
         return false;
+    memset(&page_checkpoint, 0, sizeof(page_checkpoint));
+    memset(&recovery_evidence, 0, sizeof(recovery_evidence));
     memset(result, 0, sizeof(*result));
     result->state = MIGRATION_SAFETY_REJECTED;
     result->validation = MIGRATION_SAFETY_INSUFFICIENT_VALIDATION_DATA;
@@ -371,15 +418,15 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
     if (!identity_matches(manager, request->pid, request->start_time_ticks)) {
         result->execution_result = MIGRATION_TARGET_GONE;
         finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_GONE, "PID identity changed or disappeared");
-        return true;
+        RETURN_ATTEMPT();
     }
     if (state->quarantined) {
         finish(manager, state, request, result, MIGRATION_SAFETY_QUARANTINED, "application is quarantined");
-        return true;
+        RETURN_ATTEMPT();
     }
     if (now_ms() < state->cooldown_until_ms) {
         finish(manager, state, request, result, MIGRATION_SAFETY_COOLDOWN, "application cooldown is active");
-        return true;
+        RETURN_ATTEMPT();
     }
     if (request->action == VALIDATION_ACTION_MOVE_MEMORY && manager->config.page_checkpoint_fn != NULL) {
         memset(&page_checkpoint, 0, sizeof(page_checkpoint));
@@ -392,10 +439,9 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
         if (result->page_checkpoint_result != PAGE_CHECKPOINT_COMPLETE) {
             snprintf(result->target_reason, sizeof(result->target_reason), "%s",
                      page_checkpoint_result_name(result->page_checkpoint_result));
-            page_checkpoint_release(&page_checkpoint);
             finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_UNAVAILABLE,
                    result->target_reason);
-            return true;
+            RETURN_ATTEMPT();
         }
         /* Keep the complete checkpoint alive through execution so rollback has immutable source nodes. */
     }
@@ -426,7 +472,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                      (int)(sizeof(result->detail) - 1), target.reason[0] != '\0' ?
                      target.reason : migration_target_result_name(result->target_result));
             finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_UNAVAILABLE, result->detail);
-            return true;
+            RETURN_ATTEMPT();
         }
         if (target.pid != request->pid || target.start_time_ticks != request->start_time_ticks ||
             strcmp(target.attempt_id, result->attempt_id) != 0 || target.action != request->action) {
@@ -434,7 +480,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
             snprintf(result->target_reason, sizeof(result->target_reason), "TARGET_STALE");
             finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_UNAVAILABLE,
                     "TARGET_STALE");
-            return true;
+            RETURN_ATTEMPT();
         }
         prepared = *request;
         prepared.target_valid = true;
@@ -469,7 +515,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
         state->last_target == request->destination_numa_node && state->last_failure_ms > 0 &&
         now_ms() - state->last_failure_ms < manager->config.suppression_window_ms) {
         finish(manager, state, request, result, MIGRATION_SAFETY_SUPPRESSED, "recent equivalent migration failed");
-        return true;
+        RETURN_ATTEMPT();
     }
     if ((request->action != VALIDATION_ACTION_MOVE_MEMORY && request->action != VALIDATION_ACTION_MOVE_THREAD) ||
         request->migration_request.pid != request->pid ||
@@ -487,7 +533,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
            request->migration_request.page_count > PAGE_CHECKPOINT_MAX_PAGES ||
            !result->page_checkpoint_complete))) {
         finish(manager, state, request, result, MIGRATION_SAFETY_REJECTED, "placement, target, system, or identity evidence is unavailable");
-        return true;
+        RETURN_ATTEMPT();
     }
     if (manager->config.benefit_fn != NULL) {
         BenefitDecision benefit;
@@ -499,16 +545,25 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                  sizeof(prepared.migration_request.benefit_evidence_attempt_id), "%s",
                  result->attempt_id);
         request = &prepared;
+        if (request->action == VALIDATION_ACTION_MOVE_MEMORY &&
+            !page_checkpoint_recovery_evidence(&page_checkpoint,
+                manager->config.rollback_fn != NULL, request->source_numa_node,
+                request->destination_numa_node, &recovery_evidence)) {
+            finish(manager, state, request, result, MIGRATION_SAFETY_BENEFIT_REJECTED,
+                   "complete attempt-bound page recovery evidence is unavailable");
+            RETURN_ATTEMPT();
+        }
         memset(&benefit, 0, sizeof(benefit));
         result->benefit_result = manager->config.benefit_fn(manager->config.callback_context, request,
-                                                             &target, result->attempt_id, &benefit);
+            &target, result->attempt_id,
+            request->action == VALIDATION_ACTION_MOVE_MEMORY ? &recovery_evidence : NULL, &benefit);
         snprintf(result->benefit_reason, sizeof(result->benefit_reason), "%s",
                  benefit.reason[0] != '\0' ? benefit.reason :
                  benefit_classification_name(result->benefit_result));
         if (result->benefit_result != BENEFIT_SUPPORTED) {
             finish(manager, state, request, result, MIGRATION_SAFETY_BENEFIT_REJECTED,
                    benefit.detail[0] != '\0' ? benefit.detail : result->benefit_reason);
-            return true;
+            RETURN_ATTEMPT();
         }
     }
     state->last_action = request->action;
@@ -516,7 +571,7 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
     state->last_target = request->destination_numa_node;
     if (!manager->config.execution_enabled || manager->config.execute_fn == NULL) {
         finish(manager, state, request, result, MIGRATION_SAFETY_EXECUTION_DISABLED, "migration execution is disabled");
-        return true;
+        RETURN_ATTEMPT();
     }
     memset(&report, 0, sizeof(report));
     /* Capture only for attempts that have passed every pre-execution terminal gate. */
@@ -525,29 +580,42 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                                            result->attempt_id)) {
         finish(manager, state, request, result, MIGRATION_SAFETY_VALIDATION_UNKNOWN,
                "before-execution structural validation snapshot is unavailable");
-        return true;
+        RETURN_ATTEMPT();
     }
     started = now_ms();
     result->execution_result = manager->config.execute_fn(manager->config.callback_context,
-                                                            &request->migration_request, &report);
+                                                             &request->migration_request, &report);
     result->execution_time_ms = now_ms() - started;
-    if (result->execution_time_ms > manager->config.execution_timeout_ms) {
-        if ((result->execution_result == MIGRATION_SUCCESS || result->execution_result == MIGRATION_PARTIAL_SUCCESS) &&
-            identity_matches(manager, request->pid, request->start_time_ticks) &&
-            manager->config.rollback_fn != NULL)
-            result->recovery = manager->config.rollback_fn(manager->config.callback_context, request, &report);
-        finish(manager, state, request, result, MIGRATION_SAFETY_TIMEOUT, "migration exceeded controller timeout");
-        return true;
-    }
-    if (result->execution_result != MIGRATION_SUCCESS && result->execution_result != MIGRATION_PARTIAL_SUCCESS) {
-        finish(manager, state, request, result, MIGRATION_SAFETY_EXECUTION_FAILED, "migration execution failed safely");
-        return true;
-    }
     if (!identity_matches(manager, request->pid, request->start_time_ticks)) {
         result->execution_result = MIGRATION_TARGET_GONE;
-        finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_GONE,
-               "PID identity changed after migration execution");
-        return true;
+        quarantine_identity_loss(manager, state, request, result, &report);
+        RETURN_ATTEMPT();
+    }
+    if (result->execution_time_ms > manager->config.execution_timeout_ms) {
+        if (request->action == VALIDATION_ACTION_MOVE_MEMORY && report.mutation_attempted) {
+            if (!recover_memory_mutation(manager, request, &report, result))
+                finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_FAILED,
+                       "memory migration timed out and rollback failed");
+            else
+                finish(manager, state, request, result, MIGRATION_SAFETY_TIMEOUT,
+                       "migration exceeded controller timeout");
+        } else {
+            if ((result->execution_result == MIGRATION_SUCCESS || result->execution_result == MIGRATION_PARTIAL_SUCCESS) &&
+            identity_matches(manager, request->pid, request->start_time_ticks) &&
+            manager->config.rollback_fn != NULL)
+                result->recovery = manager->config.rollback_fn(manager->config.callback_context, request, &report);
+            finish(manager, state, request, result, MIGRATION_SAFETY_TIMEOUT, "migration exceeded controller timeout");
+        }
+        RETURN_ATTEMPT();
+    }
+    if (result->execution_result != MIGRATION_SUCCESS && result->execution_result != MIGRATION_PARTIAL_SUCCESS) {
+        if (!recover_memory_mutation(manager, request, &report, result))
+            finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_FAILED,
+                   "memory execution may have mutated placement and rollback failed");
+        else
+            finish(manager, state, request, result, MIGRATION_SAFETY_EXECUTION_FAILED,
+                   "migration execution failed safely");
+        RETURN_ATTEMPT();
     }
     result->validation = manager->config.validate_fn == NULL ?
         MIGRATION_SAFETY_INSUFFICIENT_VALIDATION_DATA :
@@ -572,38 +640,46 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
         result->validation == MIGRATION_SAFETY_NO_MEANINGFUL_CHANGE) {
         finish(manager, state, request, result, MIGRATION_SAFETY_COMMITTED,
                "post-migration structural verification is acceptable");
-        return true;
+        RETURN_ATTEMPT();
     }
     if (result->validation == MIGRATION_SAFETY_VALIDATION_TARGET_GONE) {
-        finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_GONE, "target disappeared during validation");
-        return true;
+        result->execution_result = MIGRATION_TARGET_GONE;
+        quarantine_identity_loss(manager, state, request, result, &report);
+        RETURN_ATTEMPT();
     }
     if (result->validation == MIGRATION_SAFETY_INSUFFICIENT_VALIDATION_DATA) {
-        finish(manager, state, request, result, MIGRATION_SAFETY_VALIDATION_UNKNOWN, "comparable post-migration metrics are unavailable");
-        return true;
+        if (!recover_memory_mutation(manager, request, &report, result))
+            finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_FAILED,
+                   "memory validation was unknown and rollback failed");
+        else
+            finish(manager, state, request, result, MIGRATION_SAFETY_VALIDATION_UNKNOWN,
+                   "comparable post-migration metrics are unavailable");
+        RETURN_ATTEMPT();
     }
     if (result->validation == MIGRATION_SAFETY_NO_PROGRESS_INCONCLUSIVE) {
-        finish(manager, state, request, result, MIGRATION_SAFETY_VALIDATION_UNKNOWN,
-               "no CPU-time progress was observed; idle or blocked state is inconclusive");
-        return true;
+        if (!recover_memory_mutation(manager, request, &report, result))
+            finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_FAILED,
+                   "memory validation was inconclusive and rollback failed");
+        else
+            finish(manager, state, request, result, MIGRATION_SAFETY_VALIDATION_UNKNOWN,
+                   "no CPU-time progress was observed; idle or blocked state is inconclusive");
+        RETURN_ATTEMPT();
     }
     if (!identity_matches(manager, request->pid, request->start_time_ticks)) {
         result->execution_result = MIGRATION_TARGET_GONE;
-        finish(manager, state, request, result, MIGRATION_SAFETY_TARGET_GONE,
-               "PID identity changed before rollback");
-        return true;
+        quarantine_identity_loss(manager, state, request, result, &report);
+        RETURN_ATTEMPT();
     }
     prepared = *request;
     memset(&page_rollback_summary, 0, sizeof(page_rollback_summary));
     page_rollback_summary.result = PAGE_ROLLBACK_UNAVAILABLE;
     prepared.page_rollback_summary = &page_rollback_summary;
     request = &prepared;
-    result->recovery = manager->config.rollback_fn == NULL ? MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE :
-        manager->config.rollback_fn(manager->config.callback_context, request, &report);
-    if (request->action == VALIDATION_ACTION_MOVE_MEMORY) {
-        result->page_rollback_known = true;
-        result->page_rollback_summary = page_rollback_summary;
-    }
+    if (request->action == VALIDATION_ACTION_MOVE_MEMORY)
+        (void)recover_memory_mutation(manager, request, &report, result);
+    else
+        result->recovery = manager->config.rollback_fn == NULL ? MIGRATION_SAFETY_ROLLBACK_UNAVAILABLE :
+            manager->config.rollback_fn(manager->config.callback_context, request, &report);
     if (result->recovery == MIGRATION_SAFETY_ROLLBACK_SUCCEEDED_RESULT)
         finish(manager, state, request, result, MIGRATION_SAFETY_ROLLBACK_SUCCEEDED,
                result->validation == MIGRATION_SAFETY_STRUCTURAL_MISMATCH ?
@@ -616,7 +692,8 @@ bool migration_safety_manager_attempt(MigrationSafetyManager *manager,
                 result->validation == MIGRATION_SAFETY_SUSPECTED_STALL ?
                 "suspected migration-associated stall; rollback unavailable or failed" :
                 "post-migration degradation; rollback unavailable or failed");
-    return true;
+    RETURN_ATTEMPT();
+#undef RETURN_ATTEMPT
 }
 
 void migration_safety_manager_shutdown(MigrationSafetyManager *manager)

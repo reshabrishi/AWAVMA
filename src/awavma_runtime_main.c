@@ -5,9 +5,11 @@
 #include <getopt.h>
 #include <limits.h>
 #include <signal.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static volatile sig_atomic_t stop_requested;
 
@@ -32,6 +34,15 @@ static int parse_u64(const char *text, uint64_t *value, bool allow_zero)
     return 0;
 }
 
+static int parse_positive_double(const char *text, double *value)
+{
+    char *end = NULL;
+    if (text == NULL || *text == '\0' || text[0] == '-') return -1;
+    errno = 0;
+    *value = strtod(text, &end);
+    return errno == 0 && end != text && *end == '\0' && isfinite(*value) && *value > 0.0 ? 0 : -1;
+}
+
 static void usage(const char *program)
 {
     printf("Usage: %s [options]\n\n", program);
@@ -45,6 +56,11 @@ static void usage(const char *program)
     printf("  --bin-dir DIR         Existing phase binary directory (default: bin)\n");
     printf("  --config FILE         Phase 6 configuration file (default: config/awavma.conf)\n");
     printf("  --calibration-artifact FILE  Load a read-only P4 calibration artifact\n");
+    printf("  --calibration-manifest FILE  Production authority manifest for the calibration artifact\n");
+    printf("  --controlled-workload-pattern P  Explicit controlled pattern (supported: mixed)\n");
+    printf("  --controlled-workload-threads N  Controlled workload thread count\n");
+    printf("  --controlled-workload-memory-bytes N  Exact registered allocation size\n");
+    printf("  --controlled-workload-duration-seconds N  Calibration workload duration\n");
     printf("  --phase4-mode MODE    subprocess or in-process (default: subprocess)\n");
     printf("  --migration-safety-enabled  Record safe Phase 7 terminal outcomes (default: disabled)\n");
     printf("  --migration-execution-enabled  Request Phase 7 execution; verified metadata remains required\n");
@@ -68,6 +84,11 @@ int main(int argc, char **argv)
         {"bin-dir", required_argument, NULL, 'b'},
         {"config", required_argument, NULL, 'c'},
         {"calibration-artifact", required_argument, NULL, 'C'},
+        {"calibration-manifest", required_argument, NULL, 999},
+        {"controlled-workload-pattern", required_argument, NULL, 1000},
+        {"controlled-workload-threads", required_argument, NULL, 1001},
+        {"controlled-workload-memory-bytes", required_argument, NULL, 1002},
+        {"controlled-workload-duration-seconds", required_argument, NULL, 1004},
         {"phase4-mode", required_argument, NULL, 'P'},
         {"migration-safety-enabled", no_argument, NULL, 'S'},
         {"migration-execution-enabled", no_argument, NULL, 'M'},
@@ -117,6 +138,17 @@ int main(int argc, char **argv)
         case 'b': config.bin_dir = optarg; break;
         case 'c': config.phase_config_path = optarg; break;
         case 'C': config.calibration_artifact_path = optarg; break;
+        case 999: config.calibration_manifest_path = optarg; break;
+        case 1000: config.controlled_workload.pattern = optarg; config.controlled_workload.enabled = true; break;
+        case 1001:
+            if (parse_u64(optarg, &value, false) != 0 || value > UINT_MAX) goto invalid;
+            config.controlled_workload.threads = (unsigned)value; config.controlled_workload.enabled = true; break;
+        case 1002:
+            if (parse_u64(optarg, &value, false) != 0 || value > SIZE_MAX) goto invalid;
+            config.controlled_workload.memory_bytes = (size_t)value; config.controlled_workload.enabled = true; break;
+        case 1004:
+            if (parse_positive_double(optarg, &config.controlled_workload.duration_seconds) != 0) goto invalid;
+            config.controlled_workload.enabled = true; break;
         case 'P':
             if (strcmp(optarg, "subprocess") == 0)
                 config.phase4_mode = AWAVMA_PHASE4_SUBPROCESS;
@@ -151,6 +183,14 @@ int main(int argc, char **argv)
     }
     if (optind != argc)
         goto invalid;
+    if (config.controlled_workload.enabled) {
+        long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size <= 0 || config.controlled_workload.memory_bytes == 0 ||
+            config.controlled_workload.memory_bytes % (size_t)page_size != 0)
+            goto invalid;
+        config.controlled_workload.memory_pages =
+            config.controlled_workload.memory_bytes / (size_t)page_size;
+    }
     if (target_filter.count > 0) {
         config.discovery_admission = runtime_target_filter_admits_discovery;
         config.discovery_admission_context = &target_filter;

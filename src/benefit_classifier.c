@@ -90,12 +90,22 @@ BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *
     decision->action = input->action;
     decision->calibration_state = input->calibration.state;
     snprintf(decision->attempt_id, sizeof(decision->attempt_id), "%s", input->attempt_id);
-    if (input->action == VALIDATION_ACTION_MOVE_MEMORY)
-        return reject(decision, PAGE_RECOVERY_REQUIRED, "PAGE_RECOVERY_REQUIRED",
-                      "page migration cannot be benefit-authorized without recovery evidence");
-    if (input->action != VALIDATION_ACTION_MOVE_THREAD)
+    if (input->action != VALIDATION_ACTION_MOVE_THREAD &&
+        input->action != VALIDATION_ACTION_MOVE_MEMORY)
         return reject(decision, ACTION_NOT_ELIGIBLE, "ACTION_NOT_ELIGIBLE",
-                      "only an approved MOVE_THREAD action is eligible");
+                      "only an approved migration action is eligible");
+    if (input->action == VALIDATION_ACTION_MOVE_MEMORY) {
+        const MemoryRecoveryEvidence *recovery = input->memory_recovery;
+
+        if (recovery == NULL || !recovery->checkpoint_complete ||
+            !recovery->original_placement_known || !recovery->rollback_provider_retained ||
+            recovery->pid != input->pid || recovery->start_time_ticks != input->start_time_ticks ||
+            strcmp(recovery->attempt_id, input->attempt_id) != 0 ||
+            recovery->candidate_count == 0 ||
+            recovery->candidate_count != input->memory_candidate_count)
+            return reject(decision, PAGE_RECOVERY_REQUIRED, "PAGE_RECOVERY_REQUIRED",
+                          "complete attempt-bound page recovery evidence is required");
+    }
     if (input->pid <= 0 || input->start_time_ticks == 0 || !input->process_active ||
         !input->identity_match)
         return reject(decision, STALE_OR_IDENTITY_MISMATCH, "IDENTITY_MISMATCH",
@@ -112,13 +122,19 @@ BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *
     if (target == NULL || !input->target_provider_validated || target->pid != input->pid ||
         target->start_time_ticks != input->start_time_ticks || target->action != input->action ||
         strcmp(target->attempt_id, input->attempt_id) != 0 || !target->source_node_known ||
-        !target->has_target_numa_node || !target->has_target_cpu_mask) {
+        !target->has_target_numa_node ||
+        (input->action == VALIDATION_ACTION_MOVE_THREAD && !target->has_target_cpu_mask)) {
         return reject(decision, TARGET_NOT_VALIDATED, "TARGET_METADATA_MISMATCH",
                       "target metadata is not structurally bound to this attempt");
     }
     decision->source_node = target->source_numa_node;
     decision->target_node = target->target_numa_node;
     decision->target_structurally_validated = true;
+    if (input->action == VALIDATION_ACTION_MOVE_MEMORY &&
+        (input->memory_recovery->source_numa_node != target->source_numa_node ||
+         input->memory_recovery->target_numa_node != target->target_numa_node))
+        return reject(decision, PAGE_RECOVERY_REQUIRED, "PAGE_RECOVERY_REQUIRED",
+                      "recovery evidence NUMA placement does not match the migration target");
     if (!input->target_online || !input->target_permitted || !input->source_known ||
         !input->source_target_valid || target->source_numa_node == target->target_numa_node)
         return reject(decision, TARGET_NOT_VALIDATED, "TARGET_NOT_VALIDATED",
@@ -144,7 +160,10 @@ BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *
     if (phase6->confidence_status != GATE_PASS)
         return reject(decision, BENEFIT_NOT_SUPPORTED, "LOW_CONFIDENCE",
                       "existing Phase 6 confidence gate did not pass");
-    if (phase6->safety_status != GATE_PASS)
+    /* Empirical memory safety is evaluated by the attempt-bound safety manager below. */
+    if (phase6->safety_status != GATE_PASS &&
+        !(phase5->evidence_model == DECISION_EVIDENCE_EMPIRICAL_GAIN_COST &&
+          phase6->safety_status == GATE_NOT_APPLICABLE))
         return reject(decision, BENEFIT_NOT_SUPPORTED, "UNSAFE",
                       "existing Phase 6 safety gate did not pass");
     if (phase5->evidence_model == DECISION_EVIDENCE_UTILITY_POLICY) {
@@ -153,7 +172,7 @@ BenefitClassification benefit_classifier_evaluate(const BenefitClassifierInput *
                           "canonical Phase 5 utility evidence is incomplete or inconsistent");
         if (!benefit_utility_action_margin_matches(phase5, input->action))
             return reject(decision, BENEFIT_NOT_SUPPORTED, "PHASE5_EPSILON_ACTION_GATE_NOT_PASSED",
-                          "recorded Phase 5 utility margin does not authorize MOVE_THREAD");
+                           "recorded Phase 5 utility margin does not authorize the action");
         if (phase6->roi_status != GATE_NOT_APPLICABLE)
             return reject(decision, INSUFFICIENT_BENEFIT_EVIDENCE,
                           "ROI_UTILITY_MODEL_CONTRACT_MISMATCH",

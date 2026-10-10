@@ -62,7 +62,12 @@ typedef struct {
     double estimated_cost;
     bool gain_available;
     bool cost_available;
+    double empirical_roi;
+    bool empirical_roi_available;
     DecisionEvidenceModel evidence_model;
+    char calibration_id[32];
+    char calibration_version[128];
+    char calibration_provenance[128];
     /* Exact Phase 5 decision-engine evidence; no utility is recalculated here. */
     bool phase5_evidence_available;
     char phase5_timestamp[32];

@@ -80,6 +80,10 @@ bool page_checkpoint_recovery_evidence(const MigrationPageCheckpoint *checkpoint
         checkpoint->known_count != checkpoint->requested_count || checkpoint->unknown_count != 0 ||
         source_numa_node < 0 || target_numa_node < 0 || source_numa_node == target_numa_node)
         return false;
+    for (size_t index = 0; index < checkpoint->requested_count; index++)
+        if (checkpoint->entries == NULL || !checkpoint->entries[index].original_node_known ||
+            checkpoint->entries[index].original_node != source_numa_node)
+            return false;
     memset(evidence, 0, sizeof(*evidence));
     evidence->pid = checkpoint->pid;
     evidence->start_time_ticks = checkpoint->start_time_ticks;

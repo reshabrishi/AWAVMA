@@ -79,12 +79,16 @@ with open(sys.argv[1], newline='') as handle:
 PY
 )"
 LOCAL_PERMITTED_CPU_COUNT="$(numactl --hardware | awk -v node="$LOCAL_NODE" '$1 == "node" && $2 == node && $3 == "cpus:" {print NF - 3; exit}')"
-ARTIFACT="$FULL_RUN/numa_calibration.csv"
+CALIBRATION_BUNDLE="$FULL_RUN/calibration-bundle"
+ARTIFACT="$CALIBRATION_BUNDLE/numa_calibration.csv"
+CALIBRATION_MANIFEST="$CALIBRATION_BUNDLE/calibration-manifest.json"
 
 python3 tools/build_numa_calibration.py \
   --raw "$FULL_RUN/raw_timing.csv" \
   --cost "$FULL_RUN/raw_cost.csv" \
   --output "$ARTIFACT" \
+  --collection-manifest "$FULL_RUN/manifest.json" \
+  --calibration-manifest "$CALIBRATION_MANIFEST" \
   --experiment-id "$EXPERIMENT_ID" \
   --created-at-utc "$CREATED_AT_UTC" \
   --cpu-architecture "$CPU_ARCHITECTURE" \
@@ -93,8 +97,7 @@ python3 tools/build_numa_calibration.py \
   --local-permitted-cpu-count "$LOCAL_PERMITTED_CPU_COUNT" \
   --minimum-pairs 7 \
   --minimum-cost-samples 7 \
-  --safety-margin-pct 1 \
-  --production
+  --safety-margin-pct 1
 ```
 
 ## Strict Validation

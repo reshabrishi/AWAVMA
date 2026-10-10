@@ -18,7 +18,7 @@ static CalibrationRecord record_for(ValidationAction action)
 {
     CalibrationRecord record = {0};
     record.schema_version = CALIBRATION_SCHEMA_VERSION;
-    snprintf(record.calibration_version, sizeof(record.calibration_version), "p4b-test-1");
+    snprintf(record.calibration_version, sizeof(record.calibration_version), "p4c-v1");
     snprintf(record.created_at_utc, sizeof(record.created_at_utc), "2026-10-05T00:00:00Z");
     snprintf(record.collection_experiment_id, sizeof(record.collection_experiment_id), "test-only");
     record.status = CALIBRATION_VALIDATED_TEST_ONLY;
@@ -75,6 +75,7 @@ static int write_record(const char *path, const CalibrationRecord *r)
 
 int main(void)
 {
+    const char *production_path = "results/cloudlab_calibration/full/p4c-20261010T081928Z-3122/numa_calibration.csv";
     char path[] = "/tmp/awavma-calibration-XXXXXX";
     CalibrationRecord memory = record_for(VALIDATION_ACTION_MOVE_MEMORY);
     CalibrationSnapshot snapshot; CalibrationPolicy policy; calibration_match_status_t status;
@@ -84,13 +85,54 @@ int main(void)
                                        .destination_node = 0, .migration_page_bucket = 4096};
     int fd = mkstemp(path); assert(fd >= 0); close(fd); assert(write_record(path, &memory) == 0);
     calibration_policy_default(&policy);
+    assert(calibration_load_csv(production_path, &policy, &snapshot, &status, reason) == 0);
+    assert(snapshot.count > 0);
+    CalibrationRecord production = snapshot.records[0];
+    CalibrationMatchRequest production_request = {.compatibility = production.compatibility,
+        .workload = production.workload, .action = production.action,
+        .source_node = production.source_node, .destination_node = production.destination_node,
+        .migration_page_bucket = production.migration_page_bucket};
+    assert(calibration_match(&snapshot, &production_request, &match) == CALIBRATION_MATCHED);
+    assert(match.calibration_status == CALIBRATION_VALIDATED_PRODUCTION);
+    assert(strcmp(match.calibration_id, production.calibration_id) == 0);
+    calibration_snapshot_release(&snapshot);
     assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) == 0 && snapshot.count == 1);
     assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED && match.expected_gain_pct == 8 && match.effective_cost_pct == 7);
+    assert(match.calibration_status == CALIBRATION_VALIDATED_TEST_ONLY);
+    assert(strcmp(match.collection_experiment_id, "test-only") == 0);
+    assert(match.placement_evidence_schema_version == 1);
     request.action = VALIDATION_ACTION_MOVE_THREAD;
     assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_ACTION_MISMATCH);
     request.action = VALIDATION_ACTION_MOVE_MEMORY; request.migration_page_bucket = 64;
     assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_BUCKET_MISMATCH);
+    request.migration_page_bucket = 4096; request.destination_node = 1;
+    assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_MISMATCH);
+    request.destination_node = 0; request.workload.threads++;
+    assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_WORKLOAD_MISMATCH);
+    request.workload = memory.workload; request.compatibility.page_size_bytes = 8192;
+    assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_PAGE_SIZE_MISMATCH);
+    request.compatibility = memory.compatibility; request.compatibility.cpu_model[0] = 'z';
+    assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_TOPOLOGY_MISMATCH);
     calibration_snapshot_release(&snapshot);
+    memory.placement_evidence_schema_version = 2; assert(calibration_record_id(&memory, memory.calibration_id));
+    assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); snprintf(memory.rejection_reason, sizeof(memory.rejection_reason), "partial");
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.failed_pages = 1; memory.successful_pages = 4095;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.migration_cost_conservative_ms = 3; memory.estimated_cost_pct = 3;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.source_node = memory.compatibility.local_node;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); snprintf(memory.calibration_version, sizeof(memory.calibration_version), "p4c-v2");
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY);
     memory.calibration_id[5] = 'f'; assert(write_record(path, &memory) == 0);
     assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
     FILE *file = fopen(path, "w"); assert(file != NULL); fputs("bad\n", file); fclose(file);

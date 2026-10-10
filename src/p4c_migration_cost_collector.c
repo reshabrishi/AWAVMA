@@ -59,7 +59,7 @@ static void child_workload(const char *socket_path, int ready_fd, int release_fd
     region = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (region == MAP_FAILED) goto done;
     benchmark_placement_evidence_t placement;
-    if (benchmark_placement_prepare(BENCHMARK_PLACEMENT_LOCAL, topology, region, bytes, &placement) != 0 ||
+    if (benchmark_placement_prepare(BENCHMARK_PLACEMENT_REMOTE, topology, region, bytes, &placement) != 0 ||
         strcmp(placement.verification_status, "PASS") != 0 || placement.total_pages != P4C_PAGE_COUNT ||
         placement.expected_node_pages != P4C_PAGE_COUNT || !placement.memory_policy_restored) {
         ready.status = 2;
@@ -115,7 +115,7 @@ static void write_row(const char *path, const char *run_id, const char *warmup, 
     if (file == NULL) return;
     fprintf(file, "%s,%s,%u,%zu,%zu,%zu,%.9g,%d,%d,%d,%zu,%s,%s\n", run_id, warmup,
             P4C_PAGE_COUNT, report->pages_attempted, report->pages_migrated, report->pages_failed,
-            report->memory_operation_time_ms, topology->local_node, topology->remote_node,
+            report->memory_operation_time_ms, topology->remote_node, topology->local_node,
             topology->numa_distance, page_size, valid ? "true" : "false", reason);
     fclose(file);
 }
@@ -178,18 +178,18 @@ int main(int argc, char **argv)
     if (!page_candidate_provider_registration_status(provider, P4C_APP_ID, child, ready.start_time_ticks, &registration) ||
         !registration.accepted || registration.generation != ready.client_generation) { reason = "REGISTRATION_GENERATION_MISMATCH"; goto cleanup; }
     if (registration.registered_pages != P4C_PAGE_COUNT || registration.candidate_pages_per_request != P4C_PAGE_COUNT) { reason = "REGISTRATION_CANDIDATE_WINDOW_MISMATCH"; goto cleanup; }
-    if (!page_candidate_provider_fill_request(provider, P4C_APP_ID, child, ready.start_time_ticks, topology.remote_node, &request) ||
+    if (!page_candidate_provider_fill_request(provider, P4C_APP_ID, child, ready.start_time_ticks, topology.local_node, &request) ||
         request.page_count != P4C_PAGE_COUNT || request.pages == NULL || !request.page_metadata_available ||
         !request.page_addresses_authoritative || !request.memory_region_verified) { reason = "AUTHORITATIVE_CANDIDATES_FAILED"; goto cleanup; }
     request.pid = child; request.tid = child; request.start_time_ticks = ready.start_time_ticks;
     request.start_time_ticks_available = true; request.numa_nodes_available = true;
-    request.source_numa_node = topology.local_node; request.destination_numa_node = topology.remote_node;
+    request.source_numa_node = topology.remote_node; request.destination_numa_node = topology.local_node;
     MigrationConfig config = {.results_path = results, .history_path = history, .log_path = log, .state_path = state,
         .history_max_records = 16, .history_max_days = 1.0, .history_decay_lambda = 0.1, .cleanup_interval = 1,
         .cooldown_ms = 0, .lock_timeout_ms = 0, .verification_enabled = true};
     if (!Migration_Init(&config)) { reason = "MIGRATION_SETUP_FAILED"; goto cleanup; }
     MemoryMigrationTransactionRequest transaction = {.request = &request, .mode = MEMORY_MIGRATION_TRANSACTION_CONTROLLED_CALIBRATION,
-        .attempt_id = run_id, .expected_source_node = topology.local_node, .destination_node = topology.remote_node,
+        .attempt_id = run_id, .expected_source_node = topology.remote_node, .destination_node = topology.local_node,
         .expected_page_count = P4C_PAGE_COUNT, .require_rollback = true};
     MemoryMigrationTransactionResult outcome;
     if (!memory_migration_transaction_execute(&transaction, &outcome)) { reason = "TRANSACTION_EXECUTION_FAILED"; goto cleanup; }

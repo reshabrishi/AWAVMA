@@ -37,6 +37,7 @@ static MigrationTargetResult target(void *context, const MigrationSafetyRequest 
 
 static BenefitClassification benefit(void *context, const MigrationSafetyRequest *request,
                                      const MigrationTarget *target_value, const char *attempt,
+                                     const MemoryRecoveryEvidence *recovery,
                                      BenefitDecision *decision)
 {
     fixture_t *fixture = context;
@@ -56,6 +57,8 @@ static BenefitClassification benefit(void *context, const MigrationSafetyRequest
     input.decision = &request->migration_request.phase5_decision;
     input.validation = &request->migration_request.phase6_validation;
     input.target = target_value;
+    input.memory_recovery = recovery;
+    input.memory_candidate_count = request->migration_request.page_count;
     input.target_provider_validated = true;
     input.target_online = true;
     input.target_permitted = true;

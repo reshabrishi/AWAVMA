@@ -26,6 +26,7 @@ def fixture(directory, original="1", benchmark_failure=False, cost_failure=False
     (root / "commands").mkdir()
     shutil.copy2(ROOT / "tools/collect_numa_calibration.sh", root / "tools")
     shutil.copy2(ROOT / "tools/validate_numa_calibration.py", root / "tools")
+    shutil.copy2(ROOT / "tools/calibration_manifest_trust.py", root / "tools")
     sysctl = root / "numa_balancing"
     sysctl.write_text(original + "\n", encoding="ascii")
     executable(root / "commands/make", "#!/bin/sh\nexit 0\n")
@@ -93,7 +94,7 @@ def main():
         try:
             assert result.returncode == 0, result.stderr
             assert sysctl.read_text().strip() == original
-            assert manifest["schema_version"] == 2
+            assert manifest["schema_version"] == 4
             assert manifest["numa_balancing_original"] == original
             assert manifest["numa_balancing_during"] == "0"
             assert manifest["numa_balancing_restore_status"] == "RESTORED"

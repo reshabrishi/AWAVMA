@@ -559,6 +559,8 @@ MigrationResultCode Migration_ExecuteMemoryOperation(const MigrationRequest *req
     errno = 0;
     result = syscall(SYS_move_pages, request->pid, request->page_count, request->pages,
                      nodes, status, MPOL_MF_MOVE);
+    report->mutation_attempted = true;
+    report->mutation_indeterminate = true;
     report->pages_attempted = request->page_count;
     if (result < 0) {
         int error_number = errno;
@@ -568,6 +570,8 @@ MigrationResultCode Migration_ExecuteMemoryOperation(const MigrationRequest *req
             if (status[index] >= 0 && status[index] == request->destination_numa_node)
                 report->pages_migrated++;
         report->pages_failed = report->pages_attempted - report->pages_migrated;
+        report->mutation_observed = report->pages_migrated > 0;
+        report->mutation_indeterminate = report->pages_migrated == 0;
         if (report->pages_migrated > 0)
             report->result = MIGRATION_PARTIAL_SUCCESS;
         goto cleanup;
@@ -578,6 +582,8 @@ MigrationResultCode Migration_ExecuteMemoryOperation(const MigrationRequest *req
         else
             report->pages_failed++;
     }
+    report->mutation_observed = report->pages_migrated > 0;
+    report->mutation_indeterminate = false;
     if (report->pages_migrated == 0) {
         set_error(report, MIGRATION_SYSTEM_ERROR, "no pages were migrated", EIO);
         goto cleanup;

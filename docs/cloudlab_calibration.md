@@ -8,8 +8,11 @@ enables normal AWAVMA production migration execution.
 2. Run `sudo --preserve-env=P4C_OUTPUT_DIR env P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --smoke` and inspect its retained
    placement CSVs and `manifest.json`.
 3. Only after a successful smoke, run the same exact privileged command with `--full`.
-4. Supply the retained raw timing and authenticated 4096-page cost CSVs to
-   `tools/build_numa_calibration.py`, then run `bin/calibration-validate ARTIFACT`.
+4. Supply the retained raw timing, authenticated 4096-page cost CSV, and collection
+   manifest to `tools/build_numa_calibration.py`. Its CSV and production manifest
+   paths must be distinct files in a new bundle directory; it stages both files as
+   a sibling and atomically publishes the directory without replacing a collision.
+   Then run `bin/calibration-validate ARTIFACT`.
 
 The collector defaults to smoke. Smoke performs one authenticated exact-4096-page
 `move_pages` transaction and retains its row as a warmup, so it cannot contribute

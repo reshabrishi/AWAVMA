@@ -73,6 +73,10 @@ typedef struct {
     size_t pages_attempted;
     size_t pages_migrated;
     size_t pages_failed;
+    bool mutation_attempted;
+    bool mutation_observed;
+    /* The mutation syscall returned without proving whether placement changed. */
+    bool mutation_indeterminate;
     double execution_time_ms;
     /* move_pages mutation plus immediate destination verification only. */
     double memory_operation_time_ms;
