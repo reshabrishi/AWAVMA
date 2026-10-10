@@ -129,7 +129,7 @@ int calibration_write_csv(const char *path, const CalibrationRecord *r)
 }
 static bool record_valid(const CalibrationRecord *r, const CalibrationPolicy *p)
 {
-    char topology[CALIBRATION_ID_MAX], id[CALIBRATION_ID_MAX]; double gain, cost;
+    char topology[CALIBRATION_ID_MAX], id[CALIBRATION_ID_MAX]; double cost;
     if (r->schema_version != CALIBRATION_SCHEMA_VERSION || strcmp(r->calibration_version, "p4c-v2") != 0 ||
         r->placement_evidence_schema_version != 1 || strcmp(r->rejection_reason, "none") != 0 ||
         !id_valid(r->calibration_id, "cal1-") ||
@@ -143,7 +143,7 @@ static bool record_valid(const CalibrationRecord *r, const CalibrationPolicy *p)
         r->workload.memory_bytes / r->compatibility.page_size_bytes != r->workload.memory_pages || r->workload.memory_bytes % r->compatibility.page_size_bytes != 0 ||
         r->workload.duration_seconds <= 0 || r->source_node < 0 || r->destination_node < 0 || r->source_node == r->destination_node ||
         r->valid_pair_count < p->minimum_pairs || r->cost_sample_count < p->minimum_cost_samples || r->remote_mean_ms <= 0 || r->local_mean_ms < 0 ||
-        r->paired_penalty_lower_bound_ms <= 0 || r->expected_recoverable_gain_pct <= 0 || r->expected_recoverable_gain_pct > 100 ||
+        r->expected_recoverable_gain_pct <= 0 || r->expected_recoverable_gain_pct > 100 ||
         r->estimated_cost_pct < 0 || r->estimated_cost_pct > 100 || r->uncertainty_pct < 0 || r->uncertainty_pct > 100 || r->safety_margin_pct < 0 || r->safety_margin_pct > 100 ||
         r->estimated_cost_pct + r->uncertainty_pct + r->safety_margin_pct > 100 ||
         r->paired_penalty_mean_ms < r->paired_penalty_lower_bound_ms ||
@@ -160,9 +160,9 @@ static bool record_valid(const CalibrationRecord *r, const CalibrationPolicy *p)
         if (r->migration_page_bucket != 0 || r->successful_pages != 0 || r->failed_pages != 0 ||
             strcmp(r->migration_measurement_method, "sched_setaffinity") != 0) return false;
     } else return false;
-    gain = r->paired_penalty_lower_bound_ms / r->remote_mean_ms * 100.0;
+    /* p4c-v2 gain is throughput-derived; elapsed penalty fields are diagnostic only. */
     cost = r->migration_cost_conservative_ms / r->remote_mean_ms * 100.0;
-    return fabs(gain - r->expected_recoverable_gain_pct) <= TOLERANCE && fabs(cost - r->estimated_cost_pct) <= TOLERANCE;
+    return fabs(cost - r->estimated_cost_pct) <= TOLERANCE;
 }
 static int split(char *line, char *fields[FIELD_COUNT])
 {

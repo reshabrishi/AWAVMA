@@ -1,6 +1,7 @@
 #include "calibration.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -104,6 +105,25 @@ int main(void)
     request.compatibility = memory.compatibility; request.compatibility.cpu_model[0] = 'z';
     assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_TOPOLOGY_MISMATCH);
     calibration_snapshot_release(&snapshot);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY);
+    memory.status = CALIBRATION_VALIDATED_PRODUCTION;
+    snprintf(memory.workload.benchmark_pattern, sizeof(memory.workload.benchmark_pattern), "hot");
+    memory.local_mean_ms = 30000.111; memory.remote_mean_ms = 30000.1419;
+    memory.paired_penalty_mean_ms = 0.0308571429;
+    memory.paired_penalty_lower_bound_ms = -0.00232706028;
+    memory.expected_recoverable_gain_pct = 53.0532543;
+    memory.migration_cost_mean_ms = memory.migration_cost_conservative_ms = 13.6686281;
+    memory.estimated_cost_pct = 0.0455618784; memory.uncertainty_pct = 0; memory.safety_margin_pct = 1;
+    assert(calibration_record_id(&memory, memory.calibration_id));
+    assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) == 0 && snapshot.count == 1);
+    request = (CalibrationMatchRequest){.compatibility = memory.compatibility, .workload = memory.workload,
+        .action = memory.action, .source_node = memory.source_node, .destination_node = memory.destination_node,
+        .migration_page_bucket = memory.migration_page_bucket};
+    assert(calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED);
+    assert(match.expected_gain_pct == memory.expected_recoverable_gain_pct &&
+           match.effective_cost_pct > 1.045 && match.effective_cost_pct < 1.046);
+    calibration_snapshot_release(&snapshot);
     memory.placement_evidence_schema_version = 2; assert(calibration_record_id(&memory, memory.calibration_id));
     assert(write_record(path, &memory) == 0);
     assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
@@ -119,7 +139,29 @@ int main(void)
     memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.source_node = memory.compatibility.local_node;
     assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
     assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.compatibility.remote_node = memory.compatibility.local_node;
+    assert(calibration_topology_fingerprint(&memory.compatibility, memory.compatibility.topology_fingerprint));
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
     memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); snprintf(memory.calibration_version, sizeof(memory.calibration_version), "p4c-v1");
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.schema_version = 1;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.migration_cost_mean_ms = memory.migration_cost_conservative_ms = -1;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.safety_margin_pct = -1;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.expected_recoverable_gain_pct = 101;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.local_stddev_ms = NAN;
+    assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
+    assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
+    memory = record_for(VALIDATION_ACTION_MOVE_MEMORY); memory.remote_stddev_ms = INFINITY;
     assert(calibration_record_id(&memory, memory.calibration_id)); assert(write_record(path, &memory) == 0);
     assert(calibration_load_csv(path, &policy, &snapshot, &status, reason) != 0 && status == CALIBRATION_MALFORMED);
     memory = record_for(VALIDATION_ACTION_MOVE_MEMORY);

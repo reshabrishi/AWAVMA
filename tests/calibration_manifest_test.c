@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 static void write_manifest(const char *path, const char *mode, unsigned schema,
-                           const char *hash, const char *experiment)
+                           const char *hash, const char *experiment, const char *metric)
 {
     FILE *file = fopen(path, "w");
     assert(file != NULL);
@@ -18,9 +18,9 @@ static void write_manifest(const char *path, const char *mode, unsigned schema,
             "\"timing_valid\":true,\"cost_migration_valid\":true,\"placement_validation_valid\":true,"
             "\"numa_balancing_transaction_valid\":true,\"strict_validation_valid\":true,\"overall_valid\":true,"
             "\"calibration_artifact_basename\":\"calibration.csv\",\"calibration_artifact_sha256\":\"%s\","
-             "\"calibration_record_count\":1,\"calibration_version\":\"p4c-v2\",\"timing_metric\":\"throughput_ops_sec\","
+             "\"calibration_record_count\":1,\"calibration_version\":\"p4c-v2\",\"timing_metric\":\"%s\","
              "\"topology_fingerprints\":[\"top1-0000000000000001\"],\"raw_artifacts\":[{\"path\":\"raw_cost.csv\",\"role\":\"COST\",\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"size_bytes\":0}]}\n",
-            schema, mode, experiment, hash);
+            schema, mode, experiment, hash, metric);
     assert(fclose(file) == 0);
 }
 
@@ -39,15 +39,17 @@ int main(void)
     snprintf(record.collection_experiment_id, sizeof(record.collection_experiment_id), "experiment-1");
     snprintf(record.compatibility.topology_fingerprint, sizeof(record.compatibility.topology_fingerprint),
              "top1-0000000000000001");
-    write_manifest(manifest, "full", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1");
+    write_manifest(manifest, "full", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1", "throughput_ops_sec");
     assert(calibration_manifest_verify(artifact, manifest, &snapshot, reason));
-    write_manifest(manifest, "smoke", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1");
+    write_manifest(manifest, "smoke", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1", "throughput_ops_sec");
     assert(!calibration_manifest_verify(artifact, manifest, &snapshot, reason));
-    write_manifest(manifest, "full", 2, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1");
+    write_manifest(manifest, "full", 2, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1", "throughput_ops_sec");
     assert(!calibration_manifest_verify(artifact, manifest, &snapshot, reason));
-    write_manifest(manifest, "full", 4, "0000000000000000000000000000000000000000000000000000000000000000", "experiment-1");
+    write_manifest(manifest, "full", 4, "0000000000000000000000000000000000000000000000000000000000000000", "experiment-1", "throughput_ops_sec");
     assert(!calibration_manifest_verify(artifact, manifest, &snapshot, reason));
-    write_manifest(manifest, "full", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "historical");
+    write_manifest(manifest, "full", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "historical", "throughput_ops_sec");
+    assert(!calibration_manifest_verify(artifact, manifest, &snapshot, reason));
+    write_manifest(manifest, "full", 4, "e80b71cd14d3cbd65f4173abcbfcf01a545dbca32a72d575108b553a648cc96f", "experiment-1", "elapsed_ms");
     assert(!calibration_manifest_verify(artifact, manifest, &snapshot, reason));
     unlink(manifest); unlink(artifact); rmdir(directory);
     puts("calibration_manifest_test: PASS");

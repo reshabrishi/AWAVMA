@@ -55,7 +55,7 @@ static MigrationSafetyRecovery rollback(void *ctx, const MigrationSafetyRequest 
 static bool feedback(void *ctx, const FeedbackEvent *event, FeedbackResult *out)
 { (void)event; ((Fixture *)ctx)->feedbacks++; memset(out, 0, sizeof(*out)); return true; }
 
-static bool match(double cost, ValidatedCalibrationMatch *out)
+static bool match(double estimated_cost_pct, ValidatedCalibrationMatch *out)
 {
     CalibrationRecord r = {0}; CalibrationSnapshot snapshot = {0}; CalibrationMatchRequest request = {0};
     calibration_match_status_t status; char reason[CALIBRATION_REASON_MAX]; char path[128] = ""; bool matched;
@@ -65,10 +65,11 @@ static bool match(double cost, ValidatedCalibrationMatch *out)
     r.compatibility.online_numa_nodes = 2; r.compatibility.local_node = 0; r.compatibility.remote_node = 1;
     r.compatibility.numa_distance = 20; r.compatibility.local_permitted_cpu_count = 1;
     r.compatibility.page_size_bytes = 4096; r.workload.threads = 1; r.workload.memory_bytes = 4096;
-    r.workload.memory_pages = 1; r.workload.duration_seconds = 1.0; r.local_mean_ms = 80.0;
-    r.remote_mean_ms = 100.0; r.paired_penalty_mean_ms = r.paired_penalty_lower_bound_ms = 20.0;
-    r.expected_recoverable_gain_pct = 20.0; r.migration_cost_mean_ms = r.migration_cost_conservative_ms = cost;
-    r.estimated_cost_pct = cost; r.successful_pages = 1; r.placement_evidence_schema_version = 1;
+    r.workload.memory_pages = 1; r.workload.duration_seconds = 30.0; r.local_mean_ms = 30000.111;
+    r.remote_mean_ms = 30000.1419; r.paired_penalty_mean_ms = 0.0308571429;
+    r.paired_penalty_lower_bound_ms = -0.00232706028; r.expected_recoverable_gain_pct = 53.0532543;
+    r.migration_cost_mean_ms = r.migration_cost_conservative_ms = estimated_cost_pct * r.remote_mean_ms / 100.0;
+    r.estimated_cost_pct = estimated_cost_pct; r.safety_margin_pct = 1; r.successful_pages = 1; r.placement_evidence_schema_version = 1;
     snprintf(r.calibration_version, sizeof(r.calibration_version), "p4c-v2");
     snprintf(r.collection_experiment_id, sizeof(r.collection_experiment_id), "blocker6");
     snprintf(r.created_at_utc, sizeof(r.created_at_utc), "2026-10-10T00:00:00Z");
@@ -104,7 +105,7 @@ int main(void)
     MigrationSafetyRequest request = {0}; MigrationSafetyResult result; MigrationSafetyConfig config;
     MigrationSafetyManager *manager; Fixture fixture = {0}; void *pages[] = {(void *)4096}; bool positive, negative;
 
-    positive = match(5.0, &positive_match) && empirical_memory_decision(&positive_match, &facts, &phase5);
+    positive = match(0.0455618784, &positive_match) && empirical_memory_decision(&positive_match, &facts, &phase5);
     phase5.pid = 4242; phase5.phase5_evidence_available = phase5.phase5_runtime_generation_available = true;
     phase5.phase5_runtime_generation = 1; snprintf(phase5.entity_id, sizeof(phase5.entity_id), "worker-1");
     snprintf(phase5.migration_id, sizeof(phase5.migration_id), "empirical-4242-1");
@@ -131,7 +132,7 @@ int main(void)
         fixture.checkpoints == 1 && fixture.benefits == 1 && fixture.executors == 0 && fixture.feedbacks == 1;
     printf("B6I01_EXACT_MATCH_EMPIRICAL_PHASE6_BENEFIT_EXECUTION_DISABLED: %s\n", positive ? "PASS" : "FAIL");
     migration_safety_manager_destroy(manager);
-    negative = match(25.0, &negative_match) && !empirical_memory_decision(&negative_match, &facts, &phase5) &&
+    negative = match(60.0, &negative_match) && !empirical_memory_decision(&negative_match, &facts, &phase5) &&
         phase5.empirical_roi_available && strcmp(phase5.status_text, "NOT_BENEFICIAL") == 0 &&
         fixture.attempts == 1 && fixture.checkpoints == 1 && fixture.benefits == 1 && fixture.executors == 0;
     printf("B6I02_EXACT_MATCH_NEGATIVE_ROI_NOT_BENEFICIAL_NO_PHASE7: %s\n", negative ? "PASS" : "FAIL");
