@@ -92,9 +92,8 @@ struct awavma_runtime {
     char migration_state_path[4096];
     MigrationSafetyManager *migration_safety;
     page_candidate_provider_t *owned_page_provider;
-    char page_registration_socket[4096];
     worker_evidence_provider_t *owned_worker_evidence_provider;
-    char worker_evidence_socket[4096];
+    runtime_socket_directory_t socket_directory;
     pending_feedback_t pending_feedback[DEFAULT_MAX_APPLICATIONS];
     feedback_baseline_t feedback_baselines[DEFAULT_MAX_APPLICATIONS];
     MigrationValidationSnapshot validation_before;
@@ -1736,8 +1735,9 @@ static int write_execution_profile(const awavma_runtime_t *runtime)
             "page_registration_requested,page_registration_effective,"
             "page_registration_ttl_ms,numa_nodes,thread_migration_ready,"
             "page_migration_ready,phase7_ready,production_real_migration_ready,"
-            "activation_state,activation_reason,page_registration_provider_ready\n");
-    fprintf(file, "2,%s,%s,%s,%s,%s,%s,%s,%s,%llu,%zu,%s,%s,%s,%s,%s,%s,%s\n",
+            "activation_state,activation_reason,page_registration_provider_ready,"
+            "page_registration_socket,worker_evidence_socket\n");
+    fprintf(file, "3,%s,%s,%s,%s,%s,%s,%s,%s,%llu,%zu,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
             execution_mode_name(profile->requested_mode), execution_mode_name(profile->effective_mode),
             profile_bool(profile->migration_safety_requested),
             profile_bool(profile->migration_safety_effective),
@@ -1752,7 +1752,8 @@ static int write_execution_profile(const awavma_runtime_t *runtime)
             profile_bool(profile->capabilities.phase7_ready),
             profile_bool(profile->capabilities.production_real_migration_ready),
              profile->activation_state, profile->activation_reason,
-             profile_bool(profile->page_registration_provider_ready));
+             profile_bool(profile->page_registration_provider_ready),
+             profile->page_registration_socket, profile->worker_evidence_socket);
     if (fclose(file) != 0 || rename(temporary, runtime->execution_profile_path) != 0) {
         unlink(temporary);
         return -1;
@@ -2391,13 +2392,26 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
         (void)write_execution_profile(runtime);
         return EOPNOTSUPP;
     }
+    if (!runtime_socket_directory_create(&runtime->socket_directory)) {
+        set_execution_profile_state(runtime, "INITIALIZATION_FAILED", "runtime socket directory initialization failed");
+        goto fail;
+    }
+    if (!runtime_unix_socket_path_valid(runtime->socket_directory.page_registration_socket) ||
+        !runtime_unix_socket_path_valid(runtime->socket_directory.worker_evidence_socket)) {
+        set_execution_profile_state(runtime, "INITIALIZATION_FAILED", "runtime socket path exceeds AF_UNIX sun_path capacity");
+        goto fail;
+    }
+    snprintf(runtime->execution_profile.page_registration_socket,
+             sizeof(runtime->execution_profile.page_registration_socket), "%s",
+             runtime->socket_directory.page_registration_socket);
+    snprintf(runtime->execution_profile.worker_evidence_socket,
+             sizeof(runtime->execution_profile.worker_evidence_socket), "%s",
+             runtime->socket_directory.worker_evidence_socket);
     if (config->execution_profile.page_registration_requested) {
         runtime->owned_page_provider = page_candidate_provider_create();
         if (runtime->owned_page_provider == NULL ||
-            snprintf(runtime->page_registration_socket, sizeof(runtime->page_registration_socket),
-                     "%s/page-registration.sock", config->root_dir) >=
-                (int)sizeof(runtime->page_registration_socket) ||
-            !page_candidate_provider_start(runtime->owned_page_provider, runtime->page_registration_socket,
+            !page_candidate_provider_start(runtime->owned_page_provider,
+                                            runtime->socket_directory.page_registration_socket,
                                             config->execution_profile.page_registration_ttl_ms)) {
             set_execution_profile_state(runtime, "INITIALIZATION_FAILED", "page registration provider initialization failed");
             goto fail;
@@ -2408,8 +2422,8 @@ int awavma_runtime_init(awavma_runtime_t *runtime, const awavma_runtime_config_t
     }
     runtime->owned_worker_evidence_provider = worker_evidence_provider_create();
     if (runtime->owned_worker_evidence_provider == NULL ||
-        snprintf(runtime->worker_evidence_socket, sizeof(runtime->worker_evidence_socket), "%s/worker-evidence.sock", config->root_dir) >= (int)sizeof(runtime->worker_evidence_socket) ||
-        !worker_evidence_provider_start(runtime->owned_worker_evidence_provider, runtime->worker_evidence_socket)) {
+        !worker_evidence_provider_start(runtime->owned_worker_evidence_provider,
+                                        runtime->socket_directory.worker_evidence_socket)) {
         worker_evidence_provider_destroy(runtime->owned_worker_evidence_provider);
         runtime->owned_worker_evidence_provider = NULL;
         goto fail;
@@ -2776,9 +2790,11 @@ void awavma_runtime_shutdown(awavma_runtime_t *runtime)
     worker_evidence_provider_destroy(runtime->owned_worker_evidence_provider);
     calibration_snapshot_release(&runtime->calibration_snapshot);
     runtime->owned_page_provider = NULL;
+    runtime->owned_worker_evidence_provider = NULL;
     if (runtime->config.execution_profile.page_registration_requested)
         runtime->config.page_candidate_provider = NULL;
     runtime->config.worker_evidence_provider = NULL;
+    runtime_socket_directory_remove(&runtime->socket_directory);
     migration_safety_manager_destroy(runtime->migration_safety);
     runtime->migration_safety = NULL;
     if (runtime->migration_initialized) {

@@ -14,6 +14,7 @@ PROFILE_FIELDS = (
     "production_real_migration_ready", "activation_state", "activation_reason",
     "page_registration_provider_ready",
 )
+SOCKET_FIELDS = ("page_registration_socket", "worker_evidence_socket")
 
 
 def load_profile(path: Path) -> dict[str, str]:
@@ -48,6 +49,8 @@ def verify_profile(row: dict[str, str]) -> None:
             raise ValueError("runtime production profile has invalid NUMA count or registration TTL")
     except ValueError as error:
         raise ValueError("runtime production profile has invalid numeric fields") from error
+    if int(row.get("schema_version", "0")) >= 3 and any(not row.get(field) for field in SOCKET_FIELDS):
+        raise ValueError("runtime production profile is missing socket metadata")
 
 
 def verify_environment(path: Path) -> None:
@@ -65,6 +68,7 @@ def main() -> int:
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--environment-check", type=Path)
     parser.add_argument("--emit-fields", action="store_true")
+    parser.add_argument("--emit-field", choices=PROFILE_FIELDS + SOCKET_FIELDS)
     args = parser.parse_args()
     try:
         if args.environment_check is not None:
@@ -76,6 +80,10 @@ def main() -> int:
         verify_profile(row)
         if args.emit_fields:
             print(",".join(row[field] for field in PROFILE_FIELDS))
+        if args.emit_field:
+            if not row.get(args.emit_field):
+                raise ValueError(f"runtime execution profile is missing {args.emit_field}")
+            print(row[args.emit_field])
         return 0
     except RuntimeError as error:
         print(error, file=sys.stderr)

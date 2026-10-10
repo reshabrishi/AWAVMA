@@ -8,6 +8,7 @@
 #include "page_checkpoint.h"
 #include "page_candidate_provider.h"
 #include "worker_evidence_provider.h"
+#include "runtime_socket_directory.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -50,6 +51,8 @@ typedef struct {
     bool activation_active;
     char activation_state[32];
     char activation_reason[160];
+    char page_registration_socket[sizeof(((struct sockaddr_un *)0)->sun_path)];
+    char worker_evidence_socket[sizeof(((struct sockaddr_un *)0)->sun_path)];
 } awavma_runtime_execution_profile_t;
 
 typedef struct {

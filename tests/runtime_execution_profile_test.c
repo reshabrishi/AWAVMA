@@ -38,7 +38,11 @@ static int invalid_execution_case(void)
     config.execution_profile.migration_execution_requested = true;
     runtime = awavma_runtime_create();
     passed = runtime != NULL && awavma_runtime_init(runtime, &config) != 0;
-    snprintf(profile, sizeof(profile), "%s/runtime_execution_profile.csv", root);
+    if (snprintf(profile, sizeof(profile), "%s/runtime_execution_profile.csv", root) >=
+        (int)sizeof(profile)) {
+        awavma_runtime_destroy(runtime);
+        return 0;
+    }
     passed = passed && contains(profile, "INCOMPATIBLE,migration execution requires migration safety");
     awavma_runtime_destroy(runtime);
     return passed;
@@ -125,10 +129,36 @@ static int production_case(void)
     return passed;
 }
 
+static int long_root_socket_case(void)
+{
+    char base[] = "/tmp/awavma-long-root-XXXXXX", root[PATH_MAX], profile[PATH_MAX];
+    awavma_runtime_config_t config;
+    awavma_runtime_t *runtime;
+    int passed;
+
+    if (mkdtemp(base) == NULL)
+        return 0;
+    snprintf(root, sizeof(root), "%s/%080d", base, 1);
+    awavma_runtime_config_default(&config);
+    config.root_dir = root;
+    config.execution_profile.page_registration_requested = true;
+    runtime = awavma_runtime_create();
+    passed = runtime != NULL && awavma_runtime_init(runtime, &config) == 0;
+    if (snprintf(profile, sizeof(profile), "%s/runtime_execution_profile.csv", root) >=
+        (int)sizeof(profile)) {
+        awavma_runtime_destroy(runtime);
+        return 0;
+    }
+    passed = passed && contains(profile, "page_registration_socket,worker_evidence_socket") &&
+             contains(profile, "/page-registration.sock,/" );
+    awavma_runtime_destroy(runtime);
+    return passed;
+}
+
 int main(void)
 {
     int passed = invalid_execution_case() && invalid_registration_case() &&
-                 incomplete_production_case() && production_case();
+                  incomplete_production_case() && production_case() && long_root_socket_case();
 
     printf("runtime_execution_profile_test: %s\n", passed ? "PASS" : "FAIL");
     return passed ? 0 : 1;

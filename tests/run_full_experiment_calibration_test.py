@@ -38,7 +38,7 @@ def make_root(base: Path) -> tuple[Path, dict[str, str]]:
     )
     executable(
         root / "scripts/verify_runtime_execution_profile.py",
-        "#!/usr/bin/env python3\nimport sys\nif '--emit-fields' in sys.argv:\n print('PRODUCTION_REAL_MIGRATION,PRODUCTION_REAL_MIGRATION,true,true,true,1000,2,true,true,true,true,ACTIVE,active')\n",
+        "#!/usr/bin/env python3\nimport sys\nif '--emit-fields' in sys.argv:\n print('PRODUCTION_REAL_MIGRATION,PRODUCTION_REAL_MIGRATION,true,true,true,1000,2,true,true,true,true,ACTIVE,active,true')\nelif '--emit-field' in sys.argv:\n print('/tmp/page-registration.sock' if sys.argv[-1] == 'page_registration_socket' else '/tmp/worker-evidence.sock')\n",
     )
     executable(root / "scripts/aggregate_experiment_results.py", "#!/usr/bin/env python3\n")
     executable(root / "scripts/generate_multinuma_graphs.py", "#!/usr/bin/env python3\n")
@@ -57,6 +57,7 @@ if '/awavma/' in str(path):
     other.parent.mkdir(parents=True, exist_ok=True)
     other.write_text(header + row)
 (path.parents[1] / 'benchmark-invocations.txt').open('a').write(' '.join(args) + '\\n')
+(path.parents[1] / 'benchmark-pid.txt').write_text(str(__import__('os').getpid()))
 """,
     )
     executable(
@@ -69,6 +70,7 @@ runtime_root = pathlib.Path(args[args.index('--root-dir') + 1])
 runtime_root.mkdir(parents=True)
 (runtime_root / 'runtime_execution_profile.csv').write_text('profile\\n')
 (runtime_root.parents[2] / 'runtime-args.txt').write_text('\\n'.join(args) + '\\n')
+(runtime_root.parents[2] / 'target-pid.txt').write_text(args[args.index('--pid') + 1])
 time.sleep(.5)
 """,
     )
@@ -113,6 +115,11 @@ def main() -> int:
         assert runtime_args.count("--calibration-artifact") == 1
         assert runtime_args[runtime_args.index("--calibration-artifact") + 1] == str(supplied)
         assert {"--production-real-migration", "-S", "-M", "-R"} <= set(runtime_args)
+        benchmark_args = shlex.split((run_dir / "benchmark-invocations.txt").read_text().splitlines()[0])
+        assert benchmark_args[benchmark_args.index("--page-registration-socket") + 1] == "/tmp/page-registration.sock"
+        assert benchmark_args[benchmark_args.index("--worker-evidence-socket") + 1] == "/tmp/worker-evidence.sock"
+        assert "--page-registration-required" in benchmark_args
+        assert (run_dir / "target-pid.txt").read_text() == (run_dir / "benchmark-pid.txt").read_text()
         manifest = json.loads((run_dir / "manifest.json").read_text())
         assert manifest["calibration_artifact"] == "metadata/calibration.csv"
         assert manifest["calibration_sha256"] == digest

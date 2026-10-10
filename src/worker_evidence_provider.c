@@ -50,10 +50,15 @@ bool worker_evidence_provider_start(worker_evidence_provider_t *p, const char *p
     struct sockaddr_un address = {0}; int flags;
     if (p == NULL || path == NULL || path[0] == '\0' || strlen(path) >= sizeof(address.sun_path)) return false;
     worker_evidence_provider_stop(p); p->socket_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0); if (p->socket_fd < 0) return false;
-    address.sun_family = AF_UNIX; snprintf(address.sun_path, sizeof(address.sun_path), "%s", path); unlink(path);
-    if (bind(p->socket_fd, (const struct sockaddr *)&address, sizeof(address)) != 0 || chmod(path, S_IRUSR | S_IWUSR) != 0 ||
-        listen(p->socket_fd, 32) != 0 || (flags = fcntl(p->socket_fd, F_GETFL, 0)) < 0 || fcntl(p->socket_fd, F_SETFL, flags | O_NONBLOCK) != 0) { worker_evidence_provider_stop(p); return false; }
-    snprintf(p->socket_path, sizeof(p->socket_path), "%s", path); return true;
+    address.sun_family = AF_UNIX; snprintf(address.sun_path, sizeof(address.sun_path), "%s", path);
+    struct stat existing;
+    if (lstat(path, &existing) == 0 || errno != ENOENT) { worker_evidence_provider_stop(p); return false; }
+    if (bind(p->socket_fd, (const struct sockaddr *)&address, sizeof(address)) != 0) { worker_evidence_provider_stop(p); return false; }
+    snprintf(p->socket_path, sizeof(p->socket_path), "%s", path);
+    if (chmod(path, S_IRUSR | S_IWUSR) != 0 || listen(p->socket_fd, 32) != 0 ||
+        (flags = fcntl(p->socket_fd, F_GETFL, 0)) < 0 ||
+        fcntl(p->socket_fd, F_SETFL, flags | O_NONBLOCK) != 0) { worker_evidence_provider_stop(p); return false; }
+    return true;
 }
 bool worker_evidence_provider_poll(worker_evidence_provider_t *p)
 {

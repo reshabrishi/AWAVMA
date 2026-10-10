@@ -224,16 +224,23 @@ bool page_candidate_provider_start(page_candidate_provider_t *provider, const ch
         return false;
     address.sun_family = AF_UNIX;
     snprintf(address.sun_path, sizeof(address.sun_path), "%s", socket_path);
-    unlink(socket_path);
-    if (bind(provider->socket_fd, (const struct sockaddr *)&address, sizeof(address)) != 0 ||
-        chmod(socket_path, S_IRUSR | S_IWUSR) != 0 || listen(provider->socket_fd, 16) != 0 ||
+    struct stat existing;
+    if (lstat(socket_path, &existing) == 0 || errno != ENOENT) {
+        page_candidate_provider_stop(provider);
+        return false;
+    }
+    if (bind(provider->socket_fd, (const struct sockaddr *)&address, sizeof(address)) != 0) {
+        page_candidate_provider_stop(provider);
+        return false;
+    }
+    snprintf(provider->socket_path, sizeof(provider->socket_path), "%s", socket_path);
+    if (chmod(socket_path, S_IRUSR | S_IWUSR) != 0 || listen(provider->socket_fd, 16) != 0 ||
         (flags = fcntl(provider->socket_fd, F_GETFL, 0)) < 0 ||
         fcntl(provider->socket_fd, F_SETFL, flags | O_NONBLOCK) != 0) {
         page_candidate_provider_stop(provider);
         return false;
     }
     provider->ttl_ms = registration_ttl_ms;
-    snprintf(provider->socket_path, sizeof(provider->socket_path), "%s", socket_path);
     return true;
 }
 

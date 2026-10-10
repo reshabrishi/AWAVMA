@@ -180,7 +180,6 @@ run_one() {
     if [[ "$scenario" == awavma ]]; then
         local runtime_root="$RUN_DIR/awavma/runtime/$repetition"
         local profile_path="$runtime_root/runtime_execution_profile.csv"
-        local registration_socket="$runtime_root/page-registration.sock"
         [[ ! -e "$runtime_root" ]] || {
             printf 'runtime root already exists: %s\n' "$runtime_root" >&2
             return 1
@@ -191,7 +190,20 @@ run_one() {
             printf 'calibration changed after validation\n' >&2
             return 1
         }
-        "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" --placement-mode "$placement_mode" --placement-evidence "$placement_path" --page-registration-required --page-registration-socket "$registration_socket" --page-registration-timeout-ms 30000 >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
+        (
+            local registration_socket= worker_evidence_socket=
+            for _ in $(seq 1 300); do
+                if [[ -f "$profile_path" ]] &&
+                   "$ROOT/scripts/verify_runtime_execution_profile.py" --profile "$profile_path" >/dev/null 2>>"$directory/logs/$scenario-$repetition.runtime.log" &&
+                   registration_socket=$("$ROOT/scripts/verify_runtime_execution_profile.py" --profile "$profile_path" --emit-field page_registration_socket 2>>"$directory/logs/$scenario-$repetition.runtime.log") &&
+                   worker_evidence_socket=$("$ROOT/scripts/verify_runtime_execution_profile.py" --profile "$profile_path" --emit-field worker_evidence_socket 2>>"$directory/logs/$scenario-$repetition.runtime.log"); then
+                    exec "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" --placement-mode "$placement_mode" --placement-evidence "$placement_path" --page-registration-required --page-registration-socket "$registration_socket" --page-registration-timeout-ms 30000 --worker-evidence-socket "$worker_evidence_socket"
+                fi
+                sleep 0.1
+            done
+            printf 'timed out waiting for runtime socket metadata\n' >&2
+            exit 1
+        ) >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
         local benchmark_pid=$!
         "$ROOT/bin/awavma-runtime" --production-real-migration -S -M -R --calibration-artifact "$CALIBRATION_FILE" \
             --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" \
@@ -210,7 +222,8 @@ run_one() {
             sleep 0.1
         done
         if [[ "$active" == true ]]; then
-            IFS=, read -r requested_mode effective_mode migration_safety migration_execution page_registration registration_ttl numa_nodes thread_ready page_ready phase7_ready production_ready activation_state activation_reason <<<"$profile_fields"
+            local provider_ready=
+            IFS=, read -r requested_mode effective_mode migration_safety migration_execution page_registration registration_ttl numa_nodes thread_ready page_ready phase7_ready production_ready activation_state activation_reason provider_ready <<<"$profile_fields"
             cp "$profile_path" "$RUN_DIR/metadata/awavma-runtime-profile-$repetition.csv"
             wait "$benchmark_pid" || code=$?
             if [[ "$code" == 0 ]] && ! placement_fields=$(validate_placement "$placement_path" "$placement_mode"); then
