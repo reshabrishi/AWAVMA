@@ -31,6 +31,7 @@ def fixture(directory, original="1", benchmark_failure=False, cost_failure=False
     sysctl.write_text(original + "\n", encoding="ascii")
     executable(root / "commands/make", "#!/bin/sh\nexit 0\n")
     executable(root / "commands/git", "#!/bin/sh\nexit 0\n")
+    executable(root / "commands/sudo", "#!/bin/sh\nprintf invoked >\"$P4C_SUDO_MARKER\"\nexit 1\n")
     executable(root / "commands/numactl", "#!/bin/sh\nprintf 'available: 2 nodes (0-1)\\n'\n")
     benchmark = """#!/bin/sh
 artifact=
@@ -131,16 +132,19 @@ def main():
         temporary.cleanup()
 
     # A signal while timing is active must still restore the original value.
-    with tempfile.TemporaryDirectory() as directory:
-        root, sysctl, env = fixture(directory, sleep=True)
-        process = subprocess.Popen([root / "tools/collect_numa_calibration.sh", "--smoke"], env=env,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        deadline = time.time() + 5
-        while sysctl.read_text().strip() != "0" and time.time() < deadline:
-            time.sleep(0.02)
-        process.send_signal(signal.SIGTERM)
-        process.communicate(timeout=5)
-        assert process.returncode != 0 and sysctl.read_text().strip() == "1"
+    for original in ("0", "1"):
+        with tempfile.TemporaryDirectory() as directory:
+            root, sysctl, env = fixture(directory, original=original, sleep=True)
+            process = subprocess.Popen([root / "tools/collect_numa_calibration.sh", "--smoke"], env=env,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            deadline = time.time() + 5
+            while (sysctl.read_text().strip() != "0" or not list((root / "output/smoke").glob("p4c-*/logs/*.log"))) and time.time() < deadline:
+                time.sleep(0.02)
+            process.send_signal(signal.SIGTERM)
+            process.communicate(timeout=5)
+            manifests = list((root / "output/smoke").glob("p4c-*/manifest.json"))
+            assert process.returncode != 0 and sysctl.read_text().strip() == original
+            assert manifests and not json.loads(manifests[0].read_text())["overall_valid"]
 
     # Invalid control values and non-writable controls fail before artifacts/work.
     with tempfile.TemporaryDirectory() as directory:
@@ -148,6 +152,20 @@ def main():
         result = subprocess.run([root / "tools/collect_numa_calibration.sh", "--smoke"], env=env,
                                 capture_output=True, text=True)
         assert result.returncode != 0 and not (root / "output").exists()
+
+    # An environment override can never become a privileged arbitrary write.
+    with tempfile.TemporaryDirectory() as directory:
+        root, sysctl, env = fixture(directory)
+        marker = root / "sudo-invoked"
+        env.update({"P4C_NUMA_BALANCING_PATH": str(root / "arbitrary-control"),
+                    "P4C_SUDO_MARKER": str(marker)})
+        result = subprocess.run([root / "tools/collect_numa_calibration.sh", "--smoke"], env=env,
+                                capture_output=True, text=True)
+        assert result.returncode != 0 and not marker.exists()
+
+    collector = (ROOT / "tools/collect_numa_calibration.sh").read_text()
+    assert '"$NUMA_BALANCING_PATH" == "$CANONICAL_NUMA_BALANCING_PATH"' in collector
+    assert 'sudo -n sh -c' in collector
 
     print("p4c_numa_balancing_integration_test: PASS")
 

@@ -52,12 +52,12 @@ def valid_smoke_gate(path):
     with open(path, encoding="utf-8") as handle:
         manifest = json.load(handle)
     schema = manifest.get("schema_version")
-    canonical = (schema == 3 and manifest.get("kind") == "AWAVMA_P4_CALIBRATION_COLLECTION" and
+    canonical = (schema == 4 and manifest.get("kind") == "AWAVMA_P4_CALIBRATION_COLLECTION" and
                  manifest.get("status") == "NOT_PRODUCTION_CALIBRATION" and
                  manifest.get("production_authority") is False and
                  manifest.get("placement_validation_valid") is True and
                  manifest.get("strict_validation_valid") is True)
-    return ((schema == 2 or canonical) and manifest.get("mode") == "smoke" and
+    return (canonical and manifest.get("mode") == "smoke" and
              manifest.get("timing_valid") is True and
             manifest.get("cost_migration_valid") is True and
             manifest.get("numa_balancing_transaction_valid") is True and

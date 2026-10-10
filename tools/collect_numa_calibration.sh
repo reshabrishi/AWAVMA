@@ -8,7 +8,7 @@ PAIRS=${P4C_PAIRS:-7}; WARMUPS=2; WORKLOADS=(mixed)
 # "local" is a legacy NUMA placement pattern, not an independent access
 # distribution. Controlled LOCAL/REMOTE placement supplies that dimension here.
 [[ "$MODE" == --smoke ]] || WORKLOADS=(sequential random hot moderate cold mixed changing)
-[[ "$MODE" == --smoke ]] || python3 "$ROOT/tools/validate_numa_calibration.py" smoke-gate "${P4C_SMOKE_MANIFEST:-$OUT/smoke/manifest.json}" || { printf 'FULL_REQUIRES_VALID_SCHEMA_2_SMOKE_GATE\n' >&2; exit 2; }
+[[ "$MODE" == --smoke ]] || python3 "$ROOT/tools/validate_numa_calibration.py" smoke-gate "${P4C_SMOKE_MANIFEST:-$OUT/smoke/manifest.json}" || { printf 'FULL_REQUIRES_VALID_SCHEMA_4_SMOKE_GATE\n' >&2; exit 2; }
 [[ -x "$ROOT/bin/benchmark" ]] || { printf 'ENV_LIMITED: benchmark binary unavailable\n' >&2; exit 3; }
 make -C "$ROOT" bin/p4c-migration-cost-collector >/dev/null
 [[ "$(uname -s)" == Linux ]] || { printf 'ENV_LIMITED: Linux is required\n' >&2; exit 3; }
@@ -25,8 +25,47 @@ fi
 [[ "$NUMA_NODE_COUNT" =~ ^[0-9]+$ ]] || { printf 'PREFLIGHT_ERROR: malformed numactl topology\n' >&2; exit 2; }
 (( NUMA_NODE_COUNT >= 2 )) || { printf 'ENV_LIMITED: fewer than two NUMA nodes\n' >&2; exit 3; }
 
-ORIGINAL_NUMA_BALANCING=; NUMA_BALANCING_DURING=; NUMA_BALANCING_RESTORE_STATUS=NOT_ATTEMPTED
+CANONICAL_NUMA_BALANCING_PATH=/proc/sys/kernel/numa_balancing
+ORIGINAL_NUMA_BALANCING=; NUMA_BALANCING_DURING=; NUMA_BALANCING_RESTORE_STATUS=NOT_ATTEMPTED; ACTIVE_CHILD_PID=
 TIMING_VALID=false; COST_VALID=false; PLACEMENT_VALID=false; TRANSACTION_VALID=false; TRANSACTION_BROKEN=false; STRICT_VALID=false; OVERALL_VALID=false; RUN=; EXPERIMENT=
+read_numa_balancing() {
+  if [[ -r "$NUMA_BALANCING_PATH" ]]; then
+    tr -d '[:space:]' <"$NUMA_BALANCING_PATH"
+  elif [[ "$NUMA_BALANCING_PATH" == "$CANONICAL_NUMA_BALANCING_PATH" ]] && sudo -n true 2>/dev/null; then
+    sudo -n cat "$CANONICAL_NUMA_BALANCING_PATH" | tr -d '[:space:]'
+  else
+    return 1
+  fi
+}
+write_numa_balancing() {
+  local value=$1 observed=
+  [[ "$value" =~ ^[01]$ ]] || return 1
+  if [[ -w "$NUMA_BALANCING_PATH" ]]; then
+    printf '%s\n' "$value" >"$NUMA_BALANCING_PATH" || return 1
+  elif [[ "$NUMA_BALANCING_PATH" == "$CANONICAL_NUMA_BALANCING_PATH" ]] && sudo -n true 2>/dev/null; then
+    # Only this fixed sysctl write is privileged; all measurement processes remain unprivileged.
+    sudo -n sh -c 'printf "%s\n" "$1" > /proc/sys/kernel/numa_balancing' sh "$value" || return 1
+  else
+    return 1
+  fi
+  observed=$(read_numa_balancing) || return 1
+  [[ "$observed" == "$value" ]]
+}
+terminate_active_child() {
+  [[ "$ACTIVE_CHILD_PID" =~ ^[1-9][0-9]*$ ]] || return 0
+  # Each measurement is launched with setsid, so this is only its owned process group.
+  kill -TERM -- "-$ACTIVE_CHILD_PID" 2>/dev/null || true
+  wait "$ACTIVE_CHILD_PID" 2>/dev/null || true
+  ACTIVE_CHILD_PID=
+}
+run_owned() {
+  setsid "$@" &
+  ACTIVE_CHILD_PID=$!
+  wait "$ACTIVE_CHILD_PID"
+  local code=$?
+  ACTIVE_CHILD_PID=
+  return "$code"
+}
 write_manifest() {
   [[ -n "$RUN" ]] || return 0
   local status=NOT_PRODUCTION_CALIBRATION raw_artifacts='[]'
@@ -56,7 +95,7 @@ finish() {
   local code=$? restored=
   trap - EXIT HUP INT TERM
   if [[ "$ORIGINAL_NUMA_BALANCING" =~ ^[01]$ ]]; then
-    if printf '%s\n' "$ORIGINAL_NUMA_BALANCING" >"$NUMA_BALANCING_PATH" 2>/dev/null; then restored=$(<"$NUMA_BALANCING_PATH") || restored=; fi
+    if write_numa_balancing "$ORIGINAL_NUMA_BALANCING"; then restored=$(read_numa_balancing) || restored=; fi
     if [[ "$restored" == "$ORIGINAL_NUMA_BALANCING" ]]; then
       NUMA_BALANCING_RESTORE_STATUS=RESTORED
       [[ "$NUMA_BALANCING_DURING" == 0 && "$TRANSACTION_BROKEN" == false ]] && TRANSACTION_VALID=true
@@ -75,17 +114,18 @@ finish() {
   exit "$code"
 }
 trap finish EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-[[ -r "$NUMA_BALANCING_PATH" && -w "$NUMA_BALANCING_PATH" ]] || { printf 'NUMA_BALANCING_CONTROL_UNAVAILABLE: %s\n' "$NUMA_BALANCING_PATH" >&2; exit 2; }
-ORIGINAL_NUMA_BALANCING=$(<"$NUMA_BALANCING_PATH")
+trap 'terminate_active_child; exit 129' HUP
+trap 'terminate_active_child; exit 130' INT
+trap 'terminate_active_child; exit 143' TERM
+ORIGINAL_NUMA_BALANCING=$(read_numa_balancing) || { printf 'NUMA_BALANCING_CONTROL_UNAVAILABLE: %s\n' "$NUMA_BALANCING_PATH" >&2; exit 2; }
 [[ "$ORIGINAL_NUMA_BALANCING" =~ ^[01]$ ]] || { printf 'NUMA_BALANCING_ORIGINAL_INVALID\n' >&2; exit 2; }
-printf '0\n' >"$NUMA_BALANCING_PATH" || { printf 'NUMA_BALANCING_DISABLE_FAILED\n' >&2; exit 2; }
-NUMA_BALANCING_DURING=$(<"$NUMA_BALANCING_PATH") || NUMA_BALANCING_DURING=
+if [[ ! -w "$NUMA_BALANCING_PATH" && "$NUMA_BALANCING_PATH" != "$CANONICAL_NUMA_BALANCING_PATH" ]]; then printf 'NUMA_BALANCING_CONTROL_UNAVAILABLE: %s\n' "$NUMA_BALANCING_PATH" >&2; exit 2; fi
+if [[ ! -w "$NUMA_BALANCING_PATH" ]] && ! sudo -n true 2>/dev/null; then printf 'NUMA_BALANCING_PRIVILEGE_UNAVAILABLE\n' >&2; exit 2; fi
+write_numa_balancing 0 || { printf 'NUMA_BALANCING_DISABLE_FAILED\n' >&2; exit 2; }
+NUMA_BALANCING_DURING=$(read_numa_balancing) || NUMA_BALANCING_DURING=
 [[ "$NUMA_BALANCING_DURING" == 0 ]] || { printf 'NUMA_BALANCING_DISABLE_READBACK_FAILED\n' >&2; exit 2; }
 require_numa_balancing_disabled() {
-  local current=; current=$(<"$NUMA_BALANCING_PATH") || current=
+  local current=; current=$(read_numa_balancing) || current=
   [[ "$current" == 0 ]] || { TRANSACTION_BROKEN=true; printf 'NUMA_BALANCING_CHANGED_DURING_COLLECTION\n' >&2; return 1; }
 }
 EXPERIMENT="p4c-$(date -u +%Y%m%dT%H%M%SZ)-$$"; RUN="$OUT/${MODE#--}/$EXPERIMENT"
@@ -104,7 +144,7 @@ for workload in "${WORKLOADS[@]}"; do
     for placement in $([[ $((pair % 2)) == 1 ]] && printf 'local remote' || printf 'remote local'); do
       require_numa_balancing_disabled
       artifact="$RUN/placement/$workload-$pair-$placement.csv"; log="$RUN/logs/$workload-$pair-$placement.log"; start=$(date +%s%N); code=0
-      "$ROOT/bin/benchmark" --threads "${P4C_THREADS:-2}" --memory "${P4C_MEMORY_MB:-1024}" --duration "${P4C_DURATION_SECONDS:-30}" --pattern "$workload" --placement-mode "$placement" --placement-evidence "$artifact" >"$log" 2>&1 || code=$?
+      run_owned "$ROOT/bin/benchmark" --threads "${P4C_THREADS:-2}" --memory "${P4C_MEMORY_MB:-1024}" --duration "${P4C_DURATION_SECONDS:-30}" --pattern "$workload" --placement-mode "$placement" --placement-evidence "$artifact" >"$log" 2>&1 || code=$?
       require_numa_balancing_disabled
       elapsed=$((($(date +%s%N)-start)/1000000)); valid=false; reason=BENCHMARK_FAILED; status=
       if [[ "$code" == 0 ]] && python3 "$ROOT/tools/validate_numa_calibration.py" placement "$artifact" "$placement"; then valid=true; reason=; status=PASS; else status=FAIL; fi
@@ -121,7 +161,7 @@ collect_costs() {
   while [[ $successful -lt $required && $attempts -lt $MAX_COST_ATTEMPTS ]]; do
     require_numa_balancing_disabled || return 1
     attempts=$((attempts + 1))
-    if "$ROOT/bin/p4c-migration-cost-collector" --output "$RUN/raw_cost.csv" --run-id "$EXPERIMENT-cost-$warmup-$attempts" --warmup "$warmup" >>"$RUN/logs/cost-$warmup-$attempts.log" 2>&1; then
+    if run_owned "$ROOT/bin/p4c-migration-cost-collector" --output "$RUN/raw_cost.csv" --run-id "$EXPERIMENT-cost-$warmup-$attempts" --warmup "$warmup" >>"$RUN/logs/cost-$warmup-$attempts.log" 2>&1; then
       successful=$((successful + 1))
     fi
     require_numa_balancing_disabled || return 1
