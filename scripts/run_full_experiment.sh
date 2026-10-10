@@ -14,18 +14,20 @@ MEMORY_MB=1024
 WORKLOAD=mixed
 LOCAL_NODE=
 REMOTE_NODE=
+CALIBRATION_FILE=
 
 usage() {
     cat <<'EOF'
-Usage: scripts/run_full_experiment.sh [--check-only|--tests-only|--baseline-only|--awavma-only] [--skip-graphs] [--output-dir DIR]
+Usage: scripts/run_full_experiment.sh [--check-only|--tests-only|--baseline-only|--awavma-only] [--skip-graphs] [--output-dir DIR] [--calibration FILE]
 
-Public options (exactly six):
+Public options:
   --check-only      validate the allocation without collecting
   --tests-only      build and run the required project tests
   --baseline-only   collect the three baseline scenarios
   --awavma-only     collect the AWAVMA scenario
   --skip-graphs     aggregate but do not generate graphs
   --output-dir DIR  collection root (default: results/cloudlab)
+  --calibration FILE  validated calibration required by all/AWAVMA collection
 EOF
 }
 
@@ -38,6 +40,7 @@ while (($#)); do
         --awavma-only) MODE=awavma ;;
         --skip-graphs) SKIP_GRAPHS=true ;;
         --output-dir) need_value "$@"; OUTPUT_DIR=$2; shift ;;
+        --calibration) need_value "$@"; CALIBRATION_FILE=$2; shift ;;
         *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
     shift
@@ -122,6 +125,11 @@ if [[ "$MODE" == check ]]; then
     exit 0
 fi
 
+if [[ "$MODE" == all || "$MODE" == awavma ]]; then
+    [[ -n "$CALIBRATION_FILE" ]] || { printf '%s\n' '--calibration FILE is required for AWAVMA collection' >&2; exit 2; }
+    [[ -f "$CALIBRATION_FILE" && -r "$CALIBRATION_FILE" ]] || { printf 'calibration must be a readable regular file\n' >&2; exit 2; }
+fi
+
 EXPERIMENT_ID="phase4d-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 RUN_DIR="$OUTPUT_DIR/raw/$EXPERIMENT_ID"
 [[ ! -e "$RUN_DIR" ]] || { printf 'run directory already exists: %s\n' "$RUN_DIR" >&2; exit 2; }
@@ -133,6 +141,20 @@ date -u +%Y-%m-%dT%H:%M:%SZ >"$RUN_DIR/metadata/collection_started_utc.txt"
 make -C "$ROOT" benchmark awavma-runtime environment-check >"$RUN_DIR/metadata/build.log" 2>&1
 run_required_tests >"$RUN_DIR/metadata/tests.log" 2>&1
 preflight "$RUN_DIR/metadata" "$([[ "$MODE" != baseline ]] && printf true || printf false)"
+CALIBRATION_COPY=
+CALIBRATION_SHA256=
+if [[ "$MODE" == all || "$MODE" == awavma ]]; then
+    CALIBRATION_COPY="$RUN_DIR/metadata/calibration.csv"
+    [[ -x "$ROOT/bin/calibration-validate" ]] || make -C "$ROOT" calibration-validate >>"$RUN_DIR/metadata/build.log" 2>&1
+    "$ROOT/bin/calibration-validate" "$CALIBRATION_FILE" >"$RUN_DIR/metadata/calibration-validation.txt" 2>&1 || {
+        printf 'calibration validation failed\n' >&2
+        exit 1
+    }
+    cp -- "$CALIBRATION_FILE" "$CALIBRATION_COPY"
+    cmp -s -- "$CALIBRATION_FILE" "$CALIBRATION_COPY" || { printf 'run-local calibration copy differs from source\n' >&2; exit 1; }
+    CALIBRATION_SHA256=$(sha256sum "$CALIBRATION_COPY" | awk '{print $1}')
+    printf '%s  %s\n' "$CALIBRATION_SHA256" 'calibration.csv' >"$RUN_DIR/metadata/calibration.sha256"
+fi
 numactl --hardware >"$RUN_DIR/metadata/numa_topology.txt"
 uname -a >"$RUN_DIR/metadata/uname.txt"
 locale >"$RUN_DIR/metadata/locale.txt"
@@ -165,9 +187,13 @@ run_one() {
         }
         registration_required=true
         registration_status=PENDING
+        cmp -s -- "$CALIBRATION_FILE" "$CALIBRATION_COPY" || {
+            printf 'calibration changed after validation\n' >&2
+            return 1
+        }
         "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" --placement-mode "$placement_mode" --placement-evidence "$placement_path" --page-registration-required --page-registration-socket "$registration_socket" --page-registration-timeout-ms 30000 >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 &
         local benchmark_pid=$!
-        "$ROOT/bin/awavma-runtime" --production-real-migration -S -M -R \
+        "$ROOT/bin/awavma-runtime" --production-real-migration -S -M -R --calibration-artifact "$CALIBRATION_FILE" \
             --duration-ms $((DURATION_SECONDS * 1000 + 5000)) --pid "$benchmark_pid" \
             --root-dir "$runtime_root" --config "$ROOT/config/awavma.conf" \
             >"$directory/logs/$scenario-$repetition.runtime.log" 2>&1 &
@@ -248,7 +274,7 @@ if [[ "$MODE" != baseline ]]; then
 fi
 status=PASS; ((failed == 0)) || status=FAIL
 cat >"$RUN_DIR/manifest.json" <<EOF
-{"schema_version":5,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"$status","local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"topology_source":"metadata/numa_topology.txt","runtime_execution_profile":"awavma/runtime/*/runtime_execution_profile.csv","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
+{"schema_version":5,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"$status","local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"topology_source":"metadata/numa_topology.txt","calibration_artifact":"$([[ -n "$CALIBRATION_COPY" ]] && printf metadata/calibration.csv)","calibration_sha256":"$CALIBRATION_SHA256","runtime_execution_profile":"awavma/runtime/*/runtime_execution_profile.csv","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
 EOF
 ((failed == 0)) || exit 1
 UNIFIED="$OUTPUT_DIR/unified"

@@ -14,8 +14,8 @@ def main():
     graphs = (ROOT / "scripts/generate_multinuma_graphs.py").read_text(encoding="utf-8")
     docs = (ROOT / "docs/cloudlab_preparation.md").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    public = ("--check-only", "--tests-only", "--baseline-only", "--awavma-only", "--skip-graphs", "--output-dir")
-    require(runner, *public, "metadata, build, tests, environment check, preflight", "run_required_tests", "environment-check", "test-environment-capabilities", "test-runtime-execution-profile", "--production-real-migration", "-S -M -R", "runtime_execution_profile.csv", "verify_runtime_execution_profile.py", "! -e \"$runtime_root\"", "--placement-mode", "--placement-evidence", "validate_placement", "validate_remote_equivalence")
+    public = ("--check-only", "--tests-only", "--baseline-only", "--awavma-only", "--skip-graphs", "--output-dir", "--calibration")
+    require(runner, *public, "metadata, build, tests, environment check, preflight", "run_required_tests", "environment-check", "test-environment-capabilities", "test-runtime-execution-profile", "--production-real-migration", "-S -M -R --calibration-artifact \"$CALIBRATION_FILE\"", "calibration-validate", "cmp -s", "sha256sum", "runtime_execution_profile.csv", "verify_runtime_execution_profile.py", "! -e \"$runtime_root\"", "--placement-mode", "--placement-evidence", "validate_placement", "validate_remote_equivalence")
     assert "--detect-numa" not in runner and "--results-dir" not in runner
     require(aggregate, "ADAPTERS", "phase2", "phase8", "ADDRESS_FIELD", "COMPARATOR_SCHEMA", "requested_execution_mode", "production_real_migration_ready", "placement_mode", "initial_expected_node_ratio")
     require(graphs, "elapsed_time_comparison", "throughput_comparison", "latency_comparison", "summary_input", "zero graphs generated")

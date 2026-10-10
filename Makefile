@@ -221,6 +221,7 @@ phase4d-tests:
 
 test-phase4d-tooling:
 	python3 tests/cloudlab_phase4d_tooling_test.py
+	python3 tests/run_full_experiment_calibration_test.py
 
 test-phase4d-aggregation:
 	python3 tests/cloudlab_phase4d_aggregation_test.py
