@@ -59,7 +59,8 @@ def main():
         full = d/"full-cost.csv"; write(full, COST_HEADER, full_rows); assert cost_valid(full, "full")
         assert not cost_valid(d/"six-cost.csv", "full")
         check_dir = d/"full-check"; check_dir.mkdir()
-        (check_dir/"manifest.json").write_text(json.dumps({"mode":"full", "status":"NOT_PRODUCTION_CALIBRATION", "cost_migration_valid":True}))
+        legacy = {"mode":"full", "status":"NOT_PRODUCTION_CALIBRATION", "cost_migration_valid":True}
+        (check_dir/"manifest.json").write_text(json.dumps(legacy))
         check_rows = []
         for index in range(126):
             check_rows.append(dict(zip(RAW_HEADER, ["fixture",str(index + 1),"LOCAL_REMOTE","true" if index < 28 else "false","MOVE_MEMORY","mixed","local" if index % 2 == 0 else "remote","2","1048576","4096","0","1","20","30","10","PASS","true","256","256","0","0","fixture.csv","0","true",""])))
@@ -67,12 +68,38 @@ def main():
         write(check_dir/"raw_cost.csv", COST_HEADER, full_rows)
         checker = [sys.executable, str(ROOT/"tools/check_cloudlab_p4_results.py"), str(check_dir)]
         assert subprocess.run(checker, capture_output=True).returncode == 0
+        schema2 = dict(legacy, schema_version=2, numa_balancing_original="1",
+                       numa_balancing_during="0", numa_balancing_restore_status="RESTORED",
+                       timing_valid=True, numa_balancing_transaction_valid=True, overall_valid=True)
+        (check_dir/"manifest.json").write_text(json.dumps(schema2))
+        assert subprocess.run(checker, capture_output=True).returncode == 0
+        for key in ("numa_balancing_original", "numa_balancing_during",
+                    "numa_balancing_restore_status", "timing_valid",
+                    "numa_balancing_transaction_valid", "overall_valid"):
+            malformed = dict(schema2); malformed.pop(key)
+            (check_dir/"manifest.json").write_text(json.dumps(malformed))
+            assert subprocess.run(checker, capture_output=True).returncode != 0
+        for key, value in (("numa_balancing_original", "2"),
+                           ("numa_balancing_during", "1"),
+                           ("numa_balancing_restore_status", "FAILED"),
+                           ("timing_valid", False),
+                           ("numa_balancing_transaction_valid", False),
+                           ("overall_valid", False)):
+            malformed = dict(schema2); malformed[key] = value
+            (check_dir/"manifest.json").write_text(json.dumps(malformed))
+            assert subprocess.run(checker, capture_output=True).returncode != 0
+        (check_dir/"manifest.json").write_text(json.dumps(schema2))
         check_rows[0]["remote_node"] = "0"; write(check_dir/"raw_timing.csv", RAW_HEADER, check_rows)
         assert subprocess.run(checker, capture_output=True).returncode != 0
         for changes in ({"measurement_valid":"false"}, {"elapsed_ms":"0"}, {"requested_pages":"4095"},
                         {"migrated_pages":"4095"}, {"failed_pages":"1"}, {"destination_node":"2"}):
             invalid = [dict(row) for row in full_rows]; invalid[-1].update(changes)
             write(full, COST_HEADER, invalid); assert not cost_valid(full, "full")
+        # Legacy schema-1 remains readable but cannot claim transaction evidence.
+        (check_dir/"manifest.json").write_text(json.dumps(legacy))
+        legacy_result = subprocess.run(checker, capture_output=True, text=True)
+        assert legacy_result.returncode != 0  # timing topology was deliberately corrupted above
+        assert "NOT_CLAIMED_LEGACY_SCHEMA1" in legacy_result.stdout
         collector = (ROOT/"tools/collect_numa_calibration.sh").read_text()
         assert '"$COST_VALID"' in collector
         assert '"thread_calibration":"NOT_IMPLEMENTED"' in collector

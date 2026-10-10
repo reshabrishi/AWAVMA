@@ -5,9 +5,9 @@ evidence and controlled, rollback-required migration-cost measurements; it never
 enables normal AWAVMA production migration execution.
 
 1. Build `make benchmark calibration-validate bin/p4c-migration-cost-collector` on a suitable CloudLab node.
-2. Run `tools/collect_numa_calibration.sh --smoke` and inspect its retained
+2. Run `sudo --preserve-env=P4C_OUTPUT_DIR env P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --smoke` and inspect its retained
    placement CSVs and `manifest.json`.
-3. Only after a successful smoke, run `tools/collect_numa_calibration.sh --full`.
+3. Only after a successful smoke, run the same exact privileged command with `--full`.
 4. Supply the retained raw timing and authenticated 4096-page cost CSVs to
    `tools/build_numa_calibration.py`, then run `bin/calibration-validate ARTIFACT`.
 
@@ -22,6 +22,20 @@ seven valid measured rows. Every accepted row must be an exact 4096-page
 transaction with positive finite elapsed time and a consistent source,
 destination, distance, and page size. It is independent of timing calibration,
 thread calibration, remote equivalence, and production authorization.
+The script contains no `sudo`. Before any timing or migration-cost work it reads
+the exact `0` or `1` from `/proc/sys/kernel/numa_balancing` (overridable for
+testing with `P4C_NUMA_BALANCING_PATH`), writes `0`, and verifies readback. It
+requires the value to remain `0` throughout collection and restores and verifies
+the original value on normal exit and signals. Restoration failure overrides an
+otherwise successful run.
+
+Schema-2 manifests retain `numa_balancing_original`,
+`numa_balancing_during`, `numa_balancing_restore_status`, `timing_valid`,
+`cost_migration_valid`, `numa_balancing_transaction_valid`, and `overall_valid`.
+Smoke promotion and successful exit require every timing, cost, transaction,
+and restoration gate. Full mode requires that promoted schema-2 smoke gate;
+legacy schema-1 artifacts remain diagnostically readable but provide no claim
+of a controlled NUMA-balancing transaction.
 Smoke is always labelled `NOT_PRODUCTION_CALIBRATION`; it is not a production
 artifact. The builder requires at least seven valid pairs and seven exact,
 successful 4096-page `move_pages` cost observations for every production record.

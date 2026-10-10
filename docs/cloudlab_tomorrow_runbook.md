@@ -24,7 +24,7 @@ make benchmark calibration-validate bin/p4c-migration-cost-collector
 
 ```bash
 cd ~/AWAVMA
-P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --smoke
+sudo --preserve-env=P4C_OUTPUT_DIR env P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --smoke
 SMOKE_RUN="$(find results/cloudlab_calibration/smoke -mindepth 1 -maxdepth 1 -type d -name 'p4c-*' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
 printf 'SMOKE_RUN=%s\n' "$SMOKE_RUN"
 cat "$SMOKE_RUN/manifest.json"
@@ -34,12 +34,17 @@ Smoke runs one `mixed` workload with two warmup pairs and one measured pair,
 two placements per pair: six 30-second benchmark launches. Nominal benchmark
 time is three minutes, plus setup, verification, and one valid warmup migration
 cost attempt (with bounded retries).
+The collector itself never invokes `sudo`. The privileged command above is exact:
+it lets the collector read, disable, verify, and restore
+`/proc/sys/kernel/numa_balancing`. Smoke succeeds and is promoted only when all
+timing evidence, cost evidence, the disable/readback transaction, and verified
+restoration are valid.
 
 ## Full Collection
 
 ```bash
 cd ~/AWAVMA
-P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --full
+sudo --preserve-env=P4C_OUTPUT_DIR env P4C_OUTPUT_DIR="$PWD/results/cloudlab_calibration" tools/collect_numa_calibration.sh --full
 FULL_RUN="$(find results/cloudlab_calibration/full -mindepth 1 -maxdepth 1 -type d -name 'p4c-*' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)"
 printf 'FULL_RUN=%s\n' "$FULL_RUN"
 python3 tools/check_cloudlab_p4_results.py "$FULL_RUN"
@@ -52,6 +57,9 @@ measured rows, 126 total 30-second launches. Nominal benchmark time is 63
 minutes; allow roughly 75-100 minutes for first-touch, verification, cost
 collection, and bounded retries. Cost evidence requires two valid warmups and
 seven valid measured exact-4096-page migrations.
+Full mode additionally requires the promoted smoke gate to be schema 2 with
+`timing_valid`, `cost_migration_valid`, `numa_balancing_transaction_valid`, and
+`overall_valid` all true and `numa_balancing_restore_status` equal to `RESTORED`.
 
 Retained inputs are `$FULL_RUN/raw_timing.csv` and `$FULL_RUN/raw_cost.csv`.
 

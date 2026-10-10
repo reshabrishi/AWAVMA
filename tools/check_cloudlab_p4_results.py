@@ -64,9 +64,22 @@ def main():
                      for row in exact_costs}
     impossible = [value for value in topology if value[0] == value[1] or not all(value)]
 
+    schema = manifest.get("schema_version", 1)
+    if schema not in (1, 2): errors.append("unsupported_manifest_schema")
     if manifest.get("mode") != "full": errors.append("manifest_mode_not_full")
     if manifest.get("status") != "NOT_PRODUCTION_CALIBRATION": errors.append("unexpected_manifest_status")
     if manifest.get("cost_migration_valid") is not True: errors.append("cost_migration_invalid")
+    if schema == 2:
+        required = ("numa_balancing_original", "numa_balancing_during",
+                    "numa_balancing_restore_status", "timing_valid",
+                    "numa_balancing_transaction_valid", "overall_valid")
+        if any(key not in manifest for key in required): errors.append("missing_schema2_transaction_fields")
+        if manifest.get("numa_balancing_original") not in ("0", "1"): errors.append("numa_balancing_original_invalid")
+        if manifest.get("numa_balancing_during") != "0": errors.append("numa_balancing_not_disabled")
+        if manifest.get("numa_balancing_restore_status") != "RESTORED": errors.append("numa_balancing_not_restored")
+        if manifest.get("timing_valid") is not True: errors.append("manifest_timing_invalid")
+        if manifest.get("numa_balancing_transaction_valid") is not True: errors.append("numa_balancing_transaction_invalid")
+        if manifest.get("overall_valid") is not True: errors.append("manifest_overall_invalid")
     if len(timing) != 126: errors.append(f"timing_rows:{len(timing)}")
     if len(valid_warmups) != 28: errors.append(f"valid_timing_warmups:{len(valid_warmups)}")
     if len(valid_measured) != 98: errors.append(f"valid_timing_measured:{len(valid_measured)}")
@@ -80,6 +93,8 @@ def main():
 
     print(f"manifest_mode={manifest.get('mode')}")
     print(f"manifest_status={manifest.get('status')}")
+    print(f"manifest_schema={schema}")
+    print("numa_balancing_transaction_evidence=" + ("VALID" if schema == 2 and manifest.get("numa_balancing_transaction_valid") is True else "NOT_CLAIMED_LEGACY_SCHEMA1" if schema == 1 else "INVALID"))
     print(f"raw_timing_rows={len(timing)}")
     print(f"raw_cost_rows={len(costs)}")
     print(f"valid_timing_warmups={len(valid_warmups)}")

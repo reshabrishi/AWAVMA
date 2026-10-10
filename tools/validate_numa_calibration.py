@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import csv, math, os, sys
+import csv, json, math, os, sys
 
 COST_PAGE_COUNT = 4096
 
@@ -34,6 +34,30 @@ def valid_cost_evidence(path, mode):
     return len(topology) == 1
 
 
+def valid_timing_evidence(path, mode):
+    with open(path, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    required = (4, 2) if mode == "smoke" else (28, 98) if mode == "full" else None
+    if required is None:
+        raise ValueError("unknown timing evidence mode")
+    valid = [row for row in rows if row.get("measurement_valid") == "true"]
+    warmups = [row for row in valid if row.get("warmup") == "true"]
+    measured = [row for row in valid if row.get("warmup") == "false"]
+    return (len(rows) == sum(required) and len(valid) == len(rows) and
+            len(warmups) == required[0] and len(measured) == required[1])
+
+
+def valid_smoke_gate(path):
+    with open(path, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    return (manifest.get("schema_version") == 2 and manifest.get("mode") == "smoke" and
+            manifest.get("timing_valid") is True and
+            manifest.get("cost_migration_valid") is True and
+            manifest.get("numa_balancing_transaction_valid") is True and
+            manifest.get("numa_balancing_restore_status") == "RESTORED" and
+            manifest.get("overall_valid") is True)
+
+
 def placement(path, mode):
     with open(path, newline="", encoding="utf-8") as handle: rows=list(csv.DictReader(handle))
     if len(rows) != 1: raise SystemExit("PLACEMENT_MALFORMED")
@@ -51,5 +75,9 @@ if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "placement": placement(sys.argv[2], sys.argv[3])
     elif len(sys.argv) == 4 and sys.argv[1] == "cost-valid":
         if not valid_cost_evidence(sys.argv[2], sys.argv[3]): raise SystemExit("COST_EVIDENCE_INVALID")
+    elif len(sys.argv) == 4 and sys.argv[1] == "timing-valid":
+        if not valid_timing_evidence(sys.argv[2], sys.argv[3]): raise SystemExit("TIMING_EVIDENCE_INVALID")
+    elif len(sys.argv) == 3 and sys.argv[1] == "smoke-gate":
+        if not valid_smoke_gate(sys.argv[2]): raise SystemExit("SMOKE_GATE_INVALID")
     elif len(sys.argv) == 15 and sys.argv[1] == "raw-row": raw_row(sys.argv[2:])
     else: raise SystemExit(2)

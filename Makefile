@@ -488,6 +488,7 @@ test-calibration: $(CALIBRATION_TEST_TARGET)
 
 test-cloudlab-calibration: calibration-validate $(P4C_MIGRATION_COST_COLLECTOR_TARGET) test-benchmark-cli
 	python3 tests/cloudlab_calibration_builder_test.py
+	python3 tests/p4c_numa_balancing_integration_test.py
 
 calibration-validate: $(CALIBRATION_VALIDATE_TARGET)
 
