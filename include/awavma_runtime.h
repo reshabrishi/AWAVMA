@@ -221,6 +221,11 @@ bool awavma_runtime_test_calibration_canonical_topology(
 size_t awavma_runtime_test_calibration_result_record_index(
     const CalibrationSnapshot *snapshot, const CalibrationMatchRequest *request,
     calibration_match_status_t status);
+bool awavma_runtime_test_calibration_compatibility(
+    const char *architecture, const char *model, unsigned online_numa_nodes, int source_node,
+    int destination_node, int distance, size_t page_size, const cpu_set_t *online_cpus,
+    const cpu_set_t *permitted, const int cpu_nodes[CPU_SETSIZE],
+    calibration_compatibility_t *compatibility);
 #endif
 
 #endif

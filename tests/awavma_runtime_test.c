@@ -117,6 +117,95 @@ static int calibration_diagnostic_helpers_case(void)
         strstr(canonical, "0x") == NULL;
 }
 
+static int cloudlab_calibration_compatibility_case(void)
+{
+    int cpu_nodes[CPU_SETSIZE];
+    cpu_set_t online, pinned, full, remote_only;
+    calibration_compatibility_t pinned_compatibility, full_compatibility;
+    CalibrationRecord record = {0};
+    CalibrationSnapshot snapshot = {.records = &record, .count = 1};
+    CalibrationMatchRequest request = {0};
+    ValidatedCalibrationMatch match;
+
+    CPU_ZERO(&online); CPU_ZERO(&pinned); CPU_ZERO(&full); CPU_ZERO(&remote_only);
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) cpu_nodes[cpu] = -1;
+    for (int cpu = 0; cpu < 64; cpu++) {
+        CPU_SET(cpu, &online);
+        cpu_nodes[cpu] = cpu < 32 ? 0 : 1;
+        if (cpu < 32) CPU_SET(cpu, &full);
+    }
+    CPU_SET(0, &pinned);
+    CPU_SET(32, &remote_only);
+    if (!awavma_runtime_test_calibration_compatibility(
+            "x86_64", "Intel(R) Xeon(R) Gold 6142 CPU @ 2.60GHz", 2, 1, 0, 21,
+            4096, &online, &pinned, cpu_nodes, &pinned_compatibility) ||
+        !awavma_runtime_test_calibration_compatibility(
+            "x86_64", "Intel(R) Xeon(R) Gold 6142 CPU @ 2.60GHz", 2, 1, 0, 21,
+            4096, &online, &full, cpu_nodes, &full_compatibility) ||
+        awavma_runtime_test_calibration_compatibility(
+            "x86_64", "Intel(R) Xeon(R) Gold 6142 CPU @ 2.60GHz", 2, 1, 0, 21,
+            4096, &online, &remote_only, cpu_nodes, &record.compatibility))
+        return 0;
+    if (pinned_compatibility.local_permitted_cpu_count != 32 ||
+        strcmp(pinned_compatibility.topology_fingerprint, "top1-6c79106e40370ca5") != 0 ||
+        strcmp(pinned_compatibility.topology_fingerprint, full_compatibility.topology_fingerprint) != 0)
+        return 0;
+    record.compatibility = pinned_compatibility;
+    snprintf(record.calibration_version, sizeof(record.calibration_version), "p4c-v2");
+    snprintf(record.calibration_id, sizeof(record.calibration_id), "cloudlab-hot");
+    snprintf(record.workload.benchmark_pattern, sizeof(record.workload.benchmark_pattern), "hot");
+    record.workload.threads = 2;
+    record.workload.memory_bytes = 1073741824;
+    record.workload.memory_pages = 262144;
+    record.workload.duration_seconds = 30.0;
+    record.action = VALIDATION_ACTION_MOVE_MEMORY;
+    record.source_node = 1;
+    record.destination_node = 0;
+    record.migration_page_bucket = 4096;
+    request.compatibility = pinned_compatibility;
+    request.workload = record.workload;
+    request.action = record.action;
+    request.source_node = record.source_node;
+    request.destination_node = record.destination_node;
+    request.migration_page_bucket = record.migration_page_bucket;
+    if (calibration_match(&snapshot, &request, &match) != CALIBRATION_MATCHED)
+        return 0;
+    snprintf(request.compatibility.cpu_architecture, sizeof(request.compatibility.cpu_architecture), "aarch64");
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility;
+    snprintf(request.compatibility.cpu_model, sizeof(request.compatibility.cpu_model), "other");
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility; request.compatibility.online_numa_nodes = 3;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility; request.compatibility.local_node = 1;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility; request.compatibility.remote_node = 0;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility; request.compatibility.numa_distance = 31;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility; request.compatibility.local_permitted_cpu_count = 31;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility; request.compatibility.page_size_bytes = 8192;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.compatibility = pinned_compatibility;
+    snprintf(request.workload.benchmark_pattern, sizeof(request.workload.benchmark_pattern), "mixed");
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.workload = record.workload; request.workload.threads = 3;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.workload = record.workload; request.workload.memory_bytes = 4096;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.workload = record.workload; request.workload.duration_seconds = 31.0;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.workload = record.workload; request.action = VALIDATION_ACTION_MOVE_THREAD;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.action = record.action; request.source_node = 0;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.source_node = record.source_node; request.destination_node = 1;
+    if (calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED) return 0;
+    request.destination_node = record.destination_node; request.migration_page_bucket = 1;
+    return calibration_match(&snapshot, &request, &match) != CALIBRATION_MATCHED;
+}
+
 int main(void)
 {
     char root[] = "/tmp/awavma-runtime-test-XXXXXX";
@@ -134,7 +223,7 @@ int main(void)
     pid_t child;
     size_t count;
     int passed = 1;
-    int ar01, ar02, ar03, ar04, ar05, ar06, ar07, ar08, ar09, ar10;
+    int ar01, ar02, ar03, ar04, ar05, ar06, ar07, ar08, ar09, ar10, ar11;
     int run_result;
     uint64_t run_started_ms;
     uint64_t run_elapsed_ms;
@@ -287,6 +376,8 @@ int main(void)
     waitpid(child, NULL, 0);
     ar10 = calibration_diagnostic_helpers_case();
     report("AR10", ar10);
-    passed = ar01 && ar02 && ar03 && ar04 && ar05 && ar06 && ar07 && ar08 && ar09 && ar10;
+    ar11 = cloudlab_calibration_compatibility_case();
+    report("AR11", ar11);
+    passed = ar01 && ar02 && ar03 && ar04 && ar05 && ar06 && ar07 && ar08 && ar09 && ar10 && ar11;
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

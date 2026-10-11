@@ -91,23 +91,56 @@ static bool controlled_workload_valid(const awavma_controlled_workload_t *worklo
         workload->memory_bytes == workload->memory_pages * (size_t)page_size;
 }
 
+static bool calibration_compatibility_from_topology(const char *architecture, const char *model,
+                                                     unsigned online_numa_nodes, int source_node,
+                                                     int destination_node, int distance,
+                                                     size_t page_size, const cpu_set_t *online_cpus,
+                                                     const cpu_set_t *permitted,
+                                                     const int cpu_nodes[CPU_SETSIZE],
+                                                     calibration_compatibility_t *compatibility)
+{
+    bool destination_permitted = false;
+    if (architecture == NULL || model == NULL || architecture[0] == '\0' || model[0] == '\0' ||
+        online_numa_nodes == 0 || source_node < 0 || destination_node < 0 || distance <= 0 ||
+        page_size == 0 || online_cpus == NULL || permitted == NULL || cpu_nodes == NULL ||
+        compatibility == NULL)
+        return false;
+    memset(compatibility, 0, sizeof(*compatibility));
+    snprintf(compatibility->cpu_architecture, sizeof(compatibility->cpu_architecture), "%s", architecture);
+    snprintf(compatibility->cpu_model, sizeof(compatibility->cpu_model), "%s", model);
+    compatibility->online_numa_nodes = online_numa_nodes;
+    compatibility->local_node = destination_node;
+    compatibility->remote_node = source_node;
+    compatibility->numa_distance = distance;
+    compatibility->page_size_bytes = page_size;
+    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
+        if (!CPU_ISSET(cpu, online_cpus) || cpu_nodes[cpu] != destination_node)
+            continue;
+        /* Calibration identity is node capacity; affinity is only an execution permission gate. */
+        compatibility->local_permitted_cpu_count++;
+        if (CPU_ISSET(cpu, permitted))
+            destination_permitted = true;
+    }
+    return compatibility->local_permitted_cpu_count != 0 && destination_permitted &&
+        calibration_topology_fingerprint(compatibility, compatibility->topology_fingerprint);
+}
+
 static bool runtime_calibration_compatibility(const EnvironmentCapabilities *capabilities, int source_node,
-                                               int destination_node, const cpu_set_t *permitted,
-                                               const int cpu_nodes[CPU_SETSIZE],
-                                               calibration_compatibility_t *compatibility)
+                                                int destination_node, const cpu_set_t *online_cpus,
+                                                const cpu_set_t *permitted,
+                                                const int cpu_nodes[CPU_SETSIZE],
+                                                calibration_compatibility_t *compatibility)
 {
     struct utsname name;
     FILE *file;
-    char line[512], path[128];
+    char line[512], model[512] = "", path[128];
     long page_size;
     int distance = -1;
 
-    if (capabilities == NULL || source_node < 0 || destination_node < 0 || permitted == NULL ||
-        cpu_nodes == NULL || compatibility == NULL || uname(&name) != 0 ||
+    if (capabilities == NULL || source_node < 0 || destination_node < 0 || online_cpus == NULL ||
+        permitted == NULL || cpu_nodes == NULL || compatibility == NULL || uname(&name) != 0 ||
         (page_size = sysconf(_SC_PAGESIZE)) <= 0)
         return false;
-    memset(compatibility, 0, sizeof(*compatibility));
-    snprintf(compatibility->cpu_architecture, sizeof(compatibility->cpu_architecture), "%s", name.machine);
     file = fopen("/proc/cpuinfo", "r");
     if (file == NULL) return false;
     while (fgets(line, sizeof(line), file) != NULL) {
@@ -115,27 +148,20 @@ static bool runtime_calibration_compatibility(const EnvironmentCapabilities *cap
         if (strncmp(line, "model name", 10) != 0 || (colon = strchr(line, ':')) == NULL) continue;
         colon++; while (*colon == ' ' || *colon == '\t') colon++;
         colon[strcspn(colon, "\r\n")] = '\0';
-        snprintf(compatibility->cpu_model, sizeof(compatibility->cpu_model), "%s", colon);
+        snprintf(model, sizeof(model), "%s", colon);
         break;
     }
     fclose(file);
-    if (compatibility->cpu_model[0] == '\0' ||
+    if (model[0] == '\0' ||
         snprintf(path, sizeof(path), "/sys/devices/system/node/node%d/distance", source_node) >= (int)sizeof(path) ||
         (file = fopen(path, "r")) == NULL)
         return false;
     for (int node = 0; node <= destination_node; node++)
         if (fscanf(file, "%d", &distance) != 1) { fclose(file); return false; }
     fclose(file);
-    compatibility->online_numa_nodes = (unsigned)capabilities->online_numa_nodes;
-    compatibility->local_node = destination_node;
-    compatibility->remote_node = source_node;
-    compatibility->numa_distance = distance;
-    compatibility->page_size_bytes = (size_t)page_size;
-    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++)
-        if (CPU_ISSET(cpu, permitted) && cpu_nodes[cpu] == destination_node)
-            compatibility->local_permitted_cpu_count++;
-    return compatibility->local_permitted_cpu_count != 0 &&
-        calibration_topology_fingerprint(compatibility, compatibility->topology_fingerprint);
+    return calibration_compatibility_from_topology(name.machine, model,
+        (unsigned)capabilities->online_numa_nodes, source_node, destination_node, distance,
+        (size_t)page_size, online_cpus, permitted, cpu_nodes, compatibility);
 }
 
 static void calibration_canonical_topology(const calibration_compatibility_t *compatibility,
@@ -236,6 +262,17 @@ size_t awavma_runtime_test_calibration_result_record_index(
     calibration_match_status_t status)
 {
     return calibration_result_record_index(snapshot, request, status);
+}
+
+bool awavma_runtime_test_calibration_compatibility(
+    const char *architecture, const char *model, unsigned online_numa_nodes, int source_node,
+    int destination_node, int distance, size_t page_size, const cpu_set_t *online_cpus,
+    const cpu_set_t *permitted, const int cpu_nodes[CPU_SETSIZE],
+    calibration_compatibility_t *compatibility)
+{
+    return calibration_compatibility_from_topology(architecture, model, online_numa_nodes,
+        source_node, destination_node, distance, page_size, online_cpus, permitted, cpu_nodes,
+        compatibility);
 }
 #endif
 
@@ -2317,7 +2354,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
         if (controlled_workload_valid(workload) && exact_registration && candidate_activity &&
             exact_placement && destination_node >= 0 && placement.dominant_node != destination_node &&
             candidate_affinity_valid && runtime_calibration_compatibility(&runtime->capabilities,
-                placement.dominant_node, destination_node, &candidate_affinity,
+                placement.dominant_node, destination_node, &candidate_topology.online_cpus,
+                &candidate_affinity,
                 candidate_topology.cpu_node, &match_request.compatibility)) {
             snprintf(match_request.workload.benchmark_pattern,
                      sizeof(match_request.workload.benchmark_pattern), "%s", workload->pattern);
@@ -2336,7 +2374,8 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
                 calibration_match_status_t preview_status;
                 bool log_diagnostics;
                 for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
-                    if (candidate_topology.cpu_node[cpu] == destination_node)
+                    if (CPU_ISSET(cpu, &candidate_topology.online_cpus) &&
+                        candidate_topology.cpu_node[cpu] == destination_node)
                         online_destination_cpu_count++;
                     if (CPU_ISSET(cpu, &candidate_affinity)) {
                         affinity_cpu_count++;
