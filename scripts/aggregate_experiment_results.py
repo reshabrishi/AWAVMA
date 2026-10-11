@@ -10,6 +10,7 @@ import statistics
 import re
 import ipaddress
 from pathlib import Path
+from numa_topology_fingerprint import TOPOLOGY_FINGERPRINT_VERSION, fingerprint_path
 
 SCENARIOS = ("baseline-default", "baseline-local", "baseline-remote", "awavma")
 METRICS = ("operations", "execution_time_seconds", "throughput_ops_per_second", "mean_wall_time_per_operation_seconds")
@@ -60,7 +61,24 @@ def passing_reference(run: Path) -> dict:
     required = ("topology_sha256", "local_node", "remote_node", "numa_distance", "numa_balancing_during")
     if any(data.get(field) in (None, "") for field in required):
         raise ValueError("reference manifest lacks compatibility provenance")
+    topology_fingerprint(run, data)
     return data
+
+
+def topology_fingerprint(run: Path, manifest: dict) -> str:
+    source = manifest.get("topology_source", "metadata/numa_topology.txt")
+    if source != "metadata/numa_topology.txt":
+        raise ValueError("topology evidence source is unsupported")
+    try:
+        fingerprint = fingerprint_path(run / source)
+    except ValueError as error:
+        raise ValueError("topology evidence is missing or malformed") from error
+    version = manifest.get("topology_fingerprint_version")
+    if version is None:
+        return fingerprint  # Legacy runs are revalidated from retained raw topology evidence.
+    if version != TOPOLOGY_FINGERPRINT_VERSION or manifest.get("topology_sha256") != fingerprint:
+        raise ValueError("topology fingerprint provenance is invalid")
+    return fingerprint
 
 
 def reject_duplicate(rows: list[dict[str, str]], source: str) -> None:
@@ -220,8 +238,10 @@ def main() -> int:
             raise SystemExit("AWAVMA-only aggregation requires --reference-run")
         reference_manifest = passing_reference(args.reference_run)
         current_manifest = manifest_data(args.run_dir)
-        compatibility = ("protocol_version", "topology_sha256", "local_node", "remote_node", "numa_distance", "numa_balancing_during", "workload", "threads", "memory_bytes", "duration_seconds")
+        compatibility = ("protocol_version", "local_node", "remote_node", "numa_distance", "numa_balancing_during", "workload", "threads", "memory_bytes", "duration_seconds")
         if any(current_manifest.get(field) != reference_manifest.get(field) for field in compatibility):
+            raise SystemExit("reference run is incompatible with current topology/NUMA distance/policy/protocol")
+        if topology_fingerprint(args.reference_run, reference_manifest) != topology_fingerprint(args.run_dir, current_manifest):
             raise SystemExit("reference run is incompatible with current topology/NUMA distance/policy/protocol")
         if not current_manifest.get("calibration_sha256"):
             raise SystemExit("AWAVMA run lacks calibration provenance")

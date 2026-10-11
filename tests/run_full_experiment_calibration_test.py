@@ -29,10 +29,11 @@ def make_root(base: Path) -> tuple[Path, dict[str, str]]:
     for name in ("scripts", "bin", "config", "mock-bin"):
         (root / name).mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "scripts/run_full_experiment.sh", root / "scripts/run_full_experiment.sh")
+    shutil.copy2(ROOT / "scripts/numa_topology_fingerprint.py", root / "scripts/numa_topology_fingerprint.py")
     (root / "config/awavma.conf").write_text("", encoding="utf-8")
     executable(root / "mock-bin/make", "#!/bin/sh\nexit 0\n")
     executable(root / "mock-bin/seq", "#!/bin/sh\nif [ \"$2\" = 5 ]; then printf '1\\n'; else /usr/bin/seq \"$@\"; fi\n")
-    executable(root / "mock-bin/numactl", "#!/bin/sh\nprintf 'node 0 cpus: 0\\nnode 2 cpus: 2\\nnode distances:\\nnode   0   2\\n  0:  10  21\\n  2:  21  10\\n'\n")
+    executable(root / "mock-bin/numactl", "#!/bin/sh\nprintf 'available: 2 nodes (0,2)\\nnode 0 cpus: 0\\nnode 0 size: 1024 MB\\nnode 0 free: 1000 MB\\nnode 2 cpus: 2\\nnode 2 size: 1024 MB\\nnode 2 free: 999 MB\\nnode distances:\\nnode   0   2\\n  0:  10  21\\n  2:  21  10\\n'\n")
     executable(root / "bin/environment-check", "#!/bin/sh\nprintf 'ok\\n'\n")
     executable(
         root / "bin/calibration-validate",
@@ -127,7 +128,11 @@ def validate_placement(root: Path, artifact: Path, mode: str) -> subprocess.Comp
 def reference_run(base: Path, workload: str = "mixed") -> Path:
     run = base / "reference"
     (run / "baseline").mkdir(parents=True)
-    topology = hashlib.sha256(b'node 0 cpus: 0\nnode 2 cpus: 2\nnode distances:\nnode   0   2\n  0:  10  21\n  2:  21  10\n').hexdigest()
+    raw_topology = b'available: 2 nodes (0,2)\nnode 0 cpus: 0\nnode 0 size: 1024 MB\nnode 0 free: 500 MB\nnode 2 cpus: 2\nnode 2 size: 1024 MB\nnode 2 free: 499 MB\nnode distances:\nnode   0   2\n  0:  10  21\n  2:  21  10\n'
+    metadata = run / "metadata"
+    metadata.mkdir()
+    (metadata / "numa_topology.txt").write_bytes(raw_topology)
+    topology = hashlib.sha256(raw_topology).hexdigest()
     (run / "manifest.json").write_text(json.dumps({"data_source":"REAL","collection_status":"PASS","collection_mode":"baseline","protocol_version":"phase4d-v1","topology_sha256":topology,"local_node":0,"remote_node":2,"numa_distance":"21","numa_balancing_during":"0","workload":workload,"threads":2,"memory_bytes":1073741824,"duration_seconds":30}) + "\n", encoding="utf-8")
     measurement_fields = ("scenario", "repetition", "workload", "threads", "memory_mb", "duration_seconds", "registration_status", "benchmark_status", "runtime_status", "initial_placement_status", "final_placement_status", "status", "exit_code")
     benchmark_fields = ("scenario", "repetition", "pattern", "threads", "memory_mb", "duration_sec", "operations", "execution_time_sec", "throughput_ops_sec")

@@ -224,9 +224,8 @@ if [[ "$MODE" == all || "$MODE" == awavma ]]; then
     printf '%s  %s\n' "$CALIBRATION_MANIFEST_SHA256" 'calibration-manifest.json' >"$RUN_DIR/metadata/calibration-manifest.sha256"
 fi
 numactl --hardware >"$RUN_DIR/metadata/numa_topology.txt"
-TOPOLOGY_SHA256=$(sha256sum "$RUN_DIR/metadata/numa_topology.txt" | awk '{print $1}')
-NUMA_DISTANCE=$(numactl --hardware | awk -v local="$LOCAL_NODE" -v remote="$REMOTE_NODE" '$1 == "node" && $2 ~ /^[0-9]+$/ && $3 !~ /cpus:/ {for (i=2; i<=NF; i++) if ($i == remote) column=i} $1 == local ":" && column {print $column; exit}')
-[[ "$NUMA_DISTANCE" =~ ^[0-9]+$ ]] || limited 'NUMA distance matrix is unavailable'
+TOPOLOGY_SHA256=$(python3 "$ROOT/scripts/numa_topology_fingerprint.py" "$RUN_DIR/metadata/numa_topology.txt") || limited 'NUMA topology evidence is malformed'
+NUMA_DISTANCE=$(python3 "$ROOT/scripts/numa_topology_fingerprint.py" "$RUN_DIR/metadata/numa_topology.txt" --distance "$LOCAL_NODE" "$REMOTE_NODE") || limited 'NUMA distance matrix is unavailable'
 uname -a >"$RUN_DIR/metadata/uname.txt"
 locale >"$RUN_DIR/metadata/locale.txt"
 (gcc --version || cc --version) >"$RUN_DIR/metadata/compiler.txt" 2>&1
@@ -381,7 +380,7 @@ if [[ "$MODE" != baseline ]]; then
 fi
 ((failed == 0)) || exit 1
 cat >"$RUN_DIR/manifest.json" <<EOF
-{"schema_version":8,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"IN_PROGRESS","collection_mode":"$MODE","protocol_version":"phase4d-v1","workload":"$WORKLOAD","threads":$THREADS,"memory_bytes":$((MEMORY_MB * 1024 * 1024)),"duration_seconds":$DURATION_SECONDS,"local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"numa_distance":"$NUMA_DISTANCE","numa_balancing_during":"0","topology_sha256":"$TOPOLOGY_SHA256","calibration_sha256":"$CALIBRATION_SHA256","calibration_manifest_sha256":"$CALIBRATION_MANIFEST_SHA256"}
+{"schema_version":8,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"IN_PROGRESS","collection_mode":"$MODE","protocol_version":"phase4d-v1","topology_fingerprint_version":"numactl-structural-v1","workload":"$WORKLOAD","threads":$THREADS,"memory_bytes":$((MEMORY_MB * 1024 * 1024)),"duration_seconds":$DURATION_SECONDS,"local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"numa_distance":"$NUMA_DISTANCE","numa_balancing_during":"0","topology_source":"metadata/numa_topology.txt","topology_sha256":"$TOPOLOGY_SHA256","calibration_sha256":"$CALIBRATION_SHA256","calibration_manifest_sha256":"$CALIBRATION_MANIFEST_SHA256"}
 EOF
 UNIFIED="$OUTPUT_DIR/unified"
 STAGING="$RUN_DIR/publication-staging"
@@ -394,7 +393,7 @@ NUMA_BALANCING_RESTORED_VALUE=$NUMA_BALANCING_ORIGINAL
 NUMA_BALANCING_ORIGINAL=
 trap - EXIT
 cat >"$RUN_DIR/manifest.json" <<EOF
-{"schema_version":8,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"PASS","collection_mode":"$MODE","protocol_version":"phase4d-v1","workload":"$WORKLOAD","threads":$THREADS,"memory_bytes":$((MEMORY_MB * 1024 * 1024)),"duration_seconds":$DURATION_SECONDS,"local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"numa_distance":"$NUMA_DISTANCE","numa_balancing_original":"$NUMA_BALANCING_RESTORED_VALUE","numa_balancing_during":"0","numa_balancing_restore_status":"RESTORED","topology_source":"metadata/numa_topology.txt","topology_sha256":"$TOPOLOGY_SHA256","calibration_artifact":"$([[ -n "$CALIBRATION_COPY" ]] && printf 'metadata/%s' "$CALIBRATION_BASENAME")","calibration_sha256":"$CALIBRATION_SHA256","calibration_manifest":"$([[ -n "$CALIBRATION_MANIFEST_COPY" ]] && printf 'metadata/calibration-manifest.json')","calibration_manifest_sha256":"$CALIBRATION_MANIFEST_SHA256","runtime_execution_profile":"$([[ "$MODE" != baseline ]] && printf 'awavma/runtime/*/runtime_execution_profile.csv')","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
+{"schema_version":8,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"PASS","collection_mode":"$MODE","protocol_version":"phase4d-v1","topology_fingerprint_version":"numactl-structural-v1","workload":"$WORKLOAD","threads":$THREADS,"memory_bytes":$((MEMORY_MB * 1024 * 1024)),"duration_seconds":$DURATION_SECONDS,"local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"numa_distance":"$NUMA_DISTANCE","numa_balancing_original":"$NUMA_BALANCING_RESTORED_VALUE","numa_balancing_during":"0","numa_balancing_restore_status":"RESTORED","topology_source":"metadata/numa_topology.txt","topology_sha256":"$TOPOLOGY_SHA256","calibration_artifact":"$([[ -n "$CALIBRATION_COPY" ]] && printf 'metadata/%s' "$CALIBRATION_BASENAME")","calibration_sha256":"$CALIBRATION_SHA256","calibration_manifest":"$([[ -n "$CALIBRATION_MANIFEST_COPY" ]] && printf 'metadata/calibration-manifest.json')","calibration_manifest_sha256":"$CALIBRATION_MANIFEST_SHA256","runtime_execution_profile":"$([[ "$MODE" != baseline ]] && printf 'awavma/runtime/*/runtime_execution_profile.csv')","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
 EOF
 python3 - "$STAGING" "$OUTPUT_DIR" <<'PY'
 import csv, os, sys
