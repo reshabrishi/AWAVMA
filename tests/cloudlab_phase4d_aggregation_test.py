@@ -9,14 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/aggregate_experiment_results.py"
 
 
-def write_run(root: Path, name: str, scenarios: tuple[str, ...], status: str = "MEASURED", repetitions: int = 1) -> Path:
+def write_run(root: Path, name: str, scenarios: tuple[str, ...], status: str = "MEASURED", repetitions: int = 1,
+              workload: str = "mixed", memory_mb: int = 4, duration: str = "1") -> Path:
     run = root / name
     run.mkdir()
     mode = "baseline" if "awavma" not in scenarios else "awavma" if len(scenarios) == 1 else "all"
     manifest = {"run_id":name, "data_source":"REAL", "collection_status":"PASS", "collection_mode":mode,
                 "protocol_version":"phase4d-v1", "topology_sha256":"topology", "local_node":0,
                 "remote_node":1, "numa_distance":"21", "numa_balancing_during":"0",
-                "workload":"mixed", "threads":2, "memory_bytes":4194304, "duration_seconds":1,
+                "workload":workload, "threads":2, "memory_bytes":memory_mb * 1024 * 1024, "duration_seconds":duration,
                 "calibration_sha256":"calibration" if "awavma" in scenarios else ""}
     (run / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     fields = "schema_version experiment_id run_id scenario workload repetition threads memory_mb duration_seconds registration_status benchmark_status runtime_status initial_placement_status final_placement_status exit_code status".split()
@@ -24,17 +25,26 @@ def write_run(root: Path, name: str, scenarios: tuple[str, ...], status: str = "
         writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader()
         for scenario in scenarios:
             for repetition in range(1, repetitions + 1):
-                writer.writerow({"schema_version":"8", "experiment_id":name, "run_id":f"{name}-{scenario}-{repetition}", "scenario":scenario, "workload":"mixed", "repetition":str(repetition), "threads":"2", "memory_mb":"4", "duration_seconds":"1", "registration_status":"ACCEPTED" if scenario == "awavma" else "NOT_REQUIRED", "benchmark_status":"PASS", "runtime_status":"PASS" if scenario == "awavma" else "NOT_REQUIRED", "initial_placement_status":"PASS", "final_placement_status":"PASS", "exit_code":"0", "status":status})
+                writer.writerow({"schema_version":"8", "experiment_id":name, "run_id":f"{name}-{scenario}-{repetition}", "scenario":scenario, "workload":workload, "repetition":str(repetition), "threads":"2", "memory_mb":str(memory_mb), "duration_seconds":duration, "registration_status":"ACCEPTED" if scenario == "awavma" else "NOT_REQUIRED", "benchmark_status":"PASS", "runtime_status":"PASS" if scenario == "awavma" else "NOT_REQUIRED", "initial_placement_status":"PASS", "final_placement_status":"PASS", "exit_code":"0", "status":status})
     with (run / "benchmark_results.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=("scenario", "repetition", "pattern", "threads", "memory_mb", "duration_sec", "operations", "execution_time_sec", "throughput_ops_sec")); writer.writeheader()
         for index, scenario in enumerate(scenarios, 1):
             for repetition in range(1, repetitions + 1):
-                writer.writerow({"scenario":scenario, "repetition":str(repetition), "pattern":"mixed", "threads":"2", "memory_mb":"4", "duration_sec":"1", "operations":str(index*100), "execution_time_sec":str(repetition*2), "throughput_ops_sec":str(index*50/repetition)})
+                writer.writerow({"scenario":scenario, "repetition":str(repetition), "pattern":workload, "threads":"2", "memory_mb":str(memory_mb), "duration_sec":"30.0" if duration == "30" else duration, "operations":str(index*100), "execution_time_sec":str(repetition*2), "throughput_ops_sec":str(index*50/repetition)})
                 if scenario == "awavma":
                     profile = run / f"awavma/runtime/{repetition}/runtime_execution_profile.csv"
                     profile.parent.mkdir(parents=True, exist_ok=True)
-                    profile.write_text("controlled_workload_pattern,controlled_workload_threads,controlled_workload_memory_bytes,controlled_workload_duration_seconds\nmixed,2,4194304,1\n", encoding="utf-8")
+                    profile.write_text(f"controlled_workload_pattern,controlled_workload_threads,controlled_workload_memory_bytes,controlled_workload_duration_seconds\n{workload},2,{memory_mb * 1024 * 1024},{duration}\n", encoding="utf-8")
     return run
+
+
+def rewrite_csv(path: Path, mutate) -> None:
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle); rows = list(reader); fields = reader.fieldnames
+    assert fields
+    mutate(rows, fields)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader(); writer.writerows(rows)
 
 
 def invoke(run: Path, destination: Path, reference: Path | None = None):
@@ -54,6 +64,36 @@ def main() -> int:
         assert {row["comparison"] for row in comparisons} == {"primary_awavma_vs_remote", "secondary_awavma_vs_local", "secondary_awavma_vs_default"}
         summary = list(csv.DictReader((output / "summaries/execution_time_seconds_summary.csv").open(encoding="utf-8")))
         assert all(field in summary[0] for field in ("mean", "median", "sample_stdev", "minimum", "maximum", "ci95_low", "ci95_high"))
+        hot = write_run(root, "hot-real-schema", ("baseline-default", "baseline-local", "baseline-remote"),
+                        workload="hot", memory_mb=1024, duration="30")
+        assert invoke(hot, root / "hot-real-schema-output").returncode == 0
+        workload_mismatch = write_run(root, "workload-config-mismatch", ("baseline-default", "baseline-local", "baseline-remote"),
+                                       workload="hot", memory_mb=1024, duration="30")
+        rewrite_csv(workload_mismatch / "benchmark_results.csv", lambda rows, fields: rows[0].update(pattern="mixed"))
+        assert invoke(workload_mismatch, root / "workload-config-mismatch-output").returncode != 0
+        threads_mismatch = write_run(root, "threads-config-mismatch", ("baseline-default", "baseline-local", "baseline-remote"),
+                                      workload="hot", memory_mb=1024, duration="30")
+        rewrite_csv(threads_mismatch / "benchmark_results.csv", lambda rows, fields: rows[0].update(threads="4"))
+        assert invoke(threads_mismatch, root / "threads-config-mismatch-output").returncode != 0
+        memory_mismatch = write_run(root, "memory-config-mismatch", ("baseline-default", "baseline-local", "baseline-remote"),
+                                     workload="hot", memory_mb=1024, duration="30")
+        data = json.loads((memory_mismatch / "manifest.json").read_text()); data["memory_bytes"] += 4096
+        (memory_mismatch / "manifest.json").write_text(json.dumps(data))
+        assert invoke(memory_mismatch, root / "memory-config-mismatch-output").returncode != 0
+        duration_mismatch = write_run(root, "duration-config-mismatch", ("baseline-default", "baseline-local", "baseline-remote"),
+                                       workload="hot", memory_mb=1024, duration="30")
+        rewrite_csv(duration_mismatch / "benchmark_results.csv", lambda rows, fields: rows[0].update(duration_sec="31"))
+        assert invoke(duration_mismatch, root / "duration-config-mismatch-output").returncode != 0
+        missing_pattern = write_run(root, "missing-pattern", ("baseline-default", "baseline-local", "baseline-remote"))
+        rewrite_csv(missing_pattern / "benchmark_results.csv", lambda rows, fields: (fields.remove("pattern"), [row.pop("pattern") for row in rows]))
+        assert invoke(missing_pattern, root / "missing-pattern-output").returncode != 0
+        missing_memory = write_run(root, "missing-memory", ("baseline-default", "baseline-local", "baseline-remote"))
+        data = json.loads((missing_memory / "manifest.json").read_text()); data.pop("memory_bytes")
+        (missing_memory / "manifest.json").write_text(json.dumps(data))
+        assert invoke(missing_memory, root / "missing-memory-output").returncode != 0
+        malformed = write_run(root, "malformed-config", ("baseline-default", "baseline-local", "baseline-remote"))
+        rewrite_csv(malformed / "measurements.csv", lambda rows, fields: rows[0].update(memory_mb="not-a-number"))
+        assert invoke(malformed, root / "malformed-config-output").returncode != 0
         t_run = write_run(root, "two-samples", ("baseline-default", "baseline-local", "baseline-remote", "awavma"), repetitions=2)
         assert invoke(t_run, root / "two-sample-output").returncode == 0
         t_rows = list(csv.DictReader((root / "two-sample-output/summaries/execution_time_seconds_summary.csv").open(encoding="utf-8")))

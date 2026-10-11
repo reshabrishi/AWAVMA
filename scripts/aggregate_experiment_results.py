@@ -79,6 +79,48 @@ def finite(value: str) -> float:
     return number
 
 
+def required_value(source: str, values: dict, field: str):
+    value = values.get(field)
+    if value is None or value == "":
+        raise ValueError(f"{source} configuration field missing: {field}")
+    return value
+
+
+def positive_integer(source: str, values: dict, field: str) -> int:
+    value = required_value(source, values, field)
+    if isinstance(value, bool):
+        raise ValueError(f"{source} configuration field is not an integer: {field}")
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{source} configuration field is not an integer: {field}") from error
+    if parsed <= 0 or str(parsed) != str(value).strip().lstrip("+"):
+        raise ValueError(f"{source} configuration field is not a positive integer: {field}")
+    return parsed
+
+
+def positive_number(source: str, values: dict, field: str) -> float:
+    value = required_value(source, values, field)
+    try:
+        parsed = float(str(value))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{source} configuration field is not numeric: {field}") from error
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError(f"{source} configuration field is not positive finite: {field}")
+    return parsed
+
+
+def configuration(source: str, values: dict, workload_field: str, memory_field: str,
+                  duration_field: str) -> tuple[str, int, int, float]:
+    workload = required_value(source, values, workload_field)
+    if not isinstance(workload, str) or not workload:
+        raise ValueError(f"{source} configuration field is not text: {workload_field}")
+    threads = positive_integer(source, values, "threads")
+    memory = positive_integer(source, values, memory_field)
+    memory_bytes = memory if memory_field == "memory_bytes" else memory * 1024 * 1024
+    return workload, threads, memory_bytes, positive_number(source, values, duration_field)
+
+
 def load(run: Path, scenarios: set[str]) -> list[dict[str, str]]:
     manifest = manifest_data(run)
     measurements = read_csv(run / "measurements.csv")
@@ -114,12 +156,9 @@ def load(run: Path, scenarios: set[str]) -> list[dict[str, str]]:
         raw = benchmark.get((scenario, repetition))
         if raw is None:
             raise ValueError(f"{scenario}/{repetition}: benchmark result missing")
-        expected = (row.get("workload", ""), row.get("threads", ""),
-                    str(int(row.get("memory_mb", "")) * 1024 * 1024), row.get("duration_seconds", ""))
-        actual = (raw.get("pattern", ""), raw.get("threads", ""),
-                  str(int(raw.get("memory_mb", "")) * 1024 * 1024), raw.get("duration_sec", ""))
-        declared = (str(manifest.get("workload", "")), str(manifest.get("threads", "")),
-                    str(manifest.get("memory_bytes", "")), str(manifest.get("duration_seconds", "")))
+        expected = configuration("measurement", row, "workload", "memory_mb", "duration_seconds")
+        actual = configuration("benchmark", raw, "pattern", "memory_mb", "duration_sec")
+        declared = configuration("manifest", manifest, "workload", "memory_bytes", "duration_seconds")
         if expected != actual or expected != declared:
             raise ValueError(f"{scenario}/{repetition}: workload/config differs across measurement, benchmark, and manifest")
         if scenario == "awavma":
@@ -132,9 +171,12 @@ def load(run: Path, scenarios: set[str]) -> list[dict[str, str]]:
             if len(profiles_rows) != 1:
                 raise ValueError(f"{scenario}/{repetition}: runtime profile must contain one row")
             profile = profiles_rows[0]
-            runtime_actual = tuple(profile.get(field, "") for field in
-                                   ("controlled_workload_pattern", "controlled_workload_threads",
-                                    "controlled_workload_memory_bytes", "controlled_workload_duration_seconds"))
+            runtime_actual = configuration("runtime profile", {
+                "workload": profile.get("controlled_workload_pattern"),
+                "threads": profile.get("controlled_workload_threads"),
+                "memory_bytes": profile.get("controlled_workload_memory_bytes"),
+                "duration_seconds": profile.get("controlled_workload_duration_seconds"),
+            }, "workload", "memory_bytes", "duration_seconds")
             if runtime_actual != expected:
                 raise ValueError(f"{scenario}/{repetition}: runtime controlled workload mismatch")
         operations = finite(raw.get("operations", ""))
