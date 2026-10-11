@@ -109,6 +109,8 @@ typedef struct {
     size_t registration_last_registered_bytes;
     size_t registration_last_registered_pages;
     size_t registration_last_candidate_pages_per_request;
+    bool calibration_diagnostic_emitted;
+    calibration_match_status_t calibration_diagnostic_status;
     awavma_runtime_status_t status;
     char detail[128];
 } awavma_runtime_record_t;
@@ -210,7 +212,15 @@ int awavma_runtime_test_load_benefit_evidence(const char *validation_input_path,
                                                const awavma_runtime_record_t *record,
                                                DecisionData *decision, ValidationResult *validation);
 bool awavma_runtime_test_run_diagnostics(const awavma_runtime_t *runtime,
-                                         awavma_runtime_test_run_diagnostics_t *diagnostics);
+                                          awavma_runtime_test_run_diagnostics_t *diagnostics);
+bool awavma_runtime_test_calibration_diagnostic_should_emit(bool emitted,
+                                                            calibration_match_status_t previous,
+                                                            calibration_match_status_t current);
+bool awavma_runtime_test_calibration_canonical_topology(
+    const calibration_compatibility_t *compatibility, char *output, size_t output_size);
+size_t awavma_runtime_test_calibration_result_record_index(
+    const CalibrationSnapshot *snapshot, const CalibrationMatchRequest *request,
+    calibration_match_status_t status);
 #endif
 
 #endif

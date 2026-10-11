@@ -138,6 +138,107 @@ static bool runtime_calibration_compatibility(const EnvironmentCapabilities *cap
         calibration_topology_fingerprint(compatibility, compatibility->topology_fingerprint);
 }
 
+static void calibration_canonical_topology(const calibration_compatibility_t *compatibility,
+                                           char output[CALIBRATION_TEXT_MAX * 2 + 128])
+{
+    snprintf(output, CALIBRATION_TEXT_MAX * 2 + 128, "%s|%s|%u|%d|%d|%d|%u|%zu",
+             compatibility->cpu_architecture, compatibility->cpu_model,
+             compatibility->online_numa_nodes, compatibility->local_node,
+             compatibility->remote_node, compatibility->numa_distance,
+             compatibility->local_permitted_cpu_count, compatibility->page_size_bytes);
+}
+
+static bool calibration_diagnostic_should_emit(bool emitted,
+                                               calibration_match_status_t previous,
+                                               calibration_match_status_t current)
+{
+    return !emitted || previous != current;
+}
+
+static void log_calibration_record_compatibility(size_t record_index, const CalibrationRecord *record)
+{
+    char canonical[CALIBRATION_TEXT_MAX * 2 + 128];
+    calibration_canonical_topology(&record->compatibility, canonical);
+    fprintf(stderr,
+            "CALIBRATION_COMPAT record_index=%zu calibration_id=%s benchmark_pattern=%s "
+            "threads=%u memory_bytes=%zu duration_seconds=%.9g cpu_architecture=%s "
+            "cpu_model=\"%s\" online_numa_nodes=%u topology_fingerprint=%s "
+            "local_node=%d remote_node=%d numa_distance=%d local_permitted_cpu_count=%u "
+            "page_size_bytes=%zu canonical_topology_string=\"%s\"\n",
+            record_index, record->calibration_id, record->workload.benchmark_pattern,
+            record->workload.threads, record->workload.memory_bytes,
+            record->workload.duration_seconds, record->compatibility.cpu_architecture,
+            record->compatibility.cpu_model, record->compatibility.online_numa_nodes,
+            record->compatibility.topology_fingerprint, record->compatibility.local_node,
+            record->compatibility.remote_node, record->compatibility.numa_distance,
+            record->compatibility.local_permitted_cpu_count, record->compatibility.page_size_bytes,
+            canonical);
+}
+
+static void log_runtime_compatibility(const awavma_runtime_record_t *record, pid_t candidate_tid,
+                                      const calibration_compatibility_t *compatibility,
+                                      unsigned affinity_cpu_count,
+                                      unsigned affinity_destination_cpu_count,
+                                      unsigned online_destination_cpu_count)
+{
+    char canonical[CALIBRATION_TEXT_MAX * 2 + 128];
+    calibration_canonical_topology(compatibility, canonical);
+    fprintf(stderr,
+            "RUNTIME_COMPAT app_id=%s candidate_tid=%ld cpu_architecture=%s cpu_model=\"%s\" "
+            "online_numa_nodes=%u topology_fingerprint=%s local_node=%d remote_node=%d "
+            "numa_distance=%d local_permitted_cpu_count=%u page_size_bytes=%zu "
+            "candidate_affinity_cpu_count=%u candidate_affinity_cpus_on_destination_node=%u "
+            "all_online_cpus_on_destination_node=%u canonical_topology_string=\"%s\"\n",
+            record->app_id, (long)candidate_tid, compatibility->cpu_architecture,
+            compatibility->cpu_model, compatibility->online_numa_nodes,
+            compatibility->topology_fingerprint, compatibility->local_node,
+            compatibility->remote_node, compatibility->numa_distance,
+            compatibility->local_permitted_cpu_count, compatibility->page_size_bytes,
+            affinity_cpu_count, affinity_destination_cpu_count,
+            online_destination_cpu_count, canonical);
+}
+
+static size_t calibration_result_record_index(const CalibrationSnapshot *snapshot,
+                                              const CalibrationMatchRequest *request,
+                                              calibration_match_status_t status)
+{
+    for (size_t index = 0; index < snapshot->count; index++) {
+        CalibrationSnapshot one_record = {.records = &snapshot->records[index], .count = 1};
+        ValidatedCalibrationMatch result;
+        if (calibration_match(&one_record, request, &result) == status)
+            return index;
+    }
+    return SIZE_MAX;
+}
+
+#ifdef AWAVMA_RUNTIME_TESTING
+bool awavma_runtime_test_calibration_diagnostic_should_emit(bool emitted,
+                                                            calibration_match_status_t previous,
+                                                            calibration_match_status_t current)
+{
+    return calibration_diagnostic_should_emit(emitted, previous, current);
+}
+
+bool awavma_runtime_test_calibration_canonical_topology(
+    const calibration_compatibility_t *compatibility, char *output, size_t output_size)
+{
+    char canonical[CALIBRATION_TEXT_MAX * 2 + 128];
+    if (compatibility == NULL || output == NULL || output_size == 0)
+        return false;
+    calibration_canonical_topology(compatibility, canonical);
+    if (snprintf(output, output_size, "%s", canonical) >= (int)output_size)
+        return false;
+    return true;
+}
+
+size_t awavma_runtime_test_calibration_result_record_index(
+    const CalibrationSnapshot *snapshot, const CalibrationMatchRequest *request,
+    calibration_match_status_t status)
+{
+    return calibration_result_record_index(snapshot, request, status);
+}
+#endif
+
 static int write_empirical_state(const char *path, const DecisionData *decision,
                                  calibration_match_status_t match_status, size_t page_count)
 {
@@ -2228,10 +2329,59 @@ static int process_application(awavma_runtime_t *runtime, awavma_runtime_record_
             match_request.source_node = placement.dominant_node;
             match_request.destination_node = destination_node;
             match_request.migration_page_bucket = registration.candidate_pages_per_request;
-            if (p5_opportunity_calibration_match(&runtime->calibration_snapshot, &match_request, &match))
-                match_status = CALIBRATION_MATCHED;
-            else
-                match_status = match.status;
+            {
+                unsigned affinity_cpu_count = 0;
+                unsigned destination_cpu_count = 0;
+                unsigned online_destination_cpu_count = 0;
+                calibration_match_status_t preview_status;
+                bool log_diagnostics;
+                for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
+                    if (candidate_topology.cpu_node[cpu] == destination_node)
+                        online_destination_cpu_count++;
+                    if (CPU_ISSET(cpu, &candidate_affinity)) {
+                        affinity_cpu_count++;
+                        if (candidate_topology.cpu_node[cpu] == destination_node)
+                            destination_cpu_count++;
+                    }
+                }
+                preview_status = calibration_match(&runtime->calibration_snapshot, &match_request, &match);
+                log_diagnostics = calibration_diagnostic_should_emit(
+                    record->calibration_diagnostic_emitted,
+                    record->calibration_diagnostic_status, preview_status);
+                if (log_diagnostics) {
+                    log_runtime_compatibility(record, candidate.tid, &match_request.compatibility,
+                                              affinity_cpu_count, destination_cpu_count,
+                                              online_destination_cpu_count);
+                    for (size_t record_index = 0;
+                         record_index < runtime->calibration_snapshot.count; record_index++)
+                        log_calibration_record_compatibility(record_index,
+                                                             &runtime->calibration_snapshot.records[record_index]);
+                }
+                if (p5_opportunity_calibration_match(&runtime->calibration_snapshot, &match_request, &match))
+                    match_status = CALIBRATION_MATCHED;
+                else
+                    match_status = match.status;
+                if (log_diagnostics) {
+                    size_t record_index = calibration_result_record_index(&runtime->calibration_snapshot,
+                                                                           &match_request, match_status);
+                    const CalibrationRecord *result_record = record_index == SIZE_MAX ? NULL :
+                        &runtime->calibration_snapshot.records[record_index];
+                    if (result_record != NULL)
+                        fprintf(stderr,
+                                "CALIBRATION_MATCH_RESULT record_index=%zu calibration_id=%s "
+                                "benchmark_pattern=%s match_status=%s\n",
+                                record_index, result_record->calibration_id,
+                                result_record->workload.benchmark_pattern,
+                                calibration_match_status_name(match_status));
+                    else
+                        fprintf(stderr,
+                                "CALIBRATION_MATCH_RESULT record_index=none calibration_id=none "
+                                "benchmark_pattern=none match_status=%s\n",
+                                calibration_match_status_name(match_status));
+                }
+                record->calibration_diagnostic_emitted = true;
+                record->calibration_diagnostic_status = match_status;
+            }
         } else if (controlled_workload_valid(workload)) {
             match_status = !exact_registration ? CALIBRATION_WORKLOAD_MISMATCH : CALIBRATION_MISMATCH;
         } else {

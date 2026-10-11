@@ -64,6 +64,59 @@ static bool target_discovery_admission(const application_discovery_record_t *app
     return application->pid == *(const pid_t *)context;
 }
 
+static int calibration_diagnostic_helpers_case(void)
+{
+    CalibrationRecord records[2] = {{0}};
+    CalibrationSnapshot snapshot = {.records = records, .count = 2};
+    CalibrationMatchRequest request = {0};
+    ValidatedCalibrationMatch match;
+    char canonical[512];
+
+    snprintf(request.compatibility.cpu_architecture, sizeof(request.compatibility.cpu_architecture), "x86_64");
+    snprintf(request.compatibility.cpu_model, sizeof(request.compatibility.cpu_model), "test-cpu");
+    request.compatibility.online_numa_nodes = 2;
+    request.compatibility.local_node = 0;
+    request.compatibility.remote_node = 1;
+    request.compatibility.numa_distance = 21;
+    request.compatibility.local_permitted_cpu_count = 4;
+    request.compatibility.page_size_bytes = 4096;
+    calibration_topology_fingerprint(&request.compatibility, request.compatibility.topology_fingerprint);
+    snprintf(request.workload.benchmark_pattern, sizeof(request.workload.benchmark_pattern), "hot");
+    request.workload.threads = 2;
+    request.workload.memory_bytes = request.workload.memory_pages = 4096;
+    request.workload.duration_seconds = 30.0;
+    request.action = VALIDATION_ACTION_MOVE_MEMORY;
+    request.source_node = 1;
+    request.destination_node = 0;
+    request.migration_page_bucket = 64;
+    records[0].compatibility = request.compatibility;
+    records[0].compatibility.local_permitted_cpu_count = 1;
+    calibration_topology_fingerprint(&records[0].compatibility, records[0].compatibility.topology_fingerprint);
+    records[1].compatibility = request.compatibility;
+    for (size_t index = 0; index < 2; index++) {
+        snprintf(records[index].calibration_id, sizeof(records[index].calibration_id), "record-%zu", index);
+        records[index].workload = request.workload;
+        records[index].action = request.action;
+        records[index].source_node = request.source_node;
+        records[index].destination_node = request.destination_node;
+        records[index].migration_page_bucket = request.migration_page_bucket;
+    }
+    return calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED &&
+        awavma_runtime_test_calibration_result_record_index(&snapshot, &request,
+                                                             CALIBRATION_MATCHED) == 1 &&
+        calibration_match(&snapshot, &request, &match) == CALIBRATION_MATCHED &&
+        awavma_runtime_test_calibration_diagnostic_should_emit(false, CALIBRATION_MATCHED,
+                                                                CALIBRATION_MATCHED) &&
+        !awavma_runtime_test_calibration_diagnostic_should_emit(true, CALIBRATION_MATCHED,
+                                                                 CALIBRATION_MATCHED) &&
+        awavma_runtime_test_calibration_diagnostic_should_emit(true, CALIBRATION_MATCHED,
+                                                                CALIBRATION_TOPOLOGY_MISMATCH) &&
+        awavma_runtime_test_calibration_canonical_topology(&request.compatibility, canonical,
+                                                            sizeof(canonical)) &&
+        strcmp(canonical, "x86_64|test-cpu|2|0|1|21|4|4096") == 0 &&
+        strstr(canonical, "0x") == NULL;
+}
+
 int main(void)
 {
     char root[] = "/tmp/awavma-runtime-test-XXXXXX";
@@ -81,7 +134,7 @@ int main(void)
     pid_t child;
     size_t count;
     int passed = 1;
-    int ar01, ar02, ar03, ar04, ar05, ar06, ar07, ar08, ar09;
+    int ar01, ar02, ar03, ar04, ar05, ar06, ar07, ar08, ar09, ar10;
     int run_result;
     uint64_t run_started_ms;
     uint64_t run_elapsed_ms;
@@ -232,6 +285,8 @@ int main(void)
     awavma_runtime_destroy(runtime);
     kill(child, SIGTERM);
     waitpid(child, NULL, 0);
-    passed = ar01 && ar02 && ar03 && ar04 && ar05 && ar06 && ar07 && ar08 && ar09;
+    ar10 = calibration_diagnostic_helpers_case();
+    report("AR10", ar10);
+    passed = ar01 && ar02 && ar03 && ar04 && ar05 && ar06 && ar07 && ar08 && ar09 && ar10;
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }
