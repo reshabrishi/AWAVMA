@@ -8,6 +8,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/aggregate_experiment_results.py"
 FINGERPRINT = ROOT / "scripts/numa_topology_fingerprint.py"
+RUNTIME_PROFILE_FIELDS = ("schema_version", "requested_execution_mode", "effective_execution_mode",
+                          "migration_safety_requested", "migration_safety_effective",
+                          "migration_execution_requested", "migration_execution_effective",
+                          "page_registration_requested", "page_registration_effective",
+                          "page_registration_ttl_ms", "numa_nodes", "thread_migration_ready",
+                          "page_migration_ready", "phase7_ready", "production_real_migration_ready",
+                          "activation_state", "activation_reason", "page_registration_provider_ready",
+                          "page_registration_socket", "worker_evidence_socket")
 
 
 def topology_text(free: str = "1000 MB", cpus: str = "0 1") -> str:
@@ -27,6 +35,24 @@ node   0   1
 
 def topology_hash(path: Path) -> str:
     return subprocess.check_output([sys.executable, str(FINGERPRINT), str(path)], text=True).strip()
+
+
+def write_runtime_profile(path: Path, **changes: str) -> None:
+    profile = {"schema_version":"3", "requested_execution_mode":"PRODUCTION_REAL_MIGRATION",
+               "effective_execution_mode":"PRODUCTION_REAL_MIGRATION", "migration_safety_requested":"true",
+               "migration_safety_effective":"true", "migration_execution_requested":"true",
+               "migration_execution_effective":"true", "page_registration_requested":"true",
+               "page_registration_effective":"true", "page_registration_ttl_ms":"30000", "numa_nodes":"2",
+               "thread_migration_ready":"true", "page_migration_ready":"true", "phase7_ready":"true",
+               "production_real_migration_ready":"true", "activation_state":"ACTIVE",
+               "activation_reason":"active", "page_registration_provider_ready":"true",
+               "page_registration_socket":"/tmp/page-registration.sock",
+               "worker_evidence_socket":"/tmp/worker-evidence.sock"}
+    profile.update(changes)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RUNTIME_PROFILE_FIELDS)
+        writer.writeheader()
+        writer.writerow(profile)
 
 
 def write_run(root: Path, name: str, scenarios: tuple[str, ...], status: str = "MEASURED", repetitions: int = 1,
@@ -58,7 +84,7 @@ def write_run(root: Path, name: str, scenarios: tuple[str, ...], status: str = "
                 if scenario == "awavma":
                     profile = run / f"awavma/runtime/{repetition}/runtime_execution_profile.csv"
                     profile.parent.mkdir(parents=True, exist_ok=True)
-                    profile.write_text(f"controlled_workload_pattern,controlled_workload_threads,controlled_workload_memory_bytes,controlled_workload_duration_seconds\n{workload},2,{memory_mb * 1024 * 1024},{duration}\n", encoding="utf-8")
+                    write_runtime_profile(profile)
     return run
 
 
@@ -158,10 +184,19 @@ def main() -> int:
         text = (addressed / "benchmark_results.csv").read_text(encoding="utf-8")
         (addressed / "benchmark_results.csv").write_text(text.replace("scenario,repetition", "ip_address,scenario,repetition").replace("baseline-default,1", "192.0.2.1,baseline-default,1"), encoding="utf-8")
         assert invoke(addressed, root / "address-output").returncode != 0
-        mismatch = write_run(root, "workload-mismatch", ("baseline-default", "baseline-local", "baseline-remote", "awavma"))
-        profile = mismatch / "awavma/runtime/1/runtime_execution_profile.csv"
-        profile.write_text(profile.read_text().replace("mixed,2", "random,2"))
-        assert invoke(mismatch, root / "workload-mismatch-output").returncode != 0
+        malformed_profile = write_run(root, "malformed-profile", ("baseline-default", "baseline-local", "baseline-remote", "awavma"))
+        (malformed_profile / "awavma/runtime/1/runtime_execution_profile.csv").write_text("broken\n", encoding="utf-8")
+        assert invoke(malformed_profile, root / "malformed-profile-output").returncode != 0
+        missing_profile = write_run(root, "missing-profile", ("baseline-default", "baseline-local", "baseline-remote", "awavma"))
+        (missing_profile / "awavma/runtime/1/runtime_execution_profile.csv").unlink()
+        assert invoke(missing_profile, root / "missing-profile-output").returncode != 0
+        inactive_profile = write_run(root, "inactive-profile", ("baseline-default", "baseline-local", "baseline-remote", "awavma"))
+        write_runtime_profile(inactive_profile / "awavma/runtime/1/runtime_execution_profile.csv", activation_state="INACTIVE")
+        assert invoke(inactive_profile, root / "inactive-profile-output").returncode != 0
+        for field in ("migration_safety_effective", "migration_execution_effective", "page_registration_effective"):
+            ineffective_profile = write_run(root, f"ineffective-{field}", ("baseline-default", "baseline-local", "baseline-remote", "awavma"))
+            write_runtime_profile(ineffective_profile / "awavma/runtime/1/runtime_execution_profile.csv", **{field:"false"})
+            assert invoke(ineffective_profile, root / f"ineffective-{field}-output").returncode != 0
     print("cloudlab_phase4d_aggregation_test: PASS")
     return 0
 

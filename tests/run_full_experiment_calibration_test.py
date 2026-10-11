@@ -34,15 +34,13 @@ def make_root(base: Path) -> tuple[Path, dict[str, str]]:
     executable(root / "mock-bin/make", "#!/bin/sh\nexit 0\n")
     executable(root / "mock-bin/seq", "#!/bin/sh\nif [ \"$2\" = 5 ]; then printf '1\\n'; else /usr/bin/seq \"$@\"; fi\n")
     executable(root / "mock-bin/numactl", "#!/bin/sh\nprintf 'available: 2 nodes (0,2)\\nnode 0 cpus: 0\\nnode 0 size: 1024 MB\\nnode 0 free: 1000 MB\\nnode 2 cpus: 2\\nnode 2 size: 1024 MB\\nnode 2 free: 999 MB\\nnode distances:\\nnode   0   2\\n  0:  10  21\\n  2:  21  10\\n'\n")
-    executable(root / "bin/environment-check", "#!/bin/sh\nprintf 'ok\\n'\n")
+    executable(root / "bin/environment-check", "#!/bin/sh\nprintf 'production_real_migration_ready=true\\n'\n")
     executable(
         root / "bin/calibration-validate",
         "#!/bin/sh\ngrep -q '^VALID-CALIBRATION$' \"$1\" || exit 1\nprintf 'CALIBRATION_VALIDATED records=1\\n'\n",
     )
-    executable(
-        root / "scripts/verify_runtime_execution_profile.py",
-        "#!/usr/bin/env python3\nimport sys\nif '--emit-fields' in sys.argv:\n print('PRODUCTION_REAL_MIGRATION,PRODUCTION_REAL_MIGRATION,true,true,true,1000,2,true,true,true,true,ACTIVE,active,true')\nelif '--emit-field' in sys.argv:\n print('/tmp/page-registration.sock' if sys.argv[-1] == 'page_registration_socket' else '/tmp/worker-evidence.sock')\n",
-    )
+    shutil.copy2(ROOT / "scripts/verify_runtime_execution_profile.py", root / "scripts/verify_runtime_execution_profile.py")
+    (root / "scripts/verify_runtime_execution_profile.py").chmod(0o755)
     shutil.copy2(ROOT / "scripts/aggregate_experiment_results.py", root / "scripts/aggregate_experiment_results.py")
     (root / "scripts/aggregate_experiment_results.py").chmod(0o755)
     executable(root / "scripts/generate_multinuma_graphs.py", "#!/usr/bin/env python3\n")
@@ -84,9 +82,7 @@ signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 args = sys.argv[1:]
 runtime_root = pathlib.Path(args[args.index('--root-dir') + 1])
 runtime_root.mkdir(parents=True)
-pattern = args[args.index('--controlled-workload-pattern') + 1]
-if __import__('os').environ.get('FIXTURE_WORKLOAD_MISMATCH') == 'runtime': pattern = 'mixed' if pattern != 'mixed' else 'random'
-(runtime_root / 'runtime_execution_profile.csv').write_text(f'controlled_workload_pattern,controlled_workload_threads,controlled_workload_memory_bytes,controlled_workload_duration_seconds\\n{pattern},2,1073741824,30\\n')
+(runtime_root / 'runtime_execution_profile.csv').write_text('schema_version,requested_execution_mode,effective_execution_mode,migration_safety_requested,migration_safety_effective,migration_execution_requested,migration_execution_effective,page_registration_requested,page_registration_effective,page_registration_ttl_ms,numa_nodes,thread_migration_ready,page_migration_ready,phase7_ready,production_real_migration_ready,activation_state,activation_reason,page_registration_provider_ready,page_registration_socket,worker_evidence_socket\\n3,PRODUCTION_REAL_MIGRATION,PRODUCTION_REAL_MIGRATION,true,true,true,true,true,true,1000,2,true,true,true,true,ACTIVE,active,true,/tmp/page-registration.sock,/tmp/worker-evidence.sock\\n')
 (runtime_root.parents[2] / 'runtime-args.txt').write_text('\\n'.join(args) + '\\n')
 (runtime_root.parents[2] / 'target-pid.txt').write_text(args[args.index('--pid') + 1])
 time.sleep(.5)
@@ -203,12 +199,11 @@ def main() -> int:
             result = run(root, env, "--workload", invalid_workload, "--awavma-only", "--output-dir", str(base / "invalid-workload-output"))
             assert result.returncode == 2 and f"unsupported workload: {invalid_workload}" in result.stderr
 
-        for mismatch in ("benchmark", "runtime"):
+        for mismatch in ("benchmark",):
             root, env = make_root(base / f"mismatch-{mismatch}")
             env["FIXTURE_WORKLOAD_MISMATCH"] = mismatch
             result = run(root, env, "--awavma-only", "--reference-run", str(reference_run(base / f"mismatch-{mismatch}", "sequential")), "--skip-graphs", "--workload", "sequential", "--calibration", str(supplied), "--output-dir", str(base / f"mismatch-output-{mismatch}"))
-            expected = "workload/config differs across measurement, benchmark, and manifest" if mismatch == "benchmark" else "runtime controlled workload mismatch"
-            assert result.returncode != 0 and expected in result.stderr
+            assert result.returncode != 0 and "workload/config differs across measurement, benchmark, and manifest" in result.stderr
 
         root, env = make_root(base / "invalid")
         invalid = base / "invalid.csv"

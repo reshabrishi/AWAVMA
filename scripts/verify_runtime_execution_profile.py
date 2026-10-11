@@ -20,7 +20,8 @@ SOCKET_FIELDS = ("page_registration_socket", "worker_evidence_socket")
 def load_profile(path: Path) -> dict[str, str]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    if len(rows) != 1 or any(not rows[0].get(field, "") for field in PROFILE_FIELDS):
+    if (len(rows) != 1 or not rows[0].get("schema_version", "") or
+            any(not rows[0].get(field, "") for field in PROFILE_FIELDS)):
         raise ValueError("runtime execution profile is missing required fields")
     return rows[0]
 
@@ -45,8 +46,9 @@ def verify_profile(row: dict[str, str]) -> None:
     if mismatches:
         raise ValueError("runtime production profile is not active: " + " ".join(mismatches))
     try:
-        if int(row["numa_nodes"]) < 2 or int(row["page_registration_ttl_ms"]) <= 0:
-            raise ValueError("runtime production profile has invalid NUMA count or registration TTL")
+        if (int(row["schema_version"]) <= 0 or int(row["numa_nodes"]) < 2 or
+                int(row["page_registration_ttl_ms"]) <= 0):
+            raise ValueError("runtime production profile has invalid schema, NUMA count, or registration TTL")
     except ValueError as error:
         raise ValueError("runtime production profile has invalid numeric fields") from error
     if int(row.get("schema_version", "0")) >= 3 and any(not row.get(field) for field in SOCKET_FIELDS):

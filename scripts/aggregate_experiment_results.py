@@ -11,6 +11,7 @@ import re
 import ipaddress
 from pathlib import Path
 from numa_topology_fingerprint import TOPOLOGY_FINGERPRINT_VERSION, fingerprint_path
+from verify_runtime_execution_profile import load_profile, verify_profile
 
 SCENARIOS = ("baseline-default", "baseline-local", "baseline-remote", "awavma")
 METRICS = ("operations", "execution_time_seconds", "throughput_ops_per_second", "mean_wall_time_per_operation_seconds")
@@ -185,18 +186,10 @@ def load(run: Path, scenarios: set[str]) -> list[dict[str, str]]:
             profile_path = next((path for path in profiles if path.is_file()), None)
             if profile_path is None:
                 raise ValueError(f"{scenario}/{repetition}: runtime profile missing")
-            profiles_rows = read_csv(profile_path)
-            if len(profiles_rows) != 1:
-                raise ValueError(f"{scenario}/{repetition}: runtime profile must contain one row")
-            profile = profiles_rows[0]
-            runtime_actual = configuration("runtime profile", {
-                "workload": profile.get("controlled_workload_pattern"),
-                "threads": profile.get("controlled_workload_threads"),
-                "memory_bytes": profile.get("controlled_workload_memory_bytes"),
-                "duration_seconds": profile.get("controlled_workload_duration_seconds"),
-            }, "workload", "memory_bytes", "duration_seconds")
-            if runtime_actual != expected:
-                raise ValueError(f"{scenario}/{repetition}: runtime controlled workload mismatch")
+            try:
+                verify_profile(load_profile(profile_path))
+            except (OSError, csv.Error, RuntimeError, ValueError) as error:
+                raise ValueError(f"{scenario}/{repetition}: runtime profile is invalid: {error}") from error
         operations = finite(raw.get("operations", ""))
         execution = finite(raw.get("execution_time_sec", ""))
         throughput = finite(raw.get("throughput_ops_sec", ""))
