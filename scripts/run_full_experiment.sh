@@ -15,6 +15,7 @@ WORKLOAD=mixed
 LOCAL_NODE=
 REMOTE_NODE=
 CALIBRATION_FILE=
+CALIBRATION_BASENAME=
 REFERENCE_RUN=
 NUMA_BALANCING_PATH=${AWAVMA_NUMA_BALANCING_PATH:-/proc/sys/kernel/numa_balancing}
 NUMA_BALANCING_ORIGINAL=
@@ -178,6 +179,8 @@ fi
 if [[ "$MODE" == all || "$MODE" == awavma ]]; then
     [[ -n "$CALIBRATION_FILE" ]] || { printf '%s\n' '--calibration FILE is required for AWAVMA collection' >&2; exit 2; }
     [[ -f "$CALIBRATION_FILE" && -r "$CALIBRATION_FILE" ]] || { printf 'calibration must be a readable regular file\n' >&2; exit 2; }
+    CALIBRATION_BASENAME=$(basename -- "$CALIBRATION_FILE")
+    [[ "$CALIBRATION_BASENAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { printf 'calibration filename is unsafe\n' >&2; exit 2; }
 fi
 if [[ "$MODE" == awavma ]]; then
     [[ -n "$REFERENCE_RUN" ]] || { printf '%s\n' '--reference-run DIR is required for --awavma-only' >&2; exit 2; }
@@ -202,7 +205,7 @@ CALIBRATION_MANIFEST=
 CALIBRATION_MANIFEST_COPY=
 CALIBRATION_MANIFEST_SHA256=
 if [[ "$MODE" == all || "$MODE" == awavma ]]; then
-    CALIBRATION_COPY="$RUN_DIR/metadata/calibration.csv"
+    CALIBRATION_COPY="$RUN_DIR/metadata/$CALIBRATION_BASENAME"
     CALIBRATION_MANIFEST="$(dirname -- "$CALIBRATION_FILE")/manifest.json"
     [[ -f "$CALIBRATION_MANIFEST" && -r "$CALIBRATION_MANIFEST" ]] || { printf 'calibration production manifest must be readable beside calibration CSV\n' >&2; exit 2; }
     CALIBRATION_MANIFEST_COPY="$RUN_DIR/metadata/calibration-manifest.json"
@@ -216,7 +219,7 @@ if [[ "$MODE" == all || "$MODE" == awavma ]]; then
     cmp -s -- "$CALIBRATION_FILE" "$CALIBRATION_COPY" || { printf 'run-local calibration copy differs from source\n' >&2; exit 1; }
     cmp -s -- "$CALIBRATION_MANIFEST" "$CALIBRATION_MANIFEST_COPY" || { printf 'run-local calibration manifest differs from source\n' >&2; exit 1; }
     CALIBRATION_SHA256=$(sha256sum "$CALIBRATION_COPY" | awk '{print $1}')
-    printf '%s  %s\n' "$CALIBRATION_SHA256" 'calibration.csv' >"$RUN_DIR/metadata/calibration.sha256"
+    printf '%s  %s\n' "$CALIBRATION_SHA256" "$CALIBRATION_BASENAME" >"$RUN_DIR/metadata/calibration.sha256"
     CALIBRATION_MANIFEST_SHA256=$(sha256sum "$CALIBRATION_MANIFEST_COPY" | awk '{print $1}')
     printf '%s  %s\n' "$CALIBRATION_MANIFEST_SHA256" 'calibration-manifest.json' >"$RUN_DIR/metadata/calibration-manifest.sha256"
 fi
@@ -391,7 +394,7 @@ NUMA_BALANCING_RESTORED_VALUE=$NUMA_BALANCING_ORIGINAL
 NUMA_BALANCING_ORIGINAL=
 trap - EXIT
 cat >"$RUN_DIR/manifest.json" <<EOF
-{"schema_version":8,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"PASS","collection_mode":"$MODE","protocol_version":"phase4d-v1","workload":"$WORKLOAD","threads":$THREADS,"memory_bytes":$((MEMORY_MB * 1024 * 1024)),"duration_seconds":$DURATION_SECONDS,"local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"numa_distance":"$NUMA_DISTANCE","numa_balancing_original":"$NUMA_BALANCING_RESTORED_VALUE","numa_balancing_during":"0","numa_balancing_restore_status":"RESTORED","topology_source":"metadata/numa_topology.txt","topology_sha256":"$TOPOLOGY_SHA256","calibration_artifact":"$([[ -n "$CALIBRATION_COPY" ]] && printf metadata/calibration.csv)","calibration_sha256":"$CALIBRATION_SHA256","calibration_manifest":"$([[ -n "$CALIBRATION_MANIFEST_COPY" ]] && printf metadata/calibration-manifest.json)","calibration_manifest_sha256":"$CALIBRATION_MANIFEST_SHA256","runtime_execution_profile":"$([[ "$MODE" != baseline ]] && printf 'awavma/runtime/*/runtime_execution_profile.csv')","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
+{"schema_version":8,"run_id":"$EXPERIMENT_ID","data_source":"REAL","collection_status":"PASS","collection_mode":"$MODE","protocol_version":"phase4d-v1","workload":"$WORKLOAD","threads":$THREADS,"memory_bytes":$((MEMORY_MB * 1024 * 1024)),"duration_seconds":$DURATION_SECONDS,"local_node":$LOCAL_NODE,"remote_node":$REMOTE_NODE,"numa_distance":"$NUMA_DISTANCE","numa_balancing_original":"$NUMA_BALANCING_RESTORED_VALUE","numa_balancing_during":"0","numa_balancing_restore_status":"RESTORED","topology_source":"metadata/numa_topology.txt","topology_sha256":"$TOPOLOGY_SHA256","calibration_artifact":"$([[ -n "$CALIBRATION_COPY" ]] && printf 'metadata/%s' "$CALIBRATION_BASENAME")","calibration_sha256":"$CALIBRATION_SHA256","calibration_manifest":"$([[ -n "$CALIBRATION_MANIFEST_COPY" ]] && printf 'metadata/calibration-manifest.json')","calibration_manifest_sha256":"$CALIBRATION_MANIFEST_SHA256","runtime_execution_profile":"$([[ "$MODE" != baseline ]] && printf 'awavma/runtime/*/runtime_execution_profile.csv')","stage_order":"metadata,build,tests,environment-check,preflight,baseline,awavma,aggregate,graphs,manifests"}
 EOF
 python3 - "$STAGING" "$OUTPUT_DIR" <<'PY'
 import csv, os, sys

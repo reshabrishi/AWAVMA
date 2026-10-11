@@ -150,10 +150,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="awavma-runner-calibration-") as temporary:
         base = Path(temporary)
 
-        supplied = base / "supplied calibration.csv"
+        supplied = base / "numa_calibration.csv"
         supplied.write_text("VALID-CALIBRATION\n", encoding="utf-8")
         production_manifest = supplied.parent / "manifest.json"
-        production_manifest.write_text('{"status":"PRODUCTION_CALIBRATION","overall_valid":true,"run_id":"fixture"}\n', encoding="utf-8")
+        production_manifest.write_text('{"status":"PRODUCTION_CALIBRATION","overall_valid":true,"run_id":"fixture","calibration_artifact_basename":"numa_calibration.csv"}\n', encoding="utf-8")
         digest = hashlib.sha256(supplied.read_bytes()).hexdigest()
         for workload in WORKLOADS:
             root, env = make_root(base / f"valid-{workload}")
@@ -161,9 +161,12 @@ def main() -> int:
             result = run(root, env, "--awavma-only", "--reference-run", str(reference_run(base / f"valid-{workload}", workload)), "--skip-graphs", "--workload", workload, "--calibration", str(supplied), "--output-dir", str(output))
             assert result.returncode == 0, (workload, result.returncode, result.stdout, result.stderr)
             run_dir = only_run(output)
-            copied = run_dir / "metadata/calibration.csv"
+            copied = run_dir / "metadata/numa_calibration.csv"
             assert copied.read_bytes() == supplied.read_bytes()
-            assert (run_dir / "metadata/calibration.sha256").read_text().split()[0] == digest
+            assert (run_dir / "metadata/calibration.sha256").read_text().split() == [digest, "numa_calibration.csv"]
+            copied_authority = run_dir / "metadata/calibration-manifest.json"
+            assert copied_authority.read_bytes() == production_manifest.read_bytes()
+            assert json.loads(copied_authority.read_text())["calibration_artifact_basename"] == copied.name
             runtime_args = (run_dir / "runtime-args.txt").read_text().splitlines()
             assert runtime_args.count("--calibration-artifact") == 1
             assert runtime_args[runtime_args.index("--calibration-artifact") + 1] == str(copied)
@@ -180,7 +183,7 @@ def main() -> int:
             assert "--page-registration-required" in benchmark_args
             assert (run_dir / "target-pid.txt").read_text() == (run_dir / "benchmark-pid.txt").read_text()
             manifest = json.loads((run_dir / "manifest.json").read_text())
-            assert manifest["calibration_artifact"] == "metadata/calibration.csv"
+            assert manifest["calibration_artifact"] == "metadata/numa_calibration.csv"
             assert manifest["calibration_sha256"] == digest
             assert manifest["workload"] == workload
             assert manifest["calibration_manifest"] == "metadata/calibration-manifest.json"
@@ -216,6 +219,12 @@ def main() -> int:
         result = run(root, env, "--awavma-only", "--output-dir", str(base / "missing-output"))
         assert result.returncode != 0 and "--calibration FILE is required" in result.stderr
 
+        root, env = make_root(base / "unsafe-calibration-name")
+        unsafe = base / "unsafe calibration.csv"
+        unsafe.write_text("VALID-CALIBRATION\n", encoding="utf-8")
+        result = run(root, env, "--awavma-only", "--reference-run", str(reference_run(base / "unsafe-calibration-name")), "--calibration", str(unsafe), "--output-dir", str(base / "unsafe-calibration-output"))
+        assert result.returncode == 2 and "calibration filename is unsafe" in result.stderr
+
         root, env = make_root(base / "missing-full")
         result = run(root, env, "--output-dir", str(base / "missing-full-output"))
         assert result.returncode != 0 and "--calibration FILE is required" in result.stderr
@@ -227,7 +236,7 @@ def main() -> int:
         run_dir = only_run(output)
         invocations = [shlex.split(line) for line in (run_dir / "benchmark-invocations.txt").read_text().splitlines()]
         assert all("--calibration-artifact" not in args and "--production-real-migration" not in args for args in invocations)
-        assert not (run_dir / "metadata/calibration.csv").exists()
+        assert not (run_dir / "metadata/numa_calibration.csv").exists()
         assert not (run_dir / "runtime-args.txt").exists()
 
         root, _ = make_root(base / "placement-validation")
