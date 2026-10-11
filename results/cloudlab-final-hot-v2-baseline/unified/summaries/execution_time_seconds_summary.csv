@@ -1,0 +1,4 @@
+schema_version,experiment_id,metric,comparison_key,scenario,records,mean,median,sample_stdev,minimum,maximum,ci95_low,ci95_high,data_source,provenance
+6,phase4d-20261010T202506Z-20916,execution_time_seconds,hot|2|1024|30,baseline-default,5,30.0001046,30.000111,1.8849403173943824e-05,30.000084,30.000122,30.0000811991268,30.0001280008732,REAL,explicit-run-only
+6,phase4d-20261010T202506Z-20916,execution_time_seconds,hot|2|1024|30,baseline-local,5,30.0001058,30.000106,2.4386471660181746e-05,30.000071,30.000138,30.000075525050395,30.000136074949605,REAL,explicit-run-only
+6,phase4d-20261010T202506Z-20916,execution_time_seconds,hot|2|1024|30,baseline-remote,5,30.0001416,30.000139,2.7978563222784653e-05,30.00011,30.000171,30.000106865594656,30.000176334405342,REAL,explicit-run-only

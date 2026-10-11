@@ -1,0 +1,2 @@
+schema_version,app_id,pid,start_time_ticks,candidate_tid,latest_temporal_generation,streak_length,required_streak,status,available,qualified,reason
+1,APP_37352_9972130,37352,9972130,37369,27,0,3,INSUFFICIENT_EVIDENCE,true,false,latest_evidence_not_qualifying

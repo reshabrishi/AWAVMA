@@ -1,0 +1,2 @@
+attempt_id,app_id,pid,start_time_ticks,action,source_node,target_node,state,validation,recovery,execution_result,execution_ms,consecutive_failures,cooldown,quarantined,detail
+APP_37352_9972130-1,APP_37352_9972130,37352,9972130,1,1,0,COMMITTED,8,0,MIGRATION_SUCCESS,27,0,false,false,post-migration structural verification is acceptable

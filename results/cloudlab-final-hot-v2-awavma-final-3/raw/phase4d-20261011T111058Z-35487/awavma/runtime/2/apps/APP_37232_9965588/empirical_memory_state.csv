@@ -1,0 +1,2 @@
+schema_version,action,status,calibration_match,calibration_id,calibration_version,calibration_provenance,gain_pct,gain_available,cost_pct,cost_available,roi_pct,roi_available,decision_available,page_count
+1,NO_MIGRATION,EMPIRICAL_NOT_AUTHORIZED,CALIBRATION_WORKLOAD_MISMATCH,,,,0,false,0,false,0,false,false,0

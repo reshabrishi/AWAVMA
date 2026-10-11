@@ -1,0 +1,2 @@
+app_id,pid,start_time_ticks,generation,phase3_samples,phase5_committed_rows,registration_status,registration_generation,registered_bytes,registered_pages,candidate_pages_per_request,registration_last_status,registration_last_generation,registration_last_registered_bytes,registration_last_registered_pages,registration_last_candidate_pages_per_request,status,detail
+APP_37292_9968822,37292,9968822,27,246,246,NONE,0,0,0,0,ACCEPTED,9968822,1073741824,262144,4096,TARGET_GONE,identity no longer active

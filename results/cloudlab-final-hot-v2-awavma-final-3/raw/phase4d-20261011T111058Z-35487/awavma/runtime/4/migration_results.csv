@@ -1,0 +1,2 @@
+timestamp,migration_id,app_id,pid,expected_start_time_ticks,tid,entity_id,action,phase5_decision,phase6_validation,source_node,destination_node,destination_cpu,requested,attempted,successful,failed,execution_time_ms,verification_status,result,error_reason
+2026-10-11T11:14:08Z,empirical-37352-3,APP_37352_9972130,37352,9972130,37352,37369,MOVE_MEMORY,MOVE_MEMORY,APPROVED,1,0,0,4096,4096,4096,0,26.636063,VERIFIED,MIGRATION_SUCCESS,

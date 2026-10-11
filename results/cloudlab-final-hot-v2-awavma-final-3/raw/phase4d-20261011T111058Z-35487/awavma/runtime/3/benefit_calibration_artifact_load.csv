@@ -1,0 +1,2 @@
+schema_version,calibration_configured,calibration_loaded,calibration_record_count,calibration_validation_status,reason
+1,true,true,1,CALIBRATION_MATCHED,CALIBRATION_LOADED

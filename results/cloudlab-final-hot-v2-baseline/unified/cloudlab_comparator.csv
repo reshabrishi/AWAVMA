@@ -1,0 +1,1 @@
+schema_version,experiment_id,metric,comparison_key,comparison,baseline_scenario,baseline_mean,awavma_mean,absolute_change,percent_change,records_per_scenario,data_source,collection_status,comparable,provenance

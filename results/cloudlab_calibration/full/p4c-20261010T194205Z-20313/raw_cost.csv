@@ -1,0 +1,10 @@
+run_id,warmup,requested_pages,attempted_pages,migrated_pages,failed_pages,elapsed_ms,source_node,destination_node,distance,page_size,measurement_valid,failure_reason
+p4c-20261010T194205Z-20313-cost-true-1,true,4096,4096,4096,0,11.71269,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-true-2,true,4096,4096,4096,0,14.296327,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-1,false,4096,4096,4096,0,13.75081,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-2,false,4096,4096,4096,0,12.935105,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-3,false,4096,4096,4096,0,12.73869,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-4,false,4096,4096,4096,0,13.729961,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-5,false,4096,4096,4096,0,12.736818,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-6,false,4096,4096,4096,0,12.578124,1,0,21,4096,true,
+p4c-20261010T194205Z-20313-cost-false-7,false,4096,4096,4096,0,14.075497,1,0,21,4096,true,
