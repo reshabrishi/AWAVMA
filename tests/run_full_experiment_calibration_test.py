@@ -66,12 +66,15 @@ output = pathlib.Path(args[args.index('--output') + 1])
 pattern = args[args.index('--pattern') + 1]
 if __import__('os').environ.get('FIXTURE_WORKLOAD_MISMATCH') == 'benchmark': pattern = 'mixed' if pattern != 'mixed' else 'random'
 output.write_text(f'timestamp,pattern,threads,memory_mb,iterations,duration_sec,thread_node,memory_node,numa_nodes,operations,execution_time_sec,throughput_ops_sec\\n2026-01-01T00:00:00Z,{pattern},2,1024,0,30,0,2,2,300,30,10\\n')
+if '--page-registration-ack-file' in args and not __import__('os').environ.get('FIXTURE_REGISTRATION_FAILURE'):
+ pathlib.Path(args[args.index('--page-registration-ack-file') + 1]).write_text('1\\n')
 if '/awavma/' in str(path):
     other = pathlib.Path(str(path).replace('/awavma/placement-awavma-', '/baseline/placement-baseline-remote-'))
     other.parent.mkdir(parents=True, exist_ok=True)
     other.write_text(header + row)
 (path.parents[1] / 'benchmark-invocations.txt').open('a').write(' '.join(args) + '\\n')
 (path.parents[1] / 'benchmark-pid.txt').write_text(str(__import__('os').getpid()))
+if __import__('os').environ.get('FIXTURE_BENCHMARK_FAILURE_AFTER_ACK') or __import__('os').environ.get('FIXTURE_REGISTRATION_FAILURE'): sys.exit(1)
 """,
     )
     executable(
@@ -113,10 +116,10 @@ def only_run(output: Path) -> Path:
     return runs[0]
 
 
-def validate_placement(root: Path, artifact: Path, mode: str) -> subprocess.CompletedProcess[str]:
+def validate_placement(root: Path, artifact: Path, mode: str, policy: str = "strict") -> subprocess.CompletedProcess[str]:
     command = (
         f"source <(sed '/^validate_remote_equivalence()/,$d' {shlex.quote(str(root / 'scripts/run_full_experiment.sh'))}); "
-        f"validate_placement {shlex.quote(str(artifact))} {shlex.quote(mode)}"
+        f"validate_placement {shlex.quote(str(artifact))} {shlex.quote(mode)} {shlex.quote(policy)}"
     )
     return subprocess.run(["bash", "-c", command], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -178,6 +181,8 @@ def main() -> int:
             assert runtime_args[runtime_args.index("--controlled-workload-duration-seconds") + 1] == "30"
             assert {"--production-real-migration", "-S", "-M", "-R"} <= set(runtime_args)
             benchmark_args = shlex.split((run_dir / "benchmark-invocations.txt").read_text().splitlines()[0])
+            assert "--allow-final-placement-change" in benchmark_args
+            assert "--page-registration-ack-file" in benchmark_args
             assert benchmark_args[benchmark_args.index("--pattern") + 1] == workload
             assert benchmark_args[benchmark_args.index("--page-registration-socket") + 1] == "/tmp/page-registration.sock"
             assert benchmark_args[benchmark_args.index("--worker-evidence-socket") + 1] == "/tmp/worker-evidence.sock"
@@ -204,6 +209,19 @@ def main() -> int:
             env["FIXTURE_WORKLOAD_MISMATCH"] = mismatch
             result = run(root, env, "--awavma-only", "--reference-run", str(reference_run(base / f"mismatch-{mismatch}", "sequential")), "--skip-graphs", "--workload", "sequential", "--calibration", str(supplied), "--output-dir", str(base / f"mismatch-output-{mismatch}"))
             assert result.returncode != 0 and "workload/config differs across measurement, benchmark, and manifest" in result.stderr
+
+        for failure, expected_ack, expected_registration in (("benchmark", "true", "ACCEPTED"),
+                                                              ("registration", "false", "REGISTRATION_FAILED")):
+            root, env = make_root(base / f"{failure}-failure")
+            env["FIXTURE_BENCHMARK_FAILURE_AFTER_ACK" if failure == "benchmark" else "FIXTURE_REGISTRATION_FAILURE"] = "1"
+            output = base / f"{failure}-failure-output"
+            result = run(root, env, "--awavma-only", "--reference-run", str(reference_run(base / f"{failure}-failure")), "--skip-graphs", "--calibration", str(supplied), "--output-dir", str(output))
+            assert result.returncode != 0
+            with (only_run(output) / "measurements.csv").open(newline="", encoding="utf-8") as handle:
+                row = next(csv.DictReader(handle))
+            assert row["registration_acknowledged"] == expected_ack
+            assert row["registration_status"] == expected_registration
+            assert row["benchmark_status"] == "FAILED"
 
         root, env = make_root(base / "invalid")
         invalid = base / "invalid.csv"
@@ -260,6 +278,22 @@ def main() -> int:
         explicit_pass = base / "explicit-pass.csv"
         explicit_pass.write_text(header + "1,remote,0,2,2,21,10,10,10,0,10,0,0,1.0,2,PASS,fixture,true\n", encoding="utf-8")
         assert validate_placement(root, explicit_pass, "remote").returncode == 0
+        local_drift = base / "baseline-local-drift.csv"
+        local_drift.write_text(header + "1,local,0,2,0,21,10,10,6,6,4,0,0,0.6,0,PASS,drift,true\n", encoding="utf-8")
+        assert validate_placement(root, local_drift, "local", "strict").returncode != 0
+        remote_drift = base / "baseline-remote-drift.csv"
+        remote_drift.write_text(header + "1,remote,0,2,2,21,10,10,6,4,6,0,0,0.6,2,PASS,drift,true\n", encoding="utf-8")
+        assert validate_placement(root, remote_drift, "remote", "strict").returncode != 0
+        awavma_start = base / "awavma-start-remote.csv"
+        awavma_start.write_text(header + "1,remote,0,2,2,21,262144,262144,262144,0,262144,0,0,1.0,2,PASS,start-remote,true\n", encoding="utf-8")
+        assert validate_placement(root, awavma_start, "remote", "strict").returncode == 0
+        changed_final = base / "awavma-final-changed.csv"
+        changed_final.write_text(header + "1,remote,0,2,2,21,262144,262144,258048,4096,258048,0,0,0.984375,2,PASS,runtime-migration,true\n", encoding="utf-8")
+        assert validate_placement(root, changed_final, "remote", "runtime-migration").returncode == 0
+        assert validate_placement(root, changed_final, "remote", "strict").returncode != 0
+        invalid_final = base / "awavma-final-invalid.csv"
+        invalid_final.write_text(header + "1,remote,0,2,2,21,10,9,6,3,6,0,1,0.6,2,PASS,unknown-pages,true\n", encoding="utf-8")
+        assert validate_placement(root, invalid_final, "remote", "runtime-migration").returncode != 0
 
     print("run_full_experiment_calibration_test: PASS")
     return 0

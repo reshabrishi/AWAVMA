@@ -10,6 +10,11 @@ typedef enum {
     BENCHMARK_PLACEMENT_REMOTE
 } benchmark_placement_mode_t;
 
+typedef enum {
+    BENCHMARK_FINAL_PLACEMENT_STRICT,
+    BENCHMARK_FINAL_PLACEMENT_RUNTIME_MIGRATION
+} benchmark_final_placement_policy_t;
+
 typedef struct {
     int node;
     unsigned permitted_cpus;
@@ -50,9 +55,10 @@ int benchmark_placement_prepare(benchmark_placement_mode_t mode,
                                 const benchmark_placement_topology_t *topology,
                                 void *allocation, size_t bytes,
                                  benchmark_placement_evidence_t *evidence);
-/* Read-only end-of-run residency gate for controlled placement. */
+/* Strict by default; runtime migration still requires fully queryable final evidence. */
 int benchmark_placement_verify(const benchmark_placement_topology_t *topology, void *allocation,
-                               size_t bytes, benchmark_placement_evidence_t *evidence);
+                                size_t bytes, benchmark_final_placement_policy_t policy,
+                                benchmark_placement_evidence_t *evidence);
 int benchmark_placement_write(const char *path, const benchmark_placement_evidence_t *evidence);
 
 #endif

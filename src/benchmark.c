@@ -4,6 +4,7 @@
 #include "worker_evidence_provider.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <math.h>
 #include <numa.h>
@@ -113,12 +114,14 @@ static void print_usage(const char *program)
     printf("  -o, --output FILE            Append one result row to CSV FILE\n");
     printf("      --page-registration-socket PATH  Runtime-owned registration socket\n");
     printf("      --page-registration-required      Require accepted owned-page registration\n");
+    printf("      --page-registration-ack-file FILE Persist accepted registration acknowledgement\n");
     printf("      --page-registration-timeout-ms N  Bounded registration wait\n");
     printf("      --worker-evidence-socket PATH     Runtime-owned cooperative worker evidence socket\n");
     printf("      --worker-cpus LIST       Exact comma-separated CPU assignment for workers\n");
     printf("      --intensity-percent P      Controlled active percentage per 100 ms period (default: 100)\n");
     printf("      --placement-mode MODE      default, local, or remote\n");
     printf("      --placement-evidence FILE  Atomic placement evidence CSV\n");
+    printf("      --allow-final-placement-change  Permit final residency changes from runtime migration\n");
     printf("  -h, --help                   Show this help\n");
 }
 
@@ -205,11 +208,13 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         OPTION_PAGE_REGISTRATION_SOCKET,
         OPTION_PAGE_REGISTRATION_REQUIRED,
         OPTION_PAGE_REGISTRATION_TIMEOUT,
+        OPTION_PAGE_REGISTRATION_ACK_FILE,
         OPTION_PLACEMENT_MODE,
         OPTION_PLACEMENT_EVIDENCE,
         OPTION_WORKER_EVIDENCE_SOCKET,
         OPTION_INTENSITY_PERCENT,
-        OPTION_WORKER_CPUS
+        OPTION_WORKER_CPUS,
+        OPTION_ALLOW_FINAL_PLACEMENT_CHANGE
     };
     static const struct option options[] = {
         {"threads", required_argument, NULL, 't'},
@@ -229,11 +234,13 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
         {"page-registration-socket", required_argument, NULL, OPTION_PAGE_REGISTRATION_SOCKET},
         {"page-registration-required", no_argument, NULL, OPTION_PAGE_REGISTRATION_REQUIRED},
         {"page-registration-timeout-ms", required_argument, NULL, OPTION_PAGE_REGISTRATION_TIMEOUT},
+        {"page-registration-ack-file", required_argument, NULL, OPTION_PAGE_REGISTRATION_ACK_FILE},
         {"placement-mode", required_argument, NULL, OPTION_PLACEMENT_MODE},
         {"placement-evidence", required_argument, NULL, OPTION_PLACEMENT_EVIDENCE},
         {"worker-evidence-socket", required_argument, NULL, OPTION_WORKER_EVIDENCE_SOCKET},
         {"intensity-percent", required_argument, NULL, OPTION_INTENSITY_PERCENT},
         {"worker-cpus", required_argument, NULL, OPTION_WORKER_CPUS},
+        {"allow-final-placement-change", no_argument, NULL, OPTION_ALLOW_FINAL_PLACEMENT_CHANGE},
         {"help", no_argument, NULL, 'h'},
         {NULL, 0, NULL, 0}
     };
@@ -299,6 +306,9 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
                 goto invalid_argument;
             config->page_registration_timeout_ms = integer_value;
             break;
+        case OPTION_PAGE_REGISTRATION_ACK_FILE:
+            config->page_registration_ack_path = optarg;
+            break;
         case OPTION_PLACEMENT_MODE:
             if (strcmp(optarg, "default") == 0) config->placement_mode = BENCHMARK_PLACEMENT_DEFAULT;
             else if (strcmp(optarg, "local") == 0) config->placement_mode = BENCHMARK_PLACEMENT_LOCAL;
@@ -319,6 +329,9 @@ static int parse_options(int argc, char **argv, benchmark_config_t *config)
             break;
         case OPTION_WORKER_CPUS:
             config->worker_cpus = optarg;
+            break;
+        case OPTION_ALLOW_FINAL_PLACEMENT_CHANGE:
+            config->final_placement_policy = BENCHMARK_FINAL_PLACEMENT_RUNTIME_MIGRATION;
             break;
         case OPTION_HOT_PERCENT:
             if (parse_percent(optarg, &config->hot_percent) != 0)
@@ -393,6 +406,15 @@ static int register_owned_allocation(const benchmark_config_t *config, void *mem
         status = page_candidate_provider_send_wait(config->page_registration_socket, &message, slice, &reason,
                                                    &accepted_generation);
         if (status == PAGE_CANDIDATE_STATUS_ACCEPTED && accepted_generation != 0) {
+            if (config->page_registration_ack_path != NULL) {
+                int file = open(config->page_registration_ack_path,
+                                O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+                if (file < 0)
+                    return -1;
+                if (dprintf(file, "%llu\n", (unsigned long long)accepted_generation) < 0 ||
+                    close(file) != 0)
+                    return -1;
+            }
             if (registration_generation != NULL)
                 *registration_generation = accepted_generation;
             return 0;
@@ -966,8 +988,10 @@ int main(int argc, char **argv)
         .page_registration_socket = NULL,
         .page_registration_timeout_ms = 30000,
         .page_registration_required = false,
+        .page_registration_ack_path = NULL,
         .placement_mode = BENCHMARK_PLACEMENT_DEFAULT,
         .placement_evidence_path = NULL,
+        .final_placement_policy = BENCHMARK_FINAL_PLACEMENT_STRICT,
         .worker_evidence_socket = NULL,
         .worker_evidence_publish_ms = 100,
         .intensity_percent = 100,
@@ -1073,7 +1097,8 @@ int main(int argc, char **argv)
     if (allocate_memory(&config, memory_bytes, &memory) != 0)
         return EXIT_FAILURE;
     if ((config.page_registration_required && config.page_registration_socket == NULL) ||
-        (!config.page_registration_required && config.page_registration_socket != NULL)) {
+        (!config.page_registration_required &&
+         (config.page_registration_socket != NULL || config.page_registration_ack_path != NULL))) {
         fprintf(stderr, "Error: page registration socket and required mode must be used together.\n");
         goto cleanup;
     }
@@ -1178,7 +1203,8 @@ int main(int argc, char **argv)
         goto cleanup;
     }
     if (config.placement_mode != BENCHMARK_PLACEMENT_DEFAULT &&
-        (benchmark_placement_verify(&placement_topology, memory, memory_bytes, &placement_evidence) != 0 ||
+        (benchmark_placement_verify(&placement_topology, memory, memory_bytes,
+                                    config.final_placement_policy, &placement_evidence) != 0 ||
          benchmark_placement_write(config.placement_evidence_path, &placement_evidence) != 0)) {
         fprintf(stderr, "%s: %s\n", placement_evidence.verification_status,
                 placement_evidence.verification_reason);

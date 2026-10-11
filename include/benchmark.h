@@ -36,8 +36,10 @@ typedef struct {
     const char *page_registration_socket;
     uint64_t page_registration_timeout_ms;
     bool page_registration_required;
+    const char *page_registration_ack_path;
     benchmark_placement_mode_t placement_mode;
     const char *placement_evidence_path;
+    benchmark_final_placement_policy_t final_placement_policy;
     const char *worker_evidence_socket;
     uint64_t worker_evidence_publish_ms;
     unsigned intensity_percent;

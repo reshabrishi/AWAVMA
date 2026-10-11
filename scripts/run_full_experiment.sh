@@ -91,10 +91,10 @@ discover_nodes() {
     REMOTE_NODE=${NODES[1]}
 }
 validate_placement() {
-    local artifact=$1 mode=$2
-    python3 - "$artifact" "$mode" <<'PY'
+    local artifact=$1 mode=$2 final_policy=${3:-strict}
+    python3 - "$artifact" "$mode" "$final_policy" <<'PY'
 import csv, sys
-path, mode = sys.argv[1:]
+path, mode, final_policy = sys.argv[1:]
 with open(path, newline='', encoding='utf-8') as handle:
     rows = list(csv.DictReader(handle))
 if len(rows) != 1:
@@ -125,6 +125,21 @@ if mode == 'default':
         raise SystemExit('default placement was not observed or memory policy was not restored')
 elif row['verification_status'] != 'PASS' or row['memory_policy_restored'] != 'true':
     raise SystemExit('placement was not verified and memory policy was not restored')
+if mode != 'default':
+    structural = ('total_pages', 'queryable_pages', 'expected_node_pages', 'local_pages',
+                  'remote_pages', 'other_pages', 'unknown_pages')
+    if any(not row.get(field, '') for field in structural):
+        raise SystemExit('controlled placement artifact is malformed')
+    try:
+        total, queryable, expected, local, remote, other, unknown = (int(row[field]) for field in structural)
+    except ValueError:
+        raise SystemExit('controlled placement artifact has invalid page accounting')
+    if total <= 0 or min(queryable, expected, local, remote, other, unknown) < 0 or queryable != total or local + remote + other != queryable or unknown != 0:
+        raise SystemExit('controlled placement artifact has invalid page accounting')
+    if final_policy == 'strict' and (expected != total or other != 0):
+        raise SystemExit('controlled placement differs from requested node')
+    if final_policy not in ('strict', 'runtime-migration'):
+        raise SystemExit('unknown final placement policy')
 print(','.join(row.get(field, '') for field in ('placement_mode', 'local_node', 'requested_memory_node', 'numa_distance', 'total_pages', 'queryable_pages', 'local_pages', 'remote_pages', 'other_pages', 'unknown_pages', 'expected_node_ratio', 'verification_status', 'memory_policy_restored')))
 PY
 }
@@ -252,6 +267,7 @@ run_one() {
     if [[ "$scenario" == awavma ]]; then
         local runtime_root="$RUN_DIR/awavma/runtime/$repetition"
         local profile_path="$runtime_root/runtime_execution_profile.csv"
+        local registration_ack_path="$RUN_DIR/awavma/registration-awavma-$repetition.ack"
         [[ ! -e "$runtime_root" ]] || {
             printf 'runtime root already exists: %s\n' "$runtime_root" >&2
             return 1
@@ -270,7 +286,7 @@ run_one() {
                    "$ROOT/scripts/verify_runtime_execution_profile.py" --profile "$profile_path" >/dev/null 2>>"$directory/logs/$scenario-$repetition.runtime.log" &&
                    registration_socket=$("$ROOT/scripts/verify_runtime_execution_profile.py" --profile "$profile_path" --emit-field page_registration_socket 2>>"$directory/logs/$scenario-$repetition.runtime.log") &&
                    worker_evidence_socket=$("$ROOT/scripts/verify_runtime_execution_profile.py" --profile "$profile_path" --emit-field worker_evidence_socket 2>>"$directory/logs/$scenario-$repetition.runtime.log"); then
-                    exec "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" --placement-mode "$placement_mode" --placement-evidence "$placement_path" --output "$directory/benchmark-$scenario-$repetition.csv" --page-registration-required --page-registration-socket "$registration_socket" --page-registration-timeout-ms 30000 --worker-evidence-socket "$worker_evidence_socket"
+                     exec "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" --placement-mode "$placement_mode" --placement-evidence "$placement_path" --allow-final-placement-change --output "$directory/benchmark-$scenario-$repetition.csv" --page-registration-required --page-registration-socket "$registration_socket" --page-registration-ack-file "$registration_ack_path" --page-registration-timeout-ms 30000 --worker-evidence-socket "$worker_evidence_socket"
                 fi
                 sleep 0.1
             done
@@ -301,17 +317,17 @@ run_one() {
             IFS=, read -r requested_mode effective_mode migration_safety migration_execution page_registration registration_ttl numa_nodes thread_ready page_ready phase7_ready production_ready activation_state activation_reason provider_ready <<<"$profile_fields"
             cp "$profile_path" "$RUN_DIR/metadata/awavma-runtime-profile-$repetition.csv"
             wait "$benchmark_pid" || code=$?
-            [[ "$code" == 0 ]] && benchmark_status=PASS
-            if [[ "$code" == 0 ]]; then
+            [[ "$code" == 0 ]] && benchmark_status=PASS || benchmark_status=FAILED
+            if [[ -s "$registration_ack_path" ]]; then
                 registration_acknowledged=true
                 registration_status=ACCEPTED
             else
-                registration_status=BENCHMARK_REGISTRATION_FAILED
+                registration_status=REGISTRATION_FAILED
             fi
-            if [[ "$code" == 0 ]] && ! placement_fields=$(validate_placement "$placement_path.start" "$placement_mode"); then
+            if [[ "$code" == 0 ]] && ! placement_fields=$(validate_placement "$placement_path.start" "$placement_mode" strict); then
                 code=1
             fi
-            if [[ "$code" == 0 ]] && ! final_placement_fields=$(validate_placement "$placement_path" "$placement_mode"); then code=1; fi
+            if [[ "$code" == 0 ]] && ! final_placement_fields=$(validate_placement "$placement_path" "$placement_mode" runtime-migration); then code=1; fi
             local remote_initial="$RUN_DIR/baseline/placement-baseline-remote-$repetition.start.csv"
             [[ "$MODE" == awavma ]] && remote_initial="$REFERENCE_RUN/baseline/placement-baseline-remote-$repetition.start.csv"
             if [[ "$code" == 0 ]] && ! validate_remote_equivalence "$remote_initial" "$placement_path.start"; then
@@ -345,10 +361,10 @@ PY
     else
         "$ROOT/bin/benchmark" --threads "$THREADS" --memory "$MEMORY_MB" --duration "$DURATION_SECONDS" --pattern "$WORKLOAD" --placement-mode "$placement_mode" --placement-evidence "$placement_path" --output "$directory/benchmark-$scenario-$repetition.csv" >"$directory/logs/$scenario-$repetition.benchmark.log" 2>&1 || code=$?
         [[ "$code" == 0 ]] && benchmark_status=PASS
-        if [[ "$code" == 0 ]] && ! placement_fields=$(validate_placement "$placement_path.start" "$placement_mode"); then
+        if [[ "$code" == 0 ]] && ! placement_fields=$(validate_placement "$placement_path.start" "$placement_mode" strict); then
             code=1
         fi
-        if [[ "$code" == 0 ]] && ! final_placement_fields=$(validate_placement "$placement_path" "$placement_mode"); then code=1; fi
+        if [[ "$code" == 0 ]] && ! final_placement_fields=$(validate_placement "$placement_path" "$placement_mode" strict); then code=1; fi
     fi
     end=$(date +%s%N)
     elapsed=$(printf '%d.%09d' $(((end - start) / 1000000000)) $(((end - start) % 1000000000)))
